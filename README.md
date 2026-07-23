@@ -185,7 +185,7 @@ Cluster / kubeconfig failures print short actionable hints (missing config, bad 
 |------|-------------|
 | `--approve` | Apply without interactive confirmation |
 | `--approve-each-context` | Apply a mutating plan to every `--contexts` entry (explicit; not implied by `--approve`) |
-| `--wait` | After apply, wait for Deployment rollout |
+| `--wait` | After apply, wait for Deployment rollout, then verify |
 | `--timeout` | Timeout for `--wait` (default `5m`) |
 | `--output` / `-o` | `text` (default) or `json` (CI PlanResult) |
 | `--provider` | `openai`, `anthropic`, `gemini`, `groq`, `mistral`, `deepseek`, `openrouter`, `together`, `ollama`, `openai-compatible` |

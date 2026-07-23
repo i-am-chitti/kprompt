@@ -20,15 +20,17 @@ var Disable bool
 
 // Entry is one append-only history record (no secrets, no manifests).
 type Entry struct {
-	Time      time.Time `json:"time"`
-	Prompt    string    `json:"prompt"`
-	Kind      string    `json:"kind"`
-	Summary   string    `json:"summary"`
-	Namespace string    `json:"namespace,omitempty"`
-	Context   string    `json:"context,omitempty"`
-	Risk      string    `json:"risk,omitempty"`
-	Applied   bool      `json:"applied"`
-	Actions   []string  `json:"actions,omitempty"`
+	Time          time.Time `json:"time"`
+	Prompt        string    `json:"prompt"`
+	Kind          string    `json:"kind"`
+	Summary       string    `json:"summary"`
+	Namespace     string    `json:"namespace,omitempty"`
+	Context       string    `json:"context,omitempty"`
+	Risk          string    `json:"risk,omitempty"`
+	Applied       bool      `json:"applied"`
+	Actions       []string  `json:"actions,omitempty"`
+	VerifyStatus  string    `json:"verify_status,omitempty"`
+	VerifyMessage string    `json:"verify_message,omitempty"`
 }
 
 // DefaultPath returns ~/.kprompt/history.jsonl.
@@ -214,6 +216,9 @@ func FormatList(entries []Entry) string {
 		applied := "plan"
 		if e.Applied {
 			applied = "applied"
+		}
+		if e.VerifyStatus != "" && e.VerifyStatus != "skipped" {
+			applied += "/" + e.VerifyStatus
 		}
 		ts := e.Time.Local().Format("2006-01-02 15:04")
 		fmt.Fprintf(&b, "%2d. [%s] %s  %s\n", i+1, ts, e.Kind, applied)

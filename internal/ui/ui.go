@@ -23,6 +23,7 @@ import (
 	toolotel "github.com/kprompt/kprompt/internal/tools/otel"
 	toolprometheus "github.com/kprompt/kprompt/internal/tools/prometheus"
 	"github.com/kprompt/kprompt/internal/tools/tekton"
+	"github.com/kprompt/kprompt/internal/verify"
 )
 
 // PrintDenied writes a hard-deny message.
@@ -727,6 +728,32 @@ func formatPerformanceValue(value float64, unit string) string {
 func PrintApplied(w io.Writer, plan planner.ExecutionPlan) {
 	t := themeFor(w)
 	fmt.Fprintf(w, "%s %s\n", t.Success("✓ Applied:"), plan.Summary)
+}
+
+// PrintVerify prints the post-apply verify outcome (T-070).
+func PrintVerify(w io.Writer, rep verify.Report) {
+	if rep.Status == "" || rep.Status == verify.Skipped {
+		return
+	}
+	t := themeFor(w)
+	switch rep.Status {
+	case verify.OK:
+		fmt.Fprintf(w, "%s %s\n", t.Success("✓ Verify:"), rep.Message)
+	case verify.Pending:
+		fmt.Fprintf(w, "%s %s\n", t.Muted("… Verify:"), rep.Message)
+	default:
+		fmt.Fprintf(w, "%s %s\n", t.Danger("✗ Verify:"), rep.Message)
+	}
+	for _, c := range rep.Checks {
+		line := fmt.Sprintf("  - %s %s/%s", c.Status, c.Kind, c.Name)
+		if c.Namespace != "" {
+			line += " -n " + c.Namespace
+		}
+		if c.Detail != "" {
+			line += " (" + c.Detail + ")"
+		}
+		fmt.Fprintln(w, line)
+	}
 }
 
 // PrintQueryResult prints a read-only list/get table.

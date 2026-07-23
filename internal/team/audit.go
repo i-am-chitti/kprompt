@@ -11,10 +11,12 @@ type AuditEventInput struct {
 	Prompt         string  `json:"prompt"`
 	PlanSummary    string  `json:"plan_summary"`
 	Risk           string  `json:"risk"`
-	Decision       string  `json:"decision"` // planned|approved|denied|applied
+	Decision       string  `json:"decision"` // planned|approved|denied|applied|verify_failed
 	ClusterContext string  `json:"cluster_context"`
 	Namespace      string  `json:"namespace"`
 	PlanResultRef  *string `json:"plan_result_ref,omitempty"`
+	VerifyStatus   string  `json:"verify_status,omitempty"`
+	VerifyMessage  string  `json:"verify_message,omitempty"`
 }
 
 // AppendAudit POSTs one audit event for the authenticated org.

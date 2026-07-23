@@ -71,20 +71,30 @@ func timeoutErr(name string, timeout time.Duration, dep *appsv1.Deployment) erro
 		return fmt.Errorf("timed out waiting for Deployment/%s after %s", name, timeout)
 	}
 	return fmt.Errorf("timed out waiting for Deployment/%s after %s (updated=%d available=%d desired=%d)",
-		name, timeout, dep.Status.UpdatedReplicas, dep.Status.AvailableReplicas, desiredReplicas(dep))
+		name, timeout, dep.Status.UpdatedReplicas, dep.Status.AvailableReplicas, DesiredReplicas(dep))
 }
 
-func deploymentComplete(dep *appsv1.Deployment) bool {
-	desired := desiredReplicas(dep)
+// DeploymentRolledOut reports whether a Deployment has finished rolling out.
+func DeploymentRolledOut(dep *appsv1.Deployment) bool {
+	desired := DesiredReplicas(dep)
 	return dep.Status.UpdatedReplicas == desired &&
 		dep.Status.Replicas == desired &&
 		dep.Status.AvailableReplicas == desired &&
 		dep.Status.ObservedGeneration >= dep.Generation
 }
 
-func desiredReplicas(dep *appsv1.Deployment) int32 {
+// DesiredReplicas returns the Deployment's desired replica count.
+func DesiredReplicas(dep *appsv1.Deployment) int32 {
 	if dep.Spec.Replicas != nil {
 		return *dep.Spec.Replicas
 	}
 	return 1
+}
+
+func deploymentComplete(dep *appsv1.Deployment) bool {
+	return DeploymentRolledOut(dep)
+}
+
+func desiredReplicas(dep *appsv1.Deployment) int32 {
+	return DesiredReplicas(dep)
 }

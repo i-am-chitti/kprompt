@@ -18,6 +18,7 @@ import (
 	toolotel "github.com/kprompt/kprompt/internal/tools/otel"
 	toolprometheus "github.com/kprompt/kprompt/internal/tools/prometheus"
 	"github.com/kprompt/kprompt/internal/tools/tekton"
+	"github.com/kprompt/kprompt/internal/verify"
 )
 
 const (
@@ -38,8 +39,9 @@ type PlanResult struct {
 	Plan           PlanPayload          `json:"plan"`
 	Risk           RiskPayload          `json:"risk"`
 	Applied        bool                 `json:"applied"`
-	BlastRadius    *planner.BlastRadius `json:"blastRadius,omitempty"`
-	Result         json.RawMessage      `json:"result,omitempty"`
+	BlastRadius    *planner.BlastRadius  `json:"blastRadius,omitempty"`
+	Verify         *verify.Report        `json:"verify,omitempty"`
+	Result         json.RawMessage       `json:"result,omitempty"`
 }
 
 // RouteResult is a stable CI-facing sequence of per-step plan results.
@@ -155,6 +157,13 @@ func actionBackend(action planner.Action) string {
 		return action.Backend
 	}
 	return "kubernetes"
+}
+
+// WithVerify attaches a post-apply verify report (T-070).
+func (r PlanResult) WithVerify(rep verify.Report) PlanResult {
+	cp := rep
+	r.Verify = &cp
+	return r
 }
 
 // WithQueryResult attaches a tabular get/list payload.

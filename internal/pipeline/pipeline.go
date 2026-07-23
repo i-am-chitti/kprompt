@@ -34,6 +34,7 @@ import (
 	toolotel "github.com/kprompt/kprompt/internal/tools/otel"
 	toolprometheus "github.com/kprompt/kprompt/internal/tools/prometheus"
 	"github.com/kprompt/kprompt/internal/ui"
+	"github.com/kprompt/kprompt/internal/verify"
 )
 
 // ConfirmFunc asks the user whether to apply a mutating plan.
@@ -255,14 +256,34 @@ func RunWith(ctx context.Context, cfg config.Resolved, out io.Writer, deps Deps)
 
 	applied := false
 	decision := "planned"
+	var verifyRep *verify.Report
 	defer func() {
-		_ = history.Append(history.FromPlan(cfg.Prompt, cfg.Context, plan, risk, applied))
+		entry := history.FromPlan(cfg.Prompt, cfg.Context, plan, risk, applied)
+		if verifyRep != nil {
+			entry.VerifyStatus = verifyRep.Status
+			entry.VerifyMessage = verifyRep.Message
+		}
+		_ = history.Append(entry)
 		_ = history.Truncate()
 		doc.Applied = applied
+		if verifyRep != nil {
+			doc = doc.WithVerify(*verifyRep)
+		}
 		if decision == "planned" && applied && plan.RequiresApproval {
 			decision = "applied"
 		}
-		team.PushAuditBestEffort(ctx, auditFromPlan(cfg, plan, risk, decision))
+		if verifyRep != nil && verifyRep.Status == verify.Failed {
+			decision = "verify_failed"
+		}
+		audit := auditFromPlan(cfg, plan, risk, decision)
+		if verifyRep != nil {
+			audit.VerifyStatus = verifyRep.Status
+			audit.VerifyMessage = verifyRep.Message
+			if verifyRep.Status != "" && verifyRep.Status != verify.Skipped {
+				audit.PlanSummary = fmt.Sprintf("%s [verify:%s]", audit.PlanSummary, verifyRep.Status)
+			}
+		}
+		team.PushAuditBestEffort(ctx, audit)
 		if deps.OnResult != nil {
 			deps.OnResult(doc)
 		}
@@ -451,6 +472,11 @@ func RunWith(ctx context.Context, cfg config.Resolved, out io.Writer, deps Deps)
 				return cluster.Friendlier(fmt.Errorf("apply optimize suggestion: %w", err))
 			}
 			ui.PrintApplied(out, fix)
+			rep := verify.Plan(ctx, client, fix)
+			ui.PrintVerify(out, rep)
+			if rep.Status == verify.Failed {
+				return fmt.Errorf("verify failed: %s", rep.Message)
+			}
 			applied = true
 			return nil
 		case intent.KindGraph:
@@ -784,8 +810,32 @@ func RunWith(ctx context.Context, cfg config.Resolved, out io.Writer, deps Deps)
 		waiter := &cluster.Waiter{Client: client, Out: human}
 		for _, t := range targets {
 			if err := waiter.WaitDeployment(ctx, t.Namespace, t.Name, timeout); err != nil {
+				rep := verify.Report{
+					Status:  verify.Failed,
+					Message: err.Error(),
+				}
+				verifyRep = &rep
+				if !jsonMode {
+					ui.PrintVerify(human, rep)
+				}
 				return cluster.Friendlier(err)
 			}
+		}
+	}
+
+	if client != nil {
+		rep := verify.Plan(ctx, client, plan)
+		// After --wait, pending should not happen; treat as failure for clarity.
+		if cfg.Wait && rep.Status == verify.Pending {
+			rep.Status = verify.Failed
+			rep.Message = "still pending after --wait: " + rep.Message
+		}
+		verifyRep = &rep
+		if !jsonMode {
+			ui.PrintVerify(human, rep)
+		}
+		if rep.Status == verify.Failed {
+			return fmt.Errorf("verify failed: %s", rep.Message)
 		}
 	}
 	return nil
