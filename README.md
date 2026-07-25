@@ -35,6 +35,8 @@ kprompt agent run -n payments --health --heuristic   # Observe agent (local)
 
 In-cluster Observe agent (Helm): [docs/agent.md](./docs/agent.md) · [`charts/kprompt-agent`](./charts/kprompt-agent).
 
+Want a cluster to try it against? [kprompt-examples](https://github.com/kprompt/kprompt-examples) spins up kind with deliberately broken workloads — `make up && make break SCENARIO=01-crashloop`.
+
 Generic get/list works for discoverable built-ins and CRDs (Node, ConfigMap, Secret, …). See [docs/kubernetes-reads.md](./docs/kubernetes-reads.md).
 
 ## Why kprompt

@@ -36,6 +36,15 @@ kprompt agent run -n payments --analyze --fetch-logs --health --heuristic
 kprompt agent run -n payments --slack --fetch-logs   # needs Slack env
 ```
 
+Need a namespace that actually misbehaves? [kprompt-examples](https://github.com/kprompt/kprompt-examples) provisions a kind cluster plus seven failure scenarios (crashloop, image pull, OOM, stalled rollout, unbound PVC, failing CronJob, missing dependency), each documenting what the agent is expected to conclude:
+
+```bash
+git clone https://github.com/kprompt/kprompt-examples.git && cd kprompt-examples
+make up
+make break SCENARIO=01-crashloop
+kprompt agent run -n payments --analyze --health --heuristic
+```
+
 ## Helm install (AG-012)
 
 Preferred in-cluster path: [`charts/kprompt-agent`](../charts/kprompt-agent).
