@@ -20,6 +20,7 @@ import (
 	agentlogs "github.com/kprompt/kprompt/internal/agent/logs"
 	agentslack "github.com/kprompt/kprompt/internal/agent/notify/slack"
 	agentwebhook "github.com/kprompt/kprompt/internal/agent/notify/webhook"
+	"github.com/kprompt/kprompt/internal/agent/operator"
 	agentwatch "github.com/kprompt/kprompt/internal/agent/watch"
 	"github.com/kprompt/kprompt/internal/cluster"
 	"github.com/kprompt/kprompt/internal/config"
@@ -29,10 +30,71 @@ import (
 func newAgentCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "agent",
-		Short: "In-cluster / local Observe agent (read-only)",
-		Long:  "Namespace-scoped watch helpers for kprompt Observe Mode. Never mutates the cluster.",
+		Short: "Observe agent and operator (AG-003 · AG-014)",
+		Long:  "Namespace-scoped Observe Mode (`agent run`) and optional Operator that reconciles KpromptAgent CRs into agent Deployments. Observe agents never mutate workloads; the operator only manages agent lifecycle objects.",
 	}
 	cmd.AddCommand(newAgentRunCmd())
+	cmd.AddCommand(newAgentOperatorCmd())
+	return cmd
+}
+
+func newAgentOperatorCmd() *cobra.Command {
+	var (
+		kubeCtx   string
+		inCluster bool
+		ns        string
+		once      bool
+		image     string
+	)
+	cmd := &cobra.Command{
+		Use:   "operator",
+		Short: "Reconcile KpromptAgent CRs into Observe agent Deployments (AG-014)",
+		Long: `Watch KpromptAgent custom resources and ensure ServiceAccount, Role,
+RoleBinding, and Deployment exist for Observe Mode.
+
+Never enables Autopilot. Rejects non-Observe modes. V1 requires the CR
+namespace to equal the watch namespace (spec.namespace empty or same).`,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			var clients *cluster.Clients
+			var err error
+			if inCluster {
+				clients, err = cluster.ConnectInCluster()
+			} else {
+				clients, err = cluster.Connect(kubeCtx)
+			}
+			if err != nil {
+				return err
+			}
+			dyn, err := cluster.DynamicForConfig(clients.Config)
+			if err != nil {
+				return err
+			}
+			rec := &operator.Reconciler{
+				Kube:    clients.Clientset,
+				Dynamic: dyn,
+				Options: operator.Options{DefaultImage: strings.TrimSpace(image)},
+			}
+			ctrl := &operator.Controller{
+				Reconciler: rec,
+				Namespace:  strings.TrimSpace(ns),
+			}
+			fmt.Fprintf(cmd.ErrOrStderr(), "kprompt agent operator watching KpromptAgent (ns=%q)…\n", ns)
+			if once {
+				return ctrl.ReconcileAll(cmd.Context())
+			}
+			runCtx, stop := signal.NotifyContext(cmd.Context(), os.Interrupt, syscall.SIGTERM)
+			defer stop()
+			if err := ctrl.ReconcileAll(runCtx); err != nil {
+				fmt.Fprintf(cmd.ErrOrStderr(), "initial reconcile: %v\n", err)
+			}
+			return ctrl.Run(runCtx)
+		},
+	}
+	cmd.Flags().StringVar(&kubeCtx, "context", "", "kubeconfig context (ignored with --in-cluster)")
+	cmd.Flags().BoolVar(&inCluster, "in-cluster", false, "use InClusterConfig (ServiceAccount)")
+	cmd.Flags().StringVarP(&ns, "namespace", "n", "", "limit to one namespace (empty = all)")
+	cmd.Flags().BoolVar(&once, "once", false, "reconcile current CRs once and exit")
+	cmd.Flags().StringVar(&image, "default-image", "", "default agent image repo:tag (default ghcr.io/kprompt/kprompt:latest)")
 	return cmd
 }
 

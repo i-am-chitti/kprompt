@@ -88,7 +88,33 @@ kubectl get kpromptagents -n payments
 kubectl get kpa demo -n payments -o yaml   # status.healthScore / status.lastAlert
 ```
 
-Full Deployment lifecycle for the CR is **AG-014 Operator** (deferred). Autopilot remains **AG-017** (new ADR required).
+Full Deployment lifecycle for the CR is **AG-014 Operator**.
+
+## Operator (AG-014)
+
+Optional controller that watches `KpromptAgent` CRs and creates the Observe agent ServiceAccount, Role, RoleBinding, and Deployment.
+
+```bash
+# Laptop
+kprompt agent operator --once -n payments
+kprompt agent operator --in-cluster   # in-cluster via Helm chart
+
+# Helm
+kubectl apply -f deploy/crd/kprompt.ai_kpromptagents.yaml
+helm upgrade --install kprompt-operator ./charts/kprompt-operator \
+  -n kprompt-system --create-namespace \
+  --set image.tag=dev \
+  --set defaultAgentImage=ghcr.io/kprompt/kprompt:dev
+kubectl apply -f config/samples/kpromptagent.yaml
+```
+
+Constraints (V1):
+
+- Mode must be **Observe** (Autopilot rejected)
+- `spec.namespace` empty or equal to the CR namespace (no cross-namespace)
+- Operator uses a **ClusterRole** to manage agent objects; prefer the manual `kprompt-agent` chart if you want Role-only installs
+
+Chart: [`charts/kprompt-operator`](../charts/kprompt-operator).
 
 ### Secret keys
 
@@ -138,4 +164,4 @@ Secrets are never watched implicitly and only metadata (type + key count) is emi
 | `--health` | AG-011 score |
 | `--agent-cr` | AG-013 status sync |
 
-**Not shipped:** Autopilot mutate · Operator lifecycle (AG-014) · pattern learning (AG-015/016).
+**Not shipped:** Autopilot mutate · pattern learning (AG-015/016). Autopilot needs **AG-017** (new ADR).

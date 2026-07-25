@@ -1,0 +1,39 @@
+# Operator watches KpromptAgent CRs and creates Observe agent Deployments.
+# Autopilot is never enabled (ADR-0013).
+
+image:
+  repository: ghcr.io/kprompt/kprompt
+  tag: ""
+  pullPolicy: IfNotPresent
+
+imagePullSecrets: []
+nameOverride: ""
+fullnameOverride: ""
+
+# Empty → watch all namespaces. Set to limit the operator.
+watchNamespace: ""
+
+# Default image for reconciled agent pods (overridable per CR via spec.image).
+defaultAgentImage: "ghcr.io/kprompt/kprompt:latest"
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+rbac:
+  create: true
+
+replicaCount: 1
+
+resources:
+  requests:
+    cpu: 20m
+    memory: 64Mi
+  limits:
+    cpu: 200m
+    memory: 256Mi
+
+nodeSelector: {}
+tolerations: []
+affinity: {}
