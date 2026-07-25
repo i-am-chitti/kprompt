@@ -17,6 +17,7 @@ import (
 	"github.com/kprompt/kprompt/internal/agent/ctxbuild"
 	agentlogs "github.com/kprompt/kprompt/internal/agent/logs"
 	agentslack "github.com/kprompt/kprompt/internal/agent/notify/slack"
+	agentwebhook "github.com/kprompt/kprompt/internal/agent/notify/webhook"
 	agentwatch "github.com/kprompt/kprompt/internal/agent/watch"
 	"github.com/kprompt/kprompt/internal/cluster"
 	"github.com/kprompt/kprompt/internal/config"
@@ -46,6 +47,8 @@ func newAgentRunCmd() *cobra.Command {
 		doAnalyze     bool
 		heuristic     bool
 		notifySlack   bool
+		notifyWebhook bool
+		webhookURL    string
 		providerName  string
 		modelName     string
 		minSeverity   string
@@ -63,16 +66,20 @@ Pipeline flags (read-only — never mutate):
   --build-context  assemble AgentContext (AG-007)
   --analyze        LLM/heuristic → gated AgentAlert (AG-008)
   --slack          post gated alerts to Slack threads (AG-009)
+  --webhook        POST gated AgentAlert JSON to a URL (AG-010)
 
 Slack credentials from env / mounted Secret:
   KPROMPT_SLACK_BOT_TOKEN + KPROMPT_SLACK_CHANNEL  (preferred, threaded)
-  KPROMPT_SLACK_WEBHOOK_URL                        (fallback)`,
+  KPROMPT_SLACK_WEBHOOK_URL                        (fallback)
+
+Generic webhook:
+  KPROMPT_WEBHOOK_URL  or  --webhook-url`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			ns = strings.TrimSpace(ns)
 			if ns == "" {
 				return fmt.Errorf("--namespace is required")
 			}
-			if notifySlack {
+			if notifySlack || notifyWebhook {
 				doAnalyze = true
 			}
 			if doAnalyze {
@@ -99,6 +106,7 @@ Slack credentials from env / mounted Secret:
 			var ctxBuilder *ctxbuild.Builder
 			var analyzer *analyze.Analyzer
 			var slackClient *agentslack.Client
+			var webhookClient *agentwebhook.Client
 			threads := map[string]string{}
 
 			if incidents {
@@ -142,6 +150,16 @@ Slack credentials from env / mounted Secret:
 					fmt.Fprintf(cmd.ErrOrStderr(), "warning: Slack webhook mode cannot reliably thread; prefer bot token + channel\n")
 				}
 			}
+			if notifyWebhook {
+				wcfg := agentwebhook.ConfigFromEnv()
+				if u := strings.TrimSpace(webhookURL); u != "" {
+					wcfg.URL = u
+				}
+				if !wcfg.Enabled() {
+					return fmt.Errorf("--webhook requires %s or --webhook-url", agentwebhook.EnvURL)
+				}
+				webhookClient = agentwebhook.New(wcfg)
+			}
 
 			emitChange := func(ch correlate.Change) {
 				if analyzer != nil && ctxBuilder != nil {
@@ -161,7 +179,6 @@ Slack credentials from env / mounted Secret:
 							if thread == "" && builder != nil {
 								thread = builder.NotifierThread(outcome.Alert.IncidentID)
 							}
-							// Seed from incident if correlator already has it
 							if thread == "" {
 								thread = ch.Incident.NotifierThread
 							}
@@ -173,8 +190,12 @@ Slack credentials from env / mounted Secret:
 								if builder != nil {
 									_ = builder.SetNotifierThread(outcome.Alert.IncidentID, res.ThreadTS)
 								}
-								outcome.Alert.IncidentID = outcome.Alert.IncidentID // keep
 								ch.Incident.NotifierThread = res.ThreadTS
+							}
+						}
+						if webhookClient != nil && outcome.PassedGate {
+							if err := webhookClient.Notify(cmd.Context(), outcome.Alert); err != nil {
+								fmt.Fprintf(cmd.ErrOrStderr(), "webhook notify error: %v\n", err)
 							}
 						}
 						if emitJSON {
@@ -275,8 +296,8 @@ Slack credentials from env / mounted Secret:
 
 			mode := "Pods+Events"
 			switch {
-			case notifySlack:
-				mode = "watch → analyze → slack"
+			case notifySlack || notifyWebhook:
+				mode = "watch → analyze → notify"
 			case doAnalyze:
 				mode = "watch → incidents → context → analyze"
 			case buildContext:
@@ -322,6 +343,8 @@ Slack credentials from env / mounted Secret:
 	cmd.Flags().BoolVar(&buildContext, "build-context", false, "assemble AgentContext for LLM (AG-007; enables --incidents)")
 	cmd.Flags().BoolVar(&doAnalyze, "analyze", false, "run LLM/heuristic analyzer → gated AgentAlert (AG-008)")
 	cmd.Flags().BoolVar(&notifySlack, "slack", false, "post gated alerts to Slack (AG-009; enables --analyze)")
+	cmd.Flags().BoolVar(&notifyWebhook, "webhook", false, "POST gated AgentAlert JSON to webhook URL (AG-010; enables --analyze)")
+	cmd.Flags().StringVar(&webhookURL, "webhook-url", "", "override KPROMPT_WEBHOOK_URL for --webhook")
 	cmd.Flags().BoolVar(&heuristic, "heuristic", false, "with --analyze, skip LLM and use local heuristics only")
 	cmd.Flags().StringVar(&providerName, "provider", "", "LLM provider for --analyze (default from config)")
 	cmd.Flags().StringVar(&modelName, "model", "", "LLM model for --analyze (default from config)")
