@@ -15,6 +15,7 @@ import (
 	"github.com/kprompt/kprompt/internal/agent/analyze"
 	"github.com/kprompt/kprompt/internal/agent/correlate"
 	"github.com/kprompt/kprompt/internal/agent/ctxbuild"
+	"github.com/kprompt/kprompt/internal/agent/health"
 	agentlogs "github.com/kprompt/kprompt/internal/agent/logs"
 	agentslack "github.com/kprompt/kprompt/internal/agent/notify/slack"
 	agentwebhook "github.com/kprompt/kprompt/internal/agent/notify/webhook"
@@ -49,6 +50,7 @@ func newAgentRunCmd() *cobra.Command {
 		notifySlack   bool
 		notifyWebhook bool
 		webhookURL    string
+		trackHealth   bool
 		providerName  string
 		modelName     string
 		minSeverity   string
@@ -67,6 +69,7 @@ Pipeline flags (read-only — never mutate):
   --analyze        LLM/heuristic → gated AgentAlert (AG-008)
   --slack          post gated alerts to Slack threads (AG-009)
   --webhook        POST gated AgentAlert JSON to a URL (AG-010)
+  --health         emit namespace health score / risk_increasing (AG-011)
 
 Slack credentials from env / mounted Secret:
   KPROMPT_SLACK_BOT_TOKEN + KPROMPT_SLACK_CHANNEL  (preferred, threaded)
@@ -81,6 +84,9 @@ Generic webhook:
 			}
 			if notifySlack || notifyWebhook {
 				doAnalyze = true
+			}
+			if trackHealth && !incidents {
+				incidents = true
 			}
 			if doAnalyze {
 				buildContext = true
@@ -107,6 +113,7 @@ Generic webhook:
 			var analyzer *analyze.Analyzer
 			var slackClient *agentslack.Client
 			var webhookClient *agentwebhook.Client
+			var healthTracker *health.Tracker
 			threads := map[string]string{}
 
 			if incidents {
@@ -117,6 +124,9 @@ Generic webhook:
 			}
 			if buildContext || doAnalyze {
 				ctxBuilder = &ctxbuild.Builder{Client: clients.Clientset}
+			}
+			if trackHealth {
+				healthTracker = health.NewTracker(ns, clients.Clientset)
 			}
 			if doAnalyze {
 				opts := analyze.Options{
@@ -161,6 +171,19 @@ Generic webhook:
 				webhookClient = agentwebhook.New(wcfg)
 			}
 
+			emitHealth := func() {
+				if healthTracker == nil || builder == nil {
+					return
+				}
+				snap := healthTracker.Evaluate(cmd.Context(), builder.OpenIncidents())
+				if emitJSON {
+					_ = json.NewEncoder(out).Encode(snap)
+					return
+				}
+				fmt.Fprintf(out, "health score=%d/100 trend=%s open=%d ready=%s restarts=%d %s\n",
+					snap.Score, snap.Trend, snap.OpenIncidents, snap.PodReady, snap.Restarts, snap.Message)
+			}
+
 			emitChange := func(ch correlate.Change) {
 				if analyzer != nil && ctxBuilder != nil {
 					switch ch.Kind {
@@ -200,6 +223,7 @@ Generic webhook:
 						}
 						if emitJSON {
 							_ = json.NewEncoder(out).Encode(outcome)
+							emitHealth()
 							return
 						}
 						gate := "held"
@@ -213,6 +237,7 @@ Generic webhook:
 						fmt.Fprintf(out, "%s [%s/%s] id=%s severity=%s conf=%.2f summary=%s rootCause=%s%s\n",
 							gate, outcome.Source, outcome.Alert.Status, outcome.Alert.IncidentID,
 							outcome.Alert.Severity, outcome.Alert.Confidence, outcome.Alert.Summary, outcome.Alert.RootCause, extra)
+						emitHealth()
 						return
 					}
 				}
@@ -222,6 +247,7 @@ Generic webhook:
 						agentCtx := ctxBuilder.Build(cmd.Context(), ch.Incident, ctxbuild.Options{})
 						if emitJSON {
 							_ = json.NewEncoder(out).Encode(agentCtx)
+							emitHealth()
 							return
 						}
 						fmt.Fprintf(out, "context id=%s target=%v degraded=%v\n",
@@ -229,16 +255,19 @@ Generic webhook:
 						for _, line := range agentCtx.PromptBlocks() {
 							fmt.Fprintf(out, "  %s\n", line)
 						}
+						emitHealth()
 						return
 					}
 				}
 				if emitJSON {
 					_ = json.NewEncoder(out).Encode(ch)
+					emitHealth()
 					return
 				}
 				fmt.Fprintf(out, "incident %s id=%s severity=%s status=%s summary=%s evidence=%d\n",
 					ch.Kind, ch.Incident.ID, ch.Incident.Severity, ch.Incident.Status,
 					ch.Incident.Summary, len(ch.Incident.Evidence))
+				emitHealth()
 			}
 
 			handler := func(ev agentwatch.Event) {
@@ -302,6 +331,8 @@ Generic webhook:
 				mode = "watch → incidents → context → analyze"
 			case buildContext:
 				mode = "watch → incidents → context"
+			case trackHealth:
+				mode = "watch → incidents → health"
 			case incidents && fetchLogs:
 				mode = "Pods+Events → Incidents + on-demand logs"
 			case incidents:
@@ -321,6 +352,7 @@ Generic webhook:
 							for _, ch := range builder.Sweep() {
 								emitChange(ch)
 							}
+							emitHealth()
 						}
 					}
 				}()
@@ -345,6 +377,7 @@ Generic webhook:
 	cmd.Flags().BoolVar(&notifySlack, "slack", false, "post gated alerts to Slack (AG-009; enables --analyze)")
 	cmd.Flags().BoolVar(&notifyWebhook, "webhook", false, "POST gated AgentAlert JSON to webhook URL (AG-010; enables --analyze)")
 	cmd.Flags().StringVar(&webhookURL, "webhook-url", "", "override KPROMPT_WEBHOOK_URL for --webhook")
+	cmd.Flags().BoolVar(&trackHealth, "health", false, "emit namespace health score and risk_increasing trends (AG-011; enables --incidents)")
 	cmd.Flags().BoolVar(&heuristic, "heuristic", false, "with --analyze, skip LLM and use local heuristics only")
 	cmd.Flags().StringVar(&providerName, "provider", "", "LLM provider for --analyze (default from config)")
 	cmd.Flags().StringVar(&modelName, "model", "", "LLM model for --analyze (default from config)")
