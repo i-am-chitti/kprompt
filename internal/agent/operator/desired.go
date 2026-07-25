@@ -280,7 +280,7 @@ func observeRoleRules(cr *agentv1.KpromptAgent) []rbacv1.PolicyRule {
 	rules := []rbacv1.PolicyRule{
 		{
 			APIGroups: []string{""},
-			Resources: []string{"pods", "pods/log", "events", "configmaps"},
+			Resources: []string{"pods", "pods/log", "events", "configmaps", "services"},
 			Verbs:     []string{"get", "list", "watch"},
 		},
 		{

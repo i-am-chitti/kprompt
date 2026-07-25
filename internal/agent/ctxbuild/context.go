@@ -21,6 +21,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
 
+	"github.com/kprompt/kprompt/internal/agent/memory"
 	"github.com/kprompt/kprompt/internal/incident"
 )
 
@@ -90,12 +91,14 @@ type AgentContext struct {
 	LogSnippets    []incident.EvidenceRef `json:"logSnippets,omitempty"`
 	ConfigMaps     []ConfigMapTouch       `json:"configMaps,omitempty"`
 	PriorIncidents []incident.Incident    `json:"priorIncidents,omitempty"`
+	Memory         []memory.Fact          `json:"memory,omitempty"`
 	Degraded       []string               `json:"degraded,omitempty"`
 }
 
 // Options configures context assembly.
 type Options struct {
 	PriorIncidents []incident.Incident
+	Memory         []memory.Fact
 	EventLimit     int
 	SkipLive       bool // tests / offline — only reshape incident evidence
 }
@@ -118,6 +121,12 @@ func (b *Builder) Build(ctx context.Context, inc incident.Incident, opts Options
 		Target:         inc.PrimaryResource,
 		PriorIncidents: append([]incident.Incident(nil), opts.PriorIncidents...),
 	}
+
+	text := inc.Summary + " " + inc.RootCause
+	for _, e := range inc.Evidence {
+		text += " " + e.Reason + " " + e.Message
+	}
+	out.Memory = memory.Relevant(opts.Memory, text)
 
 	out.LogSnippets = filterEvidence(inc.Evidence, incident.EvidenceLog)
 	out.RecentEvents = filterEvidence(inc.Evidence, incident.EvidenceEvent)
@@ -182,6 +191,12 @@ func (c AgentContext) PromptBlocks() []string {
 			names = append(names, cm.Name)
 		}
 		blocks = append(blocks, "configmaps: "+strings.Join(names, ", "))
+	}
+	if len(c.Memory) > 0 {
+		blocks = append(blocks, "namespace_memory:")
+		for _, f := range c.Memory {
+			blocks = append(blocks, fmt.Sprintf("  - %s %s=%s (%s)", f.Kind, f.Key, f.Value, f.Source))
+		}
 	}
 	if len(c.Degraded) > 0 {
 		blocks = append(blocks, "degraded: "+strings.Join(c.Degraded, ", "))

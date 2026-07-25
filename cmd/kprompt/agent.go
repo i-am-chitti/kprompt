@@ -18,6 +18,7 @@ import (
 	"github.com/kprompt/kprompt/internal/agent/ctxbuild"
 	"github.com/kprompt/kprompt/internal/agent/health"
 	agentlogs "github.com/kprompt/kprompt/internal/agent/logs"
+	"github.com/kprompt/kprompt/internal/agent/memory"
 	agentslack "github.com/kprompt/kprompt/internal/agent/notify/slack"
 	agentwebhook "github.com/kprompt/kprompt/internal/agent/notify/webhook"
 	"github.com/kprompt/kprompt/internal/agent/operator"
@@ -35,6 +36,7 @@ func newAgentCmd() *cobra.Command {
 	}
 	cmd.AddCommand(newAgentRunCmd())
 	cmd.AddCommand(newAgentOperatorCmd())
+	cmd.AddCommand(newAgentMemoryCmd())
 	return cmd
 }
 
@@ -122,6 +124,9 @@ func newAgentRunCmd() *cobra.Command {
 		agentCR       string
 		agentCRNS     string
 		watchList     []string
+		useMemory     bool
+		memoryBackend string // file | configmap
+		memoryDir     string
 	)
 	cmd := &cobra.Command{
 		Use:   "run",
@@ -142,6 +147,11 @@ Pipeline flags (read-only — never mutate workload objects):
   --webhook        POST gated AgentAlert JSON to a URL (AG-010)
   --health         emit namespace health score / risk_increasing (AG-011)
   --agent-cr       patch KpromptAgent.status (AG-013; health + lastAlert)
+  --memory         discover/load namespace deps+facts into analyzer context (AG-015)
+
+Namespace memory (local / in-cluster only — never uploaded to api.kprompt.ai):
+  --memory-backend file|configmap   (default: file; configmap uses kprompt-namespace-memory)
+  --memory-dir     file backend directory (default: ~/.config/kprompt/memory)
 
 Slack credentials from env / mounted Secret:
   KPROMPT_SLACK_BOT_TOKEN + KPROMPT_SLACK_CHANNEL  (preferred, threaded)
@@ -169,6 +179,10 @@ KpromptAgent status sync:
 			if (fetchLogs || buildContext || doAnalyze) && !incidents {
 				incidents = true
 			}
+			if useMemory && !buildContext && !doAnalyze {
+				buildContext = true
+				incidents = true
+			}
 
 			var clients *cluster.Clients
 			var err error
@@ -190,8 +204,28 @@ KpromptAgent status sync:
 			var webhookClient *agentwebhook.Client
 			var healthTracker *health.Tracker
 			var statusSync *crdstatus.Syncer
+			var nsMemory *memory.Memory
+			var memoryFacts []memory.Fact
 			threads := map[string]string{}
 
+			if useMemory {
+				store, serr := openMemoryStore(memoryBackend, memoryDir, ns, inCluster, clients)
+				if serr != nil {
+					return serr
+				}
+				nsMemory = memory.New(store)
+				facts, derr := memory.Discover(cmd.Context(), clients.Clientset, ns)
+				if derr != nil {
+					fmt.Fprintf(cmd.ErrOrStderr(), "warning: memory discover: %v\n", derr)
+				} else if len(facts) > 0 {
+					if _, uerr := nsMemory.Upsert(ns, facts...); uerr != nil {
+						fmt.Fprintf(cmd.ErrOrStderr(), "warning: memory upsert: %v\n", uerr)
+					}
+				}
+				if snap, lerr := nsMemory.List(ns); lerr == nil {
+					memoryFacts = snap.Facts
+				}
+			}
 			crCfg := crdstatus.FromEnv()
 			if n := strings.TrimSpace(agentCR); n != "" {
 				crCfg.Name = n
@@ -262,6 +296,18 @@ KpromptAgent status sync:
 				webhookClient = agentwebhook.New(wcfg)
 			}
 
+			currentMemoryFacts := func() []memory.Fact {
+				if nsMemory == nil {
+					return memoryFacts
+				}
+				snap, err := nsMemory.List(ns)
+				if err != nil {
+					return memoryFacts
+				}
+				memoryFacts = snap.Facts
+				return memoryFacts
+			}
+
 			emitHealth := func() {
 				if healthTracker == nil || builder == nil {
 					return
@@ -284,7 +330,7 @@ KpromptAgent status sync:
 				if analyzer != nil && ctxBuilder != nil {
 					switch ch.Kind {
 					case correlate.ChangeOpened, correlate.ChangeUpdated, correlate.ChangeReopened, correlate.ChangeClosed:
-						agentCtx := ctxBuilder.Build(cmd.Context(), ch.Incident, ctxbuild.Options{})
+						agentCtx := ctxBuilder.Build(cmd.Context(), ch.Incident, ctxbuild.Options{Memory: currentMemoryFacts()})
 						outcome, err := analyzer.Analyze(cmd.Context(), agentCtx, analyze.AlertStatusFor(ch.Kind))
 						if err != nil {
 							fmt.Fprintf(cmd.ErrOrStderr(), "analyze error: %v\n", err)
@@ -345,7 +391,7 @@ KpromptAgent status sync:
 				if ctxBuilder != nil && analyzer == nil {
 					switch ch.Kind {
 					case correlate.ChangeOpened, correlate.ChangeUpdated, correlate.ChangeReopened:
-						agentCtx := ctxBuilder.Build(cmd.Context(), ch.Incident, ctxbuild.Options{})
+						agentCtx := ctxBuilder.Build(cmd.Context(), ch.Incident, ctxbuild.Options{Memory: currentMemoryFacts()})
 						if emitJSON {
 							_ = json.NewEncoder(out).Encode(agentCtx)
 							emitHealth()
@@ -492,6 +538,9 @@ KpromptAgent status sync:
 	cmd.Flags().BoolVar(&trackHealth, "health", false, "emit namespace health score and risk_increasing trends (AG-011; enables --incidents)")
 	cmd.Flags().StringVar(&agentCR, "agent-cr", "", "KpromptAgent name to patch status (AG-013; or KPROMPT_AGENT_CR)")
 	cmd.Flags().StringVar(&agentCRNS, "agent-cr-namespace", "", "namespace of --agent-cr (default: POD_NAMESPACE / default)")
+	cmd.Flags().BoolVar(&useMemory, "memory", false, "discover/load namespace dependency facts into analyzer context (AG-015)")
+	cmd.Flags().StringVar(&memoryBackend, "memory-backend", "file", "memory store: file|configmap")
+	cmd.Flags().StringVar(&memoryDir, "memory-dir", "", "file backend directory (default ~/.config/kprompt/memory)")
 	cmd.Flags().BoolVar(&heuristic, "heuristic", false, "with --analyze, skip LLM and use local heuristics only")
 	cmd.Flags().StringVar(&providerName, "provider", "", "LLM provider for --analyze (default from config)")
 	cmd.Flags().StringVar(&modelName, "model", "", "LLM model for --analyze (default from config)")
@@ -500,4 +549,178 @@ KpromptAgent status sync:
 	cmd.Flags().DurationVar(&duration, "duration", 0, "stop after duration (0 = until signal); useful for e2e")
 	_ = cmd.MarkFlagRequired("namespace")
 	return cmd
+}
+
+func openMemoryStore(backend, dir, ns string, inCluster bool, clients *cluster.Clients) (memory.Store, error) {
+	b := strings.ToLower(strings.TrimSpace(backend))
+	if b == "" {
+		b = "file"
+	}
+	switch b {
+	case "configmap":
+		if clients == nil || clients.Clientset == nil {
+			return nil, fmt.Errorf("memory: configmap backend requires kubernetes")
+		}
+		return memory.ConfigMapStore{Client: clients.Clientset, Namespace: ns}, nil
+	case "file":
+		if dir == "" {
+			dir = memory.DefaultDir()
+		}
+		return memory.FileStore{Dir: dir}, nil
+	default:
+		return nil, fmt.Errorf("memory: unknown backend %q (want file|configmap)", backend)
+	}
+}
+
+func newAgentMemoryCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "memory",
+		Short: "Namespace dependency facts (AG-015; local/in-cluster only)",
+	}
+	cmd.AddCommand(newAgentMemoryListCmd())
+	cmd.AddCommand(newAgentMemorySetCmd())
+	cmd.AddCommand(newAgentMemoryDiscoverCmd())
+	return cmd
+}
+
+func newAgentMemoryListCmd() *cobra.Command {
+	var ns, backend, dir, kubeCtx string
+	var inCluster bool
+	cmd := &cobra.Command{
+		Use:   "list",
+		Short: "List remembered facts for a namespace",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			ns = strings.TrimSpace(ns)
+			if ns == "" {
+				return fmt.Errorf("--namespace is required")
+			}
+			clients, err := connectOptional(kubeCtx, inCluster, backend == "configmap")
+			if err != nil {
+				return err
+			}
+			store, err := openMemoryStore(backend, dir, ns, inCluster, clients)
+			if err != nil {
+				return err
+			}
+			snap, err := memory.New(store).List(ns)
+			if err != nil {
+				return err
+			}
+			enc := json.NewEncoder(cmd.OutOrStdout())
+			enc.SetIndent("", "  ")
+			return enc.Encode(snap)
+		},
+	}
+	cmd.Flags().StringVarP(&ns, "namespace", "n", "", "namespace (required)")
+	cmd.Flags().StringVar(&backend, "memory-backend", "file", "file|configmap")
+	cmd.Flags().StringVar(&dir, "memory-dir", "", "file backend directory")
+	cmd.Flags().StringVar(&kubeCtx, "context", "", "kubeconfig context")
+	cmd.Flags().BoolVar(&inCluster, "in-cluster", false, "use InClusterConfig")
+	_ = cmd.MarkFlagRequired("namespace")
+	return cmd
+}
+
+func newAgentMemorySetCmd() *cobra.Command {
+	var ns, backend, dir, kubeCtx, key, value, kind string
+	var inCluster bool
+	cmd := &cobra.Command{
+		Use:   "set",
+		Short: "Upsert a manual fact (never uploaded to control plane)",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			ns = strings.TrimSpace(ns)
+			key = strings.TrimSpace(key)
+			if ns == "" || key == "" {
+				return fmt.Errorf("--namespace and --key are required")
+			}
+			if kind == "" {
+				kind = memory.KindNote
+			}
+			clients, err := connectOptional(kubeCtx, inCluster, backend == "configmap")
+			if err != nil {
+				return err
+			}
+			store, err := openMemoryStore(backend, dir, ns, inCluster, clients)
+			if err != nil {
+				return err
+			}
+			snap, err := memory.New(store).Upsert(ns, memory.Fact{
+				Kind:   kind,
+				Key:    key,
+				Value:  value,
+				Source: "manual",
+			})
+			if err != nil {
+				return err
+			}
+			fmt.Fprintf(cmd.OutOrStdout(), "saved %d facts for namespace %q\n", len(snap.Facts), ns)
+			return nil
+		},
+	}
+	cmd.Flags().StringVarP(&ns, "namespace", "n", "", "namespace (required)")
+	cmd.Flags().StringVar(&key, "key", "", "fact key (e.g. redis, team)")
+	cmd.Flags().StringVar(&value, "value", "", "fact value")
+	cmd.Flags().StringVar(&kind, "kind", memory.KindNote, "dependency|note")
+	cmd.Flags().StringVar(&backend, "memory-backend", "file", "file|configmap")
+	cmd.Flags().StringVar(&dir, "memory-dir", "", "file backend directory")
+	cmd.Flags().StringVar(&kubeCtx, "context", "", "kubeconfig context")
+	cmd.Flags().BoolVar(&inCluster, "in-cluster", false, "use InClusterConfig")
+	_ = cmd.MarkFlagRequired("namespace")
+	_ = cmd.MarkFlagRequired("key")
+	return cmd
+}
+
+func newAgentMemoryDiscoverCmd() *cobra.Command {
+	var ns, backend, dir, kubeCtx string
+	var inCluster bool
+	cmd := &cobra.Command{
+		Use:   "discover",
+		Short: "Scan Services/Deployments for dependency hints and persist them",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			ns = strings.TrimSpace(ns)
+			if ns == "" {
+				return fmt.Errorf("--namespace is required")
+			}
+			var clients *cluster.Clients
+			var err error
+			if inCluster {
+				clients, err = cluster.ConnectInCluster()
+			} else {
+				clients, err = cluster.Connect(kubeCtx)
+			}
+			if err != nil {
+				return err
+			}
+			facts, err := memory.Discover(cmd.Context(), clients.Clientset, ns)
+			if err != nil {
+				return err
+			}
+			store, err := openMemoryStore(backend, dir, ns, inCluster, clients)
+			if err != nil {
+				return err
+			}
+			snap, err := memory.New(store).Upsert(ns, facts...)
+			if err != nil {
+				return err
+			}
+			fmt.Fprintf(cmd.OutOrStdout(), "discovered %d deps; namespace %q now has %d facts\n", len(facts), ns, len(snap.Facts))
+			return nil
+		},
+	}
+	cmd.Flags().StringVarP(&ns, "namespace", "n", "", "namespace (required)")
+	cmd.Flags().StringVar(&backend, "memory-backend", "file", "file|configmap")
+	cmd.Flags().StringVar(&dir, "memory-dir", "", "file backend directory")
+	cmd.Flags().StringVar(&kubeCtx, "context", "", "kubeconfig context")
+	cmd.Flags().BoolVar(&inCluster, "in-cluster", false, "use InClusterConfig")
+	_ = cmd.MarkFlagRequired("namespace")
+	return cmd
+}
+
+func connectOptional(kubeCtx string, inCluster, needClient bool) (*cluster.Clients, error) {
+	if !needClient {
+		return nil, nil
+	}
+	if inCluster {
+		return cluster.ConnectInCluster()
+	}
+	return cluster.Connect(kubeCtx)
 }

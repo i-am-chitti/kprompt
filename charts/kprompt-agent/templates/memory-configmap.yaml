@@ -1,0 +1,19 @@
+{{- if and .Values.agent.memory (eq (.Values.agent.memoryBackend | default "file") "configmap") -}}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: kprompt-namespace-memory
+  namespace: {{ include "kprompt-agent.watchNamespace" . }}
+  labels:
+    {{- include "kprompt-agent.labels" . | nindent 4 }}
+    app.kubernetes.io/component: namespace-memory
+data:
+  facts.json: |
+    {
+      "apiVersion": "kprompt.io/v1",
+      "kind": "NamespaceMemory",
+      "schemaVersion": "1",
+      "namespace": {{ include "kprompt-agent.watchNamespace" . | quote }},
+      "facts": []
+    }
+{{- end }}

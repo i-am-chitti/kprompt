@@ -163,5 +163,25 @@ Secrets are never watched implicitly and only metadata (type + key count) is emi
 | `--webhook` | AG-010 |
 | `--health` | AG-011 score |
 | `--agent-cr` | AG-013 status sync |
+| `--memory` | AG-015 namespace facts |
 
-**Not shipped:** Autopilot mutate · pattern learning (AG-015/016). Autopilot needs **AG-017** (new ADR).
+## Namespace memory (AG-015)
+
+Persists dependency facts (“uses Redis/Kafka/Postgres”) **locally or in-cluster only** — never uploaded to `api.kprompt.ai` by default.
+
+```bash
+# Discover + inject into analyzer context while watching
+kprompt agent run -n payments --analyze --heuristic --memory
+
+# Manual facts (file backend → ~/.config/kprompt/memory)
+kprompt agent memory set -n payments --kind dependency --key redis --value "cache for sessions"
+kprompt agent memory discover -n payments
+kprompt agent memory list -n payments
+
+# In-cluster ConfigMap backend (Helm agent.memoryBackend=configmap)
+kprompt agent memory list -n payments --memory-backend configmap
+```
+
+Relevant facts are filtered into `AgentContext.memory` / `namespace_memory:` prompt blocks when the incident text mentions the dependency or infra failure patterns (timeout, connection refused, …).
+
+**Not shipped:** Autopilot mutate · pattern learning (AG-016). Autopilot needs **AG-017** (new ADR).

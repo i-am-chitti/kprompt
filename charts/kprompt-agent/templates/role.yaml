@@ -9,7 +9,7 @@ metadata:
 rules:
   # Observe Mode — read/watch only (ADR-0013). No create/update/patch/delete.
   - apiGroups: [""]
-    resources: ["pods", "pods/log", "events", "configmaps"]
+    resources: ["pods", "pods/log", "events", "configmaps", "services"]
     verbs: ["get", "list", "watch"]
   - apiGroups: ["apps"]
     resources: ["deployments", "replicasets", "statefulsets"]
@@ -20,6 +20,16 @@ rules:
   - apiGroups: [""]
     resources: ["persistentvolumeclaims"]
     verbs: ["get", "list", "watch"]
+  {{- if eq (.Values.agent.memoryBackend | default "file") "configmap" }}
+  # Namespace memory ConfigMap (AG-015) — facts only; not a control-plane upload.
+  - apiGroups: [""]
+    resources: ["configmaps"]
+    resourceNames: ["kprompt-namespace-memory"]
+    verbs: ["get", "update", "patch"]
+  - apiGroups: [""]
+    resources: ["configmaps"]
+    verbs: ["create"]
+  {{- end }}
   {{- if .Values.agentCR.name }}
   # Status-only write on the opted-in KpromptAgent (AG-013). No workload mutate.
   - apiGroups: ["kprompt.ai"]

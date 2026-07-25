@@ -29,6 +29,9 @@ agent:
   heuristic: false
   slack: false
   webhook: false
+  # AG-015: discover deps into analyzer context (file or configmap backend).
+  memory: false
+  memoryBackend: file # file | configmap
   minSeverity: medium
   minConfidence: "0.7"
   provider: openai

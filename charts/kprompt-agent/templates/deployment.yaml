@@ -50,6 +50,11 @@ spec:
             {{- if .Values.agent.health }}
             - --health
             {{- end }}
+            {{- if .Values.agent.memory }}
+            - --memory
+            - --memory-backend
+            - {{ .Values.agent.memoryBackend | default "file" | quote }}
+            {{- end }}
             {{- if .Values.agent.heuristic }}
             - --heuristic
             {{- end }}
