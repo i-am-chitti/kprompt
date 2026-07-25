@@ -230,18 +230,26 @@ func Heuristic(agentCtx ctxbuild.AgentContext) Result {
 	rec := "Inspect pod events and recent logs; verify dependent Services/Endpoints"
 	conf := 0.55
 
-	blob := strings.ToLower(summary + " " + joinEvidence(inc.Evidence) + " " + joinEvidence(agentCtx.LogSnippets))
+	blob := strings.ToLower(strings.Join([]string{
+		summary,
+		joinEvidence(inc.Evidence),
+		joinEvidence(agentCtx.LogSnippets),
+		joinEvidence(agentCtx.RecentEvents),
+		podSignals(agentCtx.Pod),
+		deploymentSignals(agentCtx.Deployment),
+	}, " "))
 	switch {
 	case strings.Contains(blob, "oom"):
 		sev = incident.SeverityCritical
 		root = "Likely memory limit exceeded (OOMKilled)"
 		rec = "Raise memory limit/request or fix memory leak; check recent traffic/deploy"
 		conf = 0.85
-	// ImagePullBackOff contains the substring "backoff", so image-pull must win
-	// before the CrashLoop / BackOff branch — otherwise demos mislabel pull failures.
+	// ImagePullBackOff Events often arrive as Reason=BackOff with a thin message;
+	// pod waiting state / "pulling image" must win before the CrashLoop branch.
 	case strings.Contains(blob, "imagepull"),
 		strings.Contains(blob, "errimage"),
 		strings.Contains(blob, "failed to pull"),
+		strings.Contains(blob, "pulling image"),
 		strings.Contains(blob, "manifest unknown"):
 		sev = incident.SeverityHigh
 		root = "Image pull failure"
@@ -278,6 +286,31 @@ func Heuristic(agentCtx ctxbuild.AgentContext) Result {
 		RootCause:      root,
 		Recommendation: rec,
 	}
+}
+
+func podSignals(pod *ctxbuild.PodSnapshot) string {
+	if pod == nil {
+		return ""
+	}
+	var b strings.Builder
+	b.WriteString(pod.Phase)
+	b.WriteByte(' ')
+	for _, c := range pod.Containers {
+		b.WriteString(c.State)
+		b.WriteByte(' ')
+		b.WriteString(c.LastTermination)
+		b.WriteByte(' ')
+		b.WriteString(c.Image)
+		b.WriteByte(' ')
+	}
+	return b.String()
+}
+
+func deploymentSignals(dep *ctxbuild.DeploymentSnapshot) string {
+	if dep == nil {
+		return ""
+	}
+	return dep.ChangeCause
 }
 
 func normalizeResult(res *Result, inc incident.Incident) {

@@ -46,6 +46,34 @@ func TestHeuristicImagePullBackOffNotCrashLoop(t *testing.T) {
 	}
 }
 
+func TestHeuristicEarlyBackOffUsesPodWaitingState(t *testing.T) {
+	// First Event is often a thin BackOff with no "ImagePull" substring yet.
+	// Pod container waiting reason is already ImagePullBackOff — use that.
+	inc := incident.NewIncident("inc-early", "payments", time.Now().UTC())
+	inc.Summary = "BackOff on Pod/worker"
+	inc.Evidence = []incident.EvidenceRef{{
+		Type:    incident.EvidenceEvent,
+		Reason:  "BackOff",
+		Message: "Back-off restarting failed container",
+	}}
+	res := Heuristic(ctxbuild.AgentContext{
+		Incident:  inc,
+		Namespace: "payments",
+		Pod: &ctxbuild.PodSnapshot{
+			Name:  "worker-abc",
+			Phase: "Pending",
+			Containers: []ctxbuild.ContainerResources{{
+				Name:  "worker",
+				Image: "ghcr.io/kprompt/does-not-exist:9.9.9",
+				State: "waiting:ImagePullBackOff",
+			}},
+		},
+	})
+	if res.RootCause != "Image pull failure" {
+		t.Fatalf("want image pull from pod state, got %+v", res)
+	}
+}
+
 func TestAnalyzeGateAndDedupe(t *testing.T) {
 	stub := &llm.Stub{Structured: mustJSON(Result{
 		Severity:       incident.SeverityCritical,

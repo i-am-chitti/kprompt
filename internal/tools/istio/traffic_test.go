@@ -1,6 +1,7 @@
 package istio
 
 import (
+	"context"
 	"strings"
 	"testing"
 
@@ -74,7 +75,7 @@ func TestSummarizeTrafficWithClient(t *testing.T) {
 		return true, list, nil
 	})
 
-	rep, err := SummarizeTrafficWithClient(t.Context(), client, TrafficRequest{})
+	rep, err := SummarizeTrafficWithClient(context.Background(), client, TrafficRequest{})
 	if err != nil {
 		t.Fatal(err)
 	}

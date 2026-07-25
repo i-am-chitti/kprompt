@@ -40,8 +40,15 @@ Need a namespace that actually misbehaves? [kprompt-examples](https://github.com
 
 ```bash
 git clone https://github.com/kprompt/kprompt-examples.git && cd kprompt-examples
+make walkthrough   # up → break-all → verify → agent-full (~45s)
+```
+
+Or step by step:
+
+```bash
 make up
 make break SCENARIO=01-crashloop
+make verify
 kprompt agent run -n payments --analyze --health --heuristic
 ```
 
