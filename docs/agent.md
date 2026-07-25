@@ -164,6 +164,8 @@ Secrets are never watched implicitly and only metadata (type + key count) is emi
 | `--health` | AG-011 score |
 | `--agent-cr` | AG-013 status sync |
 | `--memory` | AG-015 namespace facts |
+| `--patterns` | AG-016 seen-before |
+| `--autopilot-propose` | AG-017 / ADR-0015 propose-only |
 
 ## Namespace memory (AG-015)
 
@@ -192,4 +194,17 @@ Remembers incident signatures (reason + workload kind + bucket like crashloop/oo
 kprompt agent run -n payments --analyze --heuristic --patterns
 ```
 
-**Not shipped:** Autopilot mutate. Autopilot needs **AG-017** (new ADR).
+**Not shipped:** silent Autopilot apply. See [ADR-0015](https://github.com/kprompt/kprompt-architecture/blob/main/decisions/ADR-0015-autopilot-mode.md) — MVP is **propose-only**.
+
+## Autopilot (AG-017 · ADR-0015)
+
+Opt-in, allowlist-only. Default remains Observe.
+
+```bash
+kprompt agent run -n payments --analyze --heuristic --autopilot-propose
+```
+
+- MVP allowlist: `rollbackFailedRollout` only
+- Emits `AutopilotProposal` (PlanResult-shaped) + local audit JSONL (`~/.config/kprompt/autopilot`)
+- **Never silent apply** in this MVP; `Applied` stays false. Policy/human gate required before any future apply executor
+- Hard-deny outside allowlist (same spirit as ADR-0003)

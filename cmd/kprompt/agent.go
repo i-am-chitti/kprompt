@@ -14,6 +14,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/kprompt/kprompt/internal/agent/analyze"
+	"github.com/kprompt/kprompt/internal/agent/autopilot"
 	"github.com/kprompt/kprompt/internal/agent/correlate"
 	"github.com/kprompt/kprompt/internal/agent/crdstatus"
 	"github.com/kprompt/kprompt/internal/agent/ctxbuild"
@@ -131,6 +132,8 @@ func newAgentRunCmd() *cobra.Command {
 		memoryDir     string
 		usePatterns   bool
 		patternsDir   string
+		autopilotProp bool
+		autopilotDir  string
 	)
 	cmd := &cobra.Command{
 		Use:   "run",
@@ -153,6 +156,7 @@ Pipeline flags (read-only — never mutate workload objects):
   --agent-cr       patch KpromptAgent.status (AG-013; health + lastAlert)
   --memory         discover/load namespace deps+facts into analyzer context (AG-015)
   --patterns       learn incident signatures; boost confidence on “seen before” (AG-016)
+  --autopilot-propose  emit PlanResult-shaped AutopilotProposal (ADR-0015; propose-only, never silent apply)
 
 Namespace memory (local / in-cluster only — never uploaded to api.kprompt.ai):
   --memory-backend file|configmap   (default: file; configmap uses kprompt-namespace-memory)
@@ -160,6 +164,9 @@ Namespace memory (local / in-cluster only — never uploaded to api.kprompt.ai):
 
 Pattern learning (local only — never mutates from a match):
   --patterns-dir   pattern store directory (default: ~/.config/kprompt/patterns)
+
+Autopilot (ADR-0015 MVP — propose-only by default):
+  --autopilot-audit-dir  audit JSONL directory (default: ~/.config/kprompt/autopilot)
 
 Slack credentials from env / mounted Secret:
   KPROMPT_SLACK_BOT_TOKEN + KPROMPT_SLACK_CHANNEL  (preferred, threaded)
@@ -196,6 +203,11 @@ KpromptAgent status sync:
 				buildContext = true
 				incidents = true
 			}
+			if autopilotProp {
+				doAnalyze = true
+				buildContext = true
+				incidents = true
+			}
 
 			var clients *cluster.Clients
 			var err error
@@ -219,6 +231,7 @@ KpromptAgent status sync:
 			var statusSync *crdstatus.Syncer
 			var nsMemory *memory.Memory
 			var memoryFacts []memory.Fact
+			var apEngine *autopilot.Engine
 			threads := map[string]string{}
 
 			if useMemory {
@@ -237,6 +250,16 @@ KpromptAgent status sync:
 				}
 				if snap, lerr := nsMemory.List(ns); lerr == nil {
 					memoryFacts = snap.Facts
+				}
+			}
+			if autopilotProp {
+				dir := strings.TrimSpace(autopilotDir)
+				if dir == "" {
+					dir = autopilot.DefaultAuditDir()
+				}
+				apEngine = &autopilot.Engine{
+					Policy: autopilot.DefaultPolicy(),
+					Audit:  autopilot.FileAudit{Dir: dir},
 				}
 			}
 			crCfg := crdstatus.FromEnv()
@@ -386,6 +409,22 @@ KpromptAgent status sync:
 						if statusSync != nil && outcome.PassedGate {
 							if err := statusSync.PatchAlert(cmd.Context(), outcome.Alert); err != nil {
 								fmt.Fprintf(cmd.ErrOrStderr(), "kpromptagent status alert: %v\n", err)
+							}
+						}
+						if apEngine != nil && !outcome.Skipped {
+							agentCtx.Incident.Confidence = outcome.Alert.Confidence
+							agentCtx.Incident.RootCause = outcome.Alert.RootCause
+							agentCtx.Incident.Summary = outcome.Alert.Summary
+							prop, perr := apEngine.ProposeFromContext(agentCtx, outcome.Alert.Confidence)
+							if perr != nil {
+								fmt.Fprintf(cmd.ErrOrStderr(), "autopilot propose error: %v\n", perr)
+							} else if prop != nil {
+								if emitJSON {
+									_ = json.NewEncoder(out).Encode(prop)
+								} else {
+									fmt.Fprintf(out, "autopilot %s action=%s target=%s/%s risk=%s applied=%v — %s\n",
+										prop.Decision, prop.ActionID, prop.TargetKind, prop.TargetName, prop.Risk, prop.Applied, prop.Reason)
+								}
 							}
 						}
 						if emitJSON {
@@ -566,6 +605,8 @@ KpromptAgent status sync:
 	cmd.Flags().StringVar(&memoryDir, "memory-dir", "", "file backend directory (default ~/.config/kprompt/memory)")
 	cmd.Flags().BoolVar(&usePatterns, "patterns", false, "learn incident signatures; boost confidence on seen-before (AG-016; never mutates)")
 	cmd.Flags().StringVar(&patternsDir, "patterns-dir", "", "pattern store directory (default ~/.config/kprompt/patterns)")
+	cmd.Flags().BoolVar(&autopilotProp, "autopilot-propose", false, "emit AutopilotProposal for allowlisted actions (ADR-0015; propose-only, never silent apply)")
+	cmd.Flags().StringVar(&autopilotDir, "autopilot-audit-dir", "", "Autopilot audit JSONL directory (default ~/.config/kprompt/autopilot)")
 	cmd.Flags().BoolVar(&heuristic, "heuristic", false, "with --analyze, skip LLM and use local heuristics only")
 	cmd.Flags().StringVar(&providerName, "provider", "", "LLM provider for --analyze (default from config)")
 	cmd.Flags().StringVar(&modelName, "model", "", "LLM model for --analyze (default from config)")
