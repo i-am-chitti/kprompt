@@ -178,6 +178,28 @@ func WhyStub(name, namespace, resourceKind string) *Stub {
 	return &Stub{Structured: payload}
 }
 
+// TimelineStub returns a Stub that classifies a timeline chronology intent (S-004).
+func TimelineStub(name, namespace, resourceKind, window string) *Stub {
+	if resourceKind == "" {
+		resourceKind = "Deployment"
+	}
+	params := map[string]any{}
+	if window != "" {
+		params["window"] = window
+	}
+	payload, _ := json.Marshal(map[string]any{
+		"kind": "timeline",
+		"target": map[string]any{
+			"name":      name,
+			"namespace": namespace,
+			"kind":      resourceKind,
+		},
+		"params":     params,
+		"confidence": 1.0,
+	})
+	return &Stub{Structured: payload}
+}
+
 // PerformanceStub returns a Stub that classifies a metrics-backed diagnosis.
 func PerformanceStub(name, namespace, window string) *Stub {
 	params := map[string]any{}

@@ -1107,6 +1107,70 @@ func TestPipelineWhyEmitsCausalInvestigation(t *testing.T) {
 	}
 }
 
+func TestPipelineTimelineEmitsChronology(t *testing.T) {
+	ns := "payments"
+	now := metav1.Now()
+	labels := map[string]string{"app": "api"}
+	client := fake.NewSimpleClientset(
+		&appsv1.Deployment{
+			ObjectMeta: metav1.ObjectMeta{
+				Name: "api", Namespace: ns, UID: "dep1",
+				CreationTimestamp: now,
+			},
+			Spec: appsv1.DeploymentSpec{
+				Selector: &metav1.LabelSelector{MatchLabels: labels},
+			},
+		},
+		&appsv1.ReplicaSet{
+			ObjectMeta: metav1.ObjectMeta{
+				Name: "api-rs", Namespace: ns,
+				CreationTimestamp: now,
+				Labels:            labels,
+				Annotations:       map[string]string{"deployment.kubernetes.io/revision": "1"},
+				OwnerReferences: []metav1.OwnerReference{{
+					APIVersion: "apps/v1", Kind: "Deployment", Name: "api", UID: "dep1",
+				}},
+			},
+			Status: appsv1.ReplicaSetStatus{Replicas: 1, ReadyReplicas: 1},
+		},
+		&corev1.Event{
+			ObjectMeta: metav1.ObjectMeta{Name: "ev1", Namespace: ns},
+			InvolvedObject: corev1.ObjectReference{
+				Kind: "Deployment", Name: "api", Namespace: ns,
+			},
+			Reason:        "ScalingReplicaSet",
+			Message:       "Scaled up replica set api-rs to 1",
+			LastTimestamp: now,
+		},
+	)
+	var out bytes.Buffer
+	var got output.PlanResult
+	err := RunWith(context.Background(), config.Resolved{
+		Namespace: ns,
+		Prompt:    "timeline for api",
+		Output:    "json",
+	}, &out, Deps{
+		Provider: llm.TimelineStub("api", ns, "Deployment", "1h"),
+		Client:   client,
+		OnResult: func(r output.PlanResult) { got = r },
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got.Result) == 0 {
+		t.Fatal("expected investigation JSON result")
+	}
+	if !bytes.Contains(got.Result, []byte(`"Investigation"`)) {
+		t.Fatalf("result: %s", string(got.Result))
+	}
+	if !bytes.Contains(got.Result, []byte("timeline")) && !bytes.Contains(got.Result, []byte("Timeline")) {
+		t.Fatalf("expected timeline field: %s", string(got.Result))
+	}
+	if !bytes.Contains(got.Result, []byte("Timeline.Rollouts")) && !bytes.Contains(got.Result, []byte("Timeline.Events")) {
+		t.Fatalf("expected timeline findings: %s", string(got.Result))
+	}
+}
+
 func deployment(name, ns string, replicas int32) *appsv1.Deployment {
 	return &appsv1.Deployment{
 		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: ns},

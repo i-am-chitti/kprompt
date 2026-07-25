@@ -27,6 +27,7 @@ import (
 	"github.com/kprompt/kprompt/internal/safety"
 	"github.com/kprompt/kprompt/internal/suggest"
 	"github.com/kprompt/kprompt/internal/team"
+	"github.com/kprompt/kprompt/internal/timeline"
 	"github.com/kprompt/kprompt/internal/tools"
 	"github.com/kprompt/kprompt/internal/tools/argo"
 	toolgitops "github.com/kprompt/kprompt/internal/tools/gitops"
@@ -675,6 +676,23 @@ func RunWith(ctx context.Context, cfg config.Resolved, out io.Writer, deps Deps)
 			ui.PrintInvestigation(out, invDoc, cluster.ExplainReport{})
 			applied = true
 			return nil
+		case intent.KindTimeline:
+			req, err := timelineFromPlan(plan, cfg.Prompt)
+			if err != nil {
+				return err
+			}
+			invDoc, err := (&timeline.Builder{Client: client}).Run(ctx, req)
+			if err != nil {
+				return cluster.Friendlier(fmt.Errorf("timeline: %w", err))
+			}
+			doc = doc.WithInvestigationResult(invDoc)
+			if jsonMode {
+				applied = true
+				return nil
+			}
+			ui.PrintInvestigation(out, invDoc, cluster.ExplainReport{})
+			applied = true
+			return nil
 		case intent.KindLogs:
 			req, err := logsFromPlan(plan)
 			if err != nil {
@@ -975,7 +993,7 @@ func isReadOnly(plan planner.ExecutionPlan) bool {
 		return false
 	}
 	switch plan.Intent.Kind {
-	case intent.KindGet, intent.KindExplain, intent.KindInvestigate, intent.KindWhy, intent.KindLogs, intent.KindDescribe, intent.KindPerformance, intent.KindTrace, intent.KindDashboard, intent.KindOptimize, intent.KindGraph, intent.KindIstio, intent.KindGitOps:
+	case intent.KindGet, intent.KindExplain, intent.KindInvestigate, intent.KindWhy, intent.KindTimeline, intent.KindLogs, intent.KindDescribe, intent.KindPerformance, intent.KindTrace, intent.KindDashboard, intent.KindOptimize, intent.KindGraph, intent.KindIstio, intent.KindGitOps:
 		return true
 	default:
 		return false
@@ -1165,6 +1183,28 @@ func whyFromPlan(plan planner.ExecutionPlan, prompt string) (why.Request, error)
 		Kind:      a.Object.Kind,
 		Prompt:    prompt,
 	}, nil
+}
+
+func timelineFromPlan(plan planner.ExecutionPlan, prompt string) (timeline.Request, error) {
+	if len(plan.Actions) == 0 {
+		return timeline.Request{}, fmt.Errorf("timeline plan has no actions")
+	}
+	a := plan.Actions[0]
+	if a.Object.Name == "" {
+		return timeline.Request{}, fmt.Errorf("timeline requires a named target")
+	}
+	req := timeline.Request{
+		Name:      a.Object.Name,
+		Namespace: a.Object.Namespace,
+		Kind:      a.Object.Kind,
+		Prompt:    prompt,
+	}
+	if w, ok := plan.Intent.Window(); ok {
+		if parsed, err := time.ParseDuration(w); err == nil {
+			req.Window = parsed
+		}
+	}
+	return req, nil
 }
 
 func logsFromPlan(plan planner.ExecutionPlan) (cluster.LogsRequest, error) {

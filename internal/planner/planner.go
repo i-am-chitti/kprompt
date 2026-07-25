@@ -39,6 +39,8 @@ func Build(in intent.Intent) (ExecutionPlan, error) {
 		return buildInvestigate(in, ns)
 	case intent.KindWhy:
 		return buildWhy(in, ns)
+	case intent.KindTimeline:
+		return buildTimeline(in, ns)
 	case intent.KindLogs:
 		return buildLogs(in, ns)
 	case intent.KindDescribe:
@@ -242,6 +244,41 @@ func buildWhy(in intent.Intent, ns string) (ExecutionPlan, error) {
 		kind = "Deployment"
 	}
 	summary := fmt.Sprintf("Why %s/%s in %s (symptom → proximate → root)", kind, name, ns)
+	return ExecutionPlan{
+		Intent: in,
+		Actions: []Action{{
+			Op: OpGet,
+			Object: ObjectRef{
+				Kind:      kind,
+				Name:      name,
+				Namespace: ns,
+			},
+			Diff: summary,
+		}},
+		Summary:          summary,
+		RequiresApproval: false,
+	}, nil
+}
+
+func buildTimeline(in intent.Intent, ns string) (ExecutionPlan, error) {
+	name := strings.TrimSpace(in.Target.Name)
+	if name == "" {
+		return ExecutionPlan{}, fmt.Errorf("timeline intent missing target.name")
+	}
+	kind := first(in.Target.Kind, "Deployment")
+	kind = cluster.NormalizeKind(kind)
+	if kind != "Pod" && kind != "Deployment" {
+		kind = "Deployment"
+	}
+	window := "1h"
+	if w, ok := in.Window(); ok && strings.TrimSpace(w) != "" {
+		window = w
+	}
+	if in.Params == nil {
+		in.Params = map[string]any{}
+	}
+	in.Params["window"] = window
+	summary := fmt.Sprintf("Timeline for %s/%s in %s (Events→ReplicaSets→HPA, window=%s)", kind, name, ns, window)
 	return ExecutionPlan{
 		Intent: in,
 		Actions: []Action{{

@@ -25,6 +25,7 @@ kprompt "list configmaps" -n default
 kprompt "get secret db-creds" -n prod
 kprompt "explain why payment-api is crashing"
 kprompt "why is ledger Pending" -n payments
+kprompt "timeline for api" -n payments
 kprompt "investigate api" -n payments
 kprompt "why is my api slow?" -n production
 kprompt "optimize my cluster"
@@ -37,7 +38,7 @@ kprompt agent run -n payments --health --heuristic   # Observe agent (local)
 
 In-cluster Observe agent (Helm): [docs/agent.md](./docs/agent.md) · [`charts/kprompt-agent`](./charts/kprompt-agent).
 
-Want a cluster to try it against? [kprompt-examples](https://github.com/kprompt/kprompt-examples) spins up kind with deliberately broken workloads — `make up && make break SCENARIO=01-crashloop`. Multi-hop RCA: [docs/investigate.md](./docs/investigate.md). Causal why: [docs/why.md](./docs/why.md).
+Want a cluster to try it against? [kprompt-examples](https://github.com/kprompt/kprompt-examples) spins up kind with deliberately broken workloads — `make up && make break SCENARIO=01-crashloop`. Multi-hop RCA: [docs/investigate.md](./docs/investigate.md). Causal why: [docs/why.md](./docs/why.md). Timeline: [docs/timeline.md](./docs/timeline.md).
 
 Generic get/list works for discoverable built-ins and CRDs (Node, ConfigMap, Secret, …). See [docs/kubernetes-reads.md](./docs/kubernetes-reads.md).
 

@@ -6,6 +6,7 @@ import (
 	"sort"
 	"strings"
 	"text/tabwriter"
+	"time"
 
 	"github.com/kprompt/kprompt/internal/cluster"
 	"github.com/kprompt/kprompt/internal/graph"
@@ -887,6 +888,28 @@ func PrintInvestigation(w io.Writer, inv incident.Investigation, rep cluster.Exp
 		fmt.Fprintln(w, t.Heading("Findings:"))
 		for _, f := range inv.Findings {
 			fmt.Fprintf(w, "  - [%s] %s: %s\n", t.Severity(f.Severity), t.Accent(f.Code), f.Message)
+		}
+	}
+	if len(inv.Timeline) > 0 {
+		fmt.Fprintln(w, t.Heading("Timeline:"))
+		for _, e := range inv.Timeline {
+			ts := ""
+			if e.Timestamp != nil {
+				ts = e.Timestamp.UTC().Format(time.RFC3339) + " "
+			}
+			res := ""
+			if e.Resource != nil {
+				res = fmt.Sprintf("%s/%s ", e.Resource.Kind, e.Resource.Name)
+			}
+			msg := strings.TrimSpace(e.Message)
+			if msg == "" {
+				msg = e.Reason
+			}
+			label := e.Reason
+			if label == "" {
+				label = e.Type
+			}
+			fmt.Fprintf(w, "  - %s%s%s — %s\n", t.Muted(ts), res, label, t.Muted(msg))
 		}
 	}
 	if inv.SuggestedPlanHint != "" {
