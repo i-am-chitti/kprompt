@@ -15,11 +15,13 @@ import (
 
 // LogsRequest fetches a short log tail for a Pod or Deployment.
 type LogsRequest struct {
-	Name      string
-	Namespace string
-	Kind      string // Pod or Deployment
-	Tail      int64  // lines (default 100)
-	Container string // optional
+	Name         string
+	Namespace    string
+	Kind         string // Pod or Deployment
+	Tail         int64  // lines (default 100)
+	Container    string // optional
+	Previous     bool   // prior terminated container (CrashLoop)
+	SinceSeconds int64  // optional time window; 0 = disabled
 }
 
 // LogsResult is a printable log tail.
@@ -81,6 +83,13 @@ func (r *LogReader) Logs(ctx context.Context, req LogsRequest) (LogsResult, erro
 	opts := &corev1.PodLogOptions{TailLines: &tail}
 	if container != "" {
 		opts.Container = container
+	}
+	if req.Previous {
+		opts.Previous = true
+	}
+	if req.SinceSeconds > 0 {
+		sec := req.SinceSeconds
+		opts.SinceSeconds = &sec
 	}
 	stream, err := r.Client.CoreV1().Pods(ns).GetLogs(podName, opts).Stream(ctx)
 	if err != nil {

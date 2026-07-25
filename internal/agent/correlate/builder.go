@@ -182,6 +182,24 @@ func (b *Builder) OpenIncidents() []incident.Incident {
 	return out
 }
 
+// SyncIncident replaces an open incident by id (e.g. after attaching on-demand logs).
+func (b *Builder) SyncIncident(inc incident.Incident) (incident.Incident, bool) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	for key, cur := range b.open {
+		if cur.ID != inc.ID {
+			continue
+		}
+		next := cloneIncident(&inc)
+		if next.Status == "" {
+			next.Status = incident.StatusOpen
+		}
+		b.open[key] = &next
+		return cloneIncident(&next), true
+	}
+	return inc, false
+}
+
 func (b *Builder) openNewLocked(key string, ev agentwatch.Event, now time.Time, kind string) Change {
 	b.seq++
 	id := fmt.Sprintf("inc-%d", b.seq)
