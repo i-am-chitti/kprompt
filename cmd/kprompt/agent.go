@@ -12,6 +12,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/kprompt/kprompt/internal/agent/correlate"
 	agentwatch "github.com/kprompt/kprompt/internal/agent/watch"
 	"github.com/kprompt/kprompt/internal/cluster"
 )
@@ -28,19 +29,21 @@ func newAgentCmd() *cobra.Command {
 
 func newAgentRunCmd() *cobra.Command {
 	var (
-		ns         string
-		kubeCtx    string
-		inCluster  bool
-		emitJSON   bool
+		ns          string
+		kubeCtx     string
+		inCluster   bool
+		emitJSON    bool
 		emitInitial bool
-		duration   time.Duration
+		incidents   bool
+		duration    time.Duration
 	)
 	cmd := &cobra.Command{
 		Use:   "run",
 		Short: "Watch Pods and Events in a namespace (no LLM)",
-		Long: `Start the AG-003 watch engine for one namespace.
+		Long: `Start the Observe watch engine for one namespace.
 
-Prints Pod and Event changes until interrupted. Observe Mode only — no apply/patch/delete.`,
+Prints Pod and Event changes until interrupted. With --incidents, correlates
+problem signals into Incident objects (AG-006). Observe Mode only — no apply/patch/delete.`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			ns = strings.TrimSpace(ns)
 			if ns == "" {
@@ -59,7 +62,24 @@ Prints Pod and Event changes until interrupted. Observe Mode only — no apply/p
 			}
 
 			out := cmd.OutOrStdout()
+			var builder *correlate.Builder
+			if incidents {
+				builder = correlate.NewBuilder(correlate.Options{Namespace: ns})
+			}
+
 			handler := func(ev agentwatch.Event) {
+				if builder != nil {
+					if ch, ok := builder.Ingest(ev); ok {
+						if emitJSON {
+							_ = json.NewEncoder(out).Encode(ch)
+						} else {
+							fmt.Fprintf(out, "incident %s id=%s severity=%s status=%s summary=%s evidence=%d\n",
+								ch.Kind, ch.Incident.ID, ch.Incident.Severity, ch.Incident.Status,
+								ch.Incident.Summary, len(ch.Incident.Evidence))
+						}
+					}
+					return
+				}
 				if emitJSON {
 					_ = json.NewEncoder(out).Encode(ev)
 					return
@@ -94,7 +114,34 @@ Prints Pod and Event changes until interrupted. Observe Mode only — no apply/p
 				defer stop()
 			}
 
-			fmt.Fprintf(cmd.ErrOrStderr(), "kprompt agent watching namespace %q (Pods+Events, read-only)…\n", ns)
+			mode := "Pods+Events"
+			if incidents {
+				mode = "Pods+Events → Incidents"
+			}
+			fmt.Fprintf(cmd.ErrOrStderr(), "kprompt agent watching namespace %q (%s, read-only)…\n", ns, mode)
+
+			if builder != nil {
+				go func() {
+					t := time.NewTicker(30 * time.Second)
+					defer t.Stop()
+					for {
+						select {
+						case <-runCtx.Done():
+							return
+						case <-t.C:
+							for _, ch := range builder.Sweep() {
+								if emitJSON {
+									_ = json.NewEncoder(out).Encode(ch)
+								} else {
+									fmt.Fprintf(out, "incident %s id=%s status=%s summary=%s\n",
+										ch.Kind, ch.Incident.ID, ch.Incident.Status, ch.Incident.Summary)
+								}
+							}
+						}
+					}
+				}()
+			}
+
 			err = eng.Run(runCtx)
 			if err == context.Canceled || err == context.DeadlineExceeded {
 				return nil
@@ -105,8 +152,9 @@ Prints Pod and Event changes until interrupted. Observe Mode only — no apply/p
 	cmd.Flags().StringVarP(&ns, "namespace", "n", "", "namespace to watch (required)")
 	cmd.Flags().StringVar(&kubeCtx, "context", "", "kubeconfig context (ignored with --in-cluster)")
 	cmd.Flags().BoolVar(&inCluster, "in-cluster", false, "use InClusterConfig (ServiceAccount)")
-	cmd.Flags().BoolVar(&emitJSON, "json", false, "emit one JSON Event per line")
+	cmd.Flags().BoolVar(&emitJSON, "json", false, "emit one JSON object per line")
 	cmd.Flags().BoolVar(&emitInitial, "emit-initial", false, "emit current Pods/Events as Added before live watch")
+	cmd.Flags().BoolVar(&incidents, "incidents", false, "correlate problem signals into Incident changes (AG-006)")
 	cmd.Flags().DurationVar(&duration, "duration", 0, "stop after duration (0 = until signal); useful for e2e")
 	_ = cmd.MarkFlagRequired("namespace")
 	return cmd
