@@ -58,3 +58,11 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 {{- define "kprompt-agent.secretName" -}}
 {{- .Values.secret.name }}
 {{- end }}
+
+{{- define "kprompt-agent.agentCRNamespace" -}}
+{{- if .Values.agentCR.namespace }}
+{{- .Values.agentCR.namespace }}
+{{- else }}
+{{- include "kprompt-agent.watchNamespace" . }}
+{{- end }}
+{{- end }}

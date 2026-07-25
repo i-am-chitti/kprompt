@@ -41,5 +41,9 @@ helm upgrade --install kprompt-agent ./charts/kprompt-agent \
 | `agent.slack` / `agent.webhook` | `false` | Enable notifiers |
 | `secret.name` | `kprompt-agent` | Env-from Secret |
 | `rbac.create` | `true` | Namespace Role (get/list/watch) |
+| `agentCR.name` | `""` | Patch `KpromptAgent.status` (AG-013) |
+| `agentCR.create` | `false` | Also create the CR from values |
+
+The chart installs the `KpromptAgent` CRD from [`crds/`](./crds). Sample: [`config/samples/kpromptagent.yaml`](../../config/samples/kpromptagent.yaml).
 
 See [values.yaml](./values.yaml) and [docs/agent.md](../../docs/agent.md).

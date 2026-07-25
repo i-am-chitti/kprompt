@@ -20,4 +20,10 @@ rules:
   - apiGroups: [""]
     resources: ["persistentvolumeclaims"]
     verbs: ["get", "list", "watch"]
+  {{- if .Values.agentCR.name }}
+  # Status-only write on the opted-in KpromptAgent (AG-013). No workload mutate.
+  - apiGroups: ["kprompt.ai"]
+    resources: ["kpromptagents", "kpromptagents/status"]
+    verbs: ["get", "list", "watch", "patch", "update"]
+  {{- end }}
 {{- end }}

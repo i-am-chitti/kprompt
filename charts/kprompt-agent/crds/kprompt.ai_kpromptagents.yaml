@@ -1,0 +1,175 @@
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: kpromptagents.kprompt.ai
+  labels:
+    app.kubernetes.io/name: kprompt-agent
+    app.kubernetes.io/part-of: kprompt
+spec:
+  group: kprompt.ai
+  scope: Namespaced
+  names:
+    plural: kpromptagents
+    singular: kpromptagent
+    kind: KpromptAgent
+    shortNames:
+      - kpa
+  versions:
+    - name: v1
+      served: true
+      storage: true
+      subresources:
+        status: {}
+      additionalPrinterColumns:
+        - name: Mode
+          type: string
+          jsonPath: .spec.mode
+        - name: Namespace
+          type: string
+          jsonPath: .spec.namespace
+        - name: Health
+          type: integer
+          jsonPath: .status.healthScore
+        - name: Ready
+          type: string
+          jsonPath: .status.conditions[?(@.type=="Ready")].status
+        - name: Age
+          type: date
+          jsonPath: .metadata.creationTimestamp
+      schema:
+        openAPIV3Schema:
+          type: object
+          description: KpromptAgent configures a namespace-scoped Observe agent (ADR-0013).
+          properties:
+            apiVersion:
+              type: string
+            kind:
+              type: string
+            metadata:
+              type: object
+            spec:
+              type: object
+              description: Desired Observe agent configuration.
+              properties:
+                mode:
+                  type: string
+                  description: Runtime mode. Only Observe is supported in V1.
+                  enum: ["Observe"]
+                  default: Observe
+                namespace:
+                  type: string
+                  description: Namespace to watch. Defaults to the CR namespace when empty.
+                  minLength: 1
+                watches:
+                  type: array
+                  description: Resources to watch (empty → pods + events).
+                  items:
+                    type: string
+                    enum: ["pods", "events", "deployments", "replicasets", "jobs", "cronjobs", "statefulsets", "pvc", "configmaps"]
+                llm:
+                  type: object
+                  properties:
+                    provider:
+                      type: string
+                      description: LLM provider id (openai, anthropic, …).
+                      default: openai
+                    model:
+                      type: string
+                    heuristic:
+                      type: boolean
+                      description: When true, skip LLM and use local heuristics.
+                      default: false
+                notify:
+                  type: object
+                  properties:
+                    slack:
+                      type: boolean
+                      default: false
+                    webhook:
+                      type: boolean
+                      default: false
+                severity:
+                  type: object
+                  properties:
+                    minimum:
+                      type: string
+                      enum: ["info", "low", "medium", "high", "critical"]
+                      default: medium
+                    minConfidence:
+                      type: number
+                      minimum: 0
+                      maximum: 1
+                      default: 0.7
+                fetchLogs:
+                  type: boolean
+                  default: true
+                health:
+                  type: boolean
+                  default: true
+                secretRef:
+                  type: object
+                  description: Secret providing LLM / Slack / webhook credentials.
+                  properties:
+                    name:
+                      type: string
+                  required: ["name"]
+                image:
+                  type: object
+                  description: Optional override for the agent container image (Operator AG-014).
+                  properties:
+                    repository:
+                      type: string
+                    tag:
+                      type: string
+              required: ["mode"]
+            status:
+              type: object
+              description: Observed agent state (filled by Operator / status sync).
+              properties:
+                observedGeneration:
+                  type: integer
+                  format: int64
+                healthScore:
+                  type: integer
+                  minimum: 0
+                  maximum: 100
+                healthTrend:
+                  type: string
+                  enum: ["stable", "improving", "risk_increasing"]
+                lastAlert:
+                  type: object
+                  properties:
+                    incidentId:
+                      type: string
+                    severity:
+                      type: string
+                    summary:
+                      type: string
+                    confidence:
+                      type: number
+                    status:
+                      type: string
+                    at:
+                      type: string
+                      format: date-time
+                openIncidents:
+                  type: integer
+                  minimum: 0
+                conditions:
+                  type: array
+                  items:
+                    type: object
+                    required: ["type", "status"]
+                    properties:
+                      type:
+                        type: string
+                      status:
+                        type: string
+                        enum: ["True", "False", "Unknown"]
+                      reason:
+                        type: string
+                      message:
+                        type: string
+                      lastTransitionTime:
+                        type: string
+                        format: date-time

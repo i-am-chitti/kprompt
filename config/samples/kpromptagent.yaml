@@ -1,0 +1,26 @@
+apiVersion: kprompt.ai/v1
+kind: KpromptAgent
+metadata:
+  name: demo
+  namespace: default
+spec:
+  # Only Observe is valid in V1 (ADR-0013). Default in CRD schema is Observe.
+  mode: Observe
+  # Namespace to watch; omit or set to this CR's namespace.
+  namespace: default
+  watches: [] # empty → pods + events (AG-003); expand later (AG-004)
+  llm:
+    provider: openai
+    heuristic: false
+  notify:
+    slack: false
+    webhook: false
+  severity:
+    minimum: medium
+    minConfidence: 0.7
+  fetchLogs: true
+  health: true
+  secretRef:
+    name: kprompt-agent
+# status is filled by Operator (AG-014) or optional status sync:
+#   healthScore, healthTrend, lastAlert, openIncidents, conditions

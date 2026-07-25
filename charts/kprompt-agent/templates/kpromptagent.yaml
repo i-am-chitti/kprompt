@@ -1,0 +1,32 @@
+{{- if and .Values.agentCR.create .Values.agentCR.name -}}
+apiVersion: kprompt.ai/v1
+kind: KpromptAgent
+metadata:
+  name: {{ .Values.agentCR.name | quote }}
+  namespace: {{ include "kprompt-agent.agentCRNamespace" . | quote }}
+  labels:
+    {{- include "kprompt-agent.labels" . | nindent 4 }}
+spec:
+  mode: {{ .Values.agentCR.mode | default "Observe" | quote }}
+  namespace: {{ include "kprompt-agent.watchNamespace" . | quote }}
+  {{- with .Values.agentCR.watches }}
+  watches:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+  llm:
+    provider: {{ .Values.agentCR.llm.provider | default "openai" | quote }}
+    {{- if .Values.agentCR.llm.model }}
+    model: {{ .Values.agentCR.llm.model | quote }}
+    {{- end }}
+    heuristic: {{ .Values.agentCR.llm.heuristic | default false }}
+  notify:
+    slack: {{ .Values.agentCR.notify.slack | default false }}
+    webhook: {{ .Values.agentCR.notify.webhook | default false }}
+  severity:
+    minimum: {{ .Values.agentCR.severity.minimum | default "medium" | quote }}
+    minConfidence: {{ .Values.agentCR.severity.minConfidence | default 0.7 }}
+  fetchLogs: {{ .Values.agentCR.fetchLogs | default true }}
+  health: {{ .Values.agentCR.health | default true }}
+  secretRef:
+    name: {{ include "kprompt-agent.secretName" . | quote }}
+{{- end }}

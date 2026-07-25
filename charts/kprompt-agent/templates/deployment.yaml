@@ -75,12 +75,28 @@ spec:
             - --model
             - {{ .Values.agent.model | quote }}
             {{- end }}
+            {{- if .Values.agentCR.name }}
+            - --agent-cr
+            - {{ .Values.agentCR.name | quote }}
+            - --agent-cr-namespace
+            - {{ include "kprompt-agent.agentCRNamespace" . | quote }}
+            {{- end }}
             {{- with .Values.agent.extraArgs }}
             {{- toYaml . | nindent 12 }}
             {{- end }}
           env:
             - name: KPROMPT_WATCH_NAMESPACE
               value: {{ include "kprompt-agent.watchNamespace" . | quote }}
+            - name: POD_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+            {{- if .Values.agentCR.name }}
+            - name: KPROMPT_AGENT_CR
+              value: {{ .Values.agentCR.name | quote }}
+            - name: KPROMPT_AGENT_CR_NAMESPACE
+              value: {{ include "kprompt-agent.agentCRNamespace" . | quote }}
+            {{- end }}
           {{- if .Values.envFromSecret }}
           envFrom:
             - secretRef:

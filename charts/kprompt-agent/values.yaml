@@ -69,3 +69,27 @@ affinity: {}
 podAnnotations: {}
 podLabels:
   app.kubernetes.io/component: observe-agent
+
+# Optional: sync health + lastAlert onto a KpromptAgent CR (AG-013).
+# CRD installs from charts/kprompt-agent/crds/ on helm install.
+# Apply a CR from config/samples/kpromptagent.yaml (or templates below).
+agentCR:
+  name: ""
+  # Empty → watchNamespace / release namespace
+  namespace: ""
+  # When true and name is set, also create the KpromptAgent CR from values.
+  create: false
+  mode: Observe
+  watches: []
+  llm:
+    provider: openai
+    model: ""
+    heuristic: false
+  notify:
+    slack: false
+    webhook: false
+  severity:
+    minimum: medium
+    minConfidence: 0.7
+  fetchLogs: true
+  health: true

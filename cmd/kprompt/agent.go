@@ -14,6 +14,7 @@ import (
 
 	"github.com/kprompt/kprompt/internal/agent/analyze"
 	"github.com/kprompt/kprompt/internal/agent/correlate"
+	"github.com/kprompt/kprompt/internal/agent/crdstatus"
 	"github.com/kprompt/kprompt/internal/agent/ctxbuild"
 	"github.com/kprompt/kprompt/internal/agent/health"
 	agentlogs "github.com/kprompt/kprompt/internal/agent/logs"
@@ -56,13 +57,15 @@ func newAgentRunCmd() *cobra.Command {
 		minSeverity   string
 		minConfidence float64
 		duration      time.Duration
+		agentCR       string
+		agentCRNS     string
 	)
 	cmd := &cobra.Command{
 		Use:   "run",
 		Short: "Watch Pods and Events in a namespace (Observe Mode)",
 		Long: `Start the Observe watch engine for one namespace.
 
-Pipeline flags (read-only — never mutate):
+Pipeline flags (read-only — never mutate workload objects):
   --incidents      correlate problem signals into Incidents (AG-006)
   --fetch-logs     on-demand log tail on CrashLoop/Failed/OOM (AG-005)
   --build-context  assemble AgentContext (AG-007)
@@ -70,13 +73,17 @@ Pipeline flags (read-only — never mutate):
   --slack          post gated alerts to Slack threads (AG-009)
   --webhook        POST gated AgentAlert JSON to a URL (AG-010)
   --health         emit namespace health score / risk_increasing (AG-011)
+  --agent-cr       patch KpromptAgent.status (AG-013; health + lastAlert)
 
 Slack credentials from env / mounted Secret:
   KPROMPT_SLACK_BOT_TOKEN + KPROMPT_SLACK_CHANNEL  (preferred, threaded)
   KPROMPT_SLACK_WEBHOOK_URL                        (fallback)
 
 Generic webhook:
-  KPROMPT_WEBHOOK_URL  or  --webhook-url`,
+  KPROMPT_WEBHOOK_URL  or  --webhook-url
+
+KpromptAgent status sync:
+  --agent-cr / KPROMPT_AGENT_CR  (+ optional --agent-cr-namespace)`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			ns = strings.TrimSpace(ns)
 			if ns == "" {
@@ -114,7 +121,23 @@ Generic webhook:
 			var slackClient *agentslack.Client
 			var webhookClient *agentwebhook.Client
 			var healthTracker *health.Tracker
+			var statusSync *crdstatus.Syncer
 			threads := map[string]string{}
+
+			crCfg := crdstatus.FromEnv()
+			if n := strings.TrimSpace(agentCR); n != "" {
+				crCfg.Name = n
+			}
+			if n := strings.TrimSpace(agentCRNS); n != "" {
+				crCfg.Namespace = n
+			}
+			if crCfg.Name != "" {
+				dyn, derr := cluster.DynamicForConfig(clients.Config)
+				if derr != nil {
+					return fmt.Errorf("dynamic client for KpromptAgent status: %w", derr)
+				}
+				statusSync = crdstatus.New(dyn, crCfg)
+			}
 
 			if incidents {
 				builder = correlate.NewBuilder(correlate.Options{Namespace: ns})
@@ -176,6 +199,11 @@ Generic webhook:
 					return
 				}
 				snap := healthTracker.Evaluate(cmd.Context(), builder.OpenIncidents())
+				if statusSync != nil {
+					if err := statusSync.PatchHealth(cmd.Context(), snap); err != nil {
+						fmt.Fprintf(cmd.ErrOrStderr(), "kpromptagent status health: %v\n", err)
+					}
+				}
 				if emitJSON {
 					_ = json.NewEncoder(out).Encode(snap)
 					return
@@ -219,6 +247,11 @@ Generic webhook:
 						if webhookClient != nil && outcome.PassedGate {
 							if err := webhookClient.Notify(cmd.Context(), outcome.Alert); err != nil {
 								fmt.Fprintf(cmd.ErrOrStderr(), "webhook notify error: %v\n", err)
+							}
+						}
+						if statusSync != nil && outcome.PassedGate {
+							if err := statusSync.PatchAlert(cmd.Context(), outcome.Alert); err != nil {
+								fmt.Fprintf(cmd.ErrOrStderr(), "kpromptagent status alert: %v\n", err)
 							}
 						}
 						if emitJSON {
@@ -378,6 +411,8 @@ Generic webhook:
 	cmd.Flags().BoolVar(&notifyWebhook, "webhook", false, "POST gated AgentAlert JSON to webhook URL (AG-010; enables --analyze)")
 	cmd.Flags().StringVar(&webhookURL, "webhook-url", "", "override KPROMPT_WEBHOOK_URL for --webhook")
 	cmd.Flags().BoolVar(&trackHealth, "health", false, "emit namespace health score and risk_increasing trends (AG-011; enables --incidents)")
+	cmd.Flags().StringVar(&agentCR, "agent-cr", "", "KpromptAgent name to patch status (AG-013; or KPROMPT_AGENT_CR)")
+	cmd.Flags().StringVar(&agentCRNS, "agent-cr-namespace", "", "namespace of --agent-cr (default: POD_NAMESPACE / default)")
 	cmd.Flags().BoolVar(&heuristic, "heuristic", false, "with --analyze, skip LLM and use local heuristics only")
 	cmd.Flags().StringVar(&providerName, "provider", "", "LLM provider for --analyze (default from config)")
 	cmd.Flags().StringVar(&modelName, "model", "", "LLM model for --analyze (default from config)")
