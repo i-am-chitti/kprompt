@@ -48,6 +48,19 @@ func Connect(contextName string) (*Clients, error) {
 	return &Clients{Clientset: cs, Context: ctx, Config: restCfg}, nil
 }
 
+// ConnectInCluster builds a clientset from the pod ServiceAccount (Observe agent).
+func ConnectInCluster() (*Clients, error) {
+	restCfg, err := rest.InClusterConfig()
+	if err != nil {
+		return nil, Friendlier(fmt.Errorf("in-cluster config: %w", err))
+	}
+	cs, err := kubernetes.NewForConfig(restCfg)
+	if err != nil {
+		return nil, Friendlier(fmt.Errorf("kubernetes clientset: %w", err))
+	}
+	return &Clients{Clientset: cs, Context: "in-cluster", Config: restCfg}, nil
+}
+
 // EnsureContext verifies a kubeconfig context exists (before apply / connect).
 func EnsureContext(contextName string) error {
 	if contextName == "" {

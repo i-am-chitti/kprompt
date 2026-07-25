@@ -105,6 +105,7 @@ func main() {
 	root.AddCommand(newContextsCmd())
 	root.AddCommand(newDoctorCmd())
 	root.AddCommand(newDashCmd())
+	root.AddCommand(newAgentCmd())
 	root.AddCommand(newHistoryCmd())
 	root.AddCommand(newToolsCmd())
 	root.AddCommand(newLoginCmd())
