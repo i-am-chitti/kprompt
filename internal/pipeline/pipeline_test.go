@@ -721,7 +721,7 @@ func TestMultiToolRoutePreflightsAllStepsBeforeMutation(t *testing.T) {
 	client := fake.NewSimpleClientset(deployment("api", "default", 1))
 	err := RunWith(context.Background(), config.Resolved{
 		Approve: true,
-		Prompt:  "scale api to 3 then investigate something unsupported",
+		Prompt:  "scale api to 3 then do something unsupported",
 	}, io.Discard, Deps{
 		Provider: provider,
 		Client:   client,
@@ -989,6 +989,79 @@ func TestExplainOOMSuggestsPatchWithApprove(t *testing.T) {
 	got := dep.Spec.Template.Spec.Containers[0].Resources.Limits[corev1.ResourceMemory]
 	if got.Cmp(resource.MustParse("128Mi")) != 0 {
 		t.Fatalf("memory limit after patch = %s", got.String())
+	}
+}
+
+func TestPipelineInvestigateEmitsInvestigation(t *testing.T) {
+	ns := "payments"
+	labels := map[string]string{"app": "api"}
+	var replicas int32 = 1
+	client := fake.NewSimpleClientset(
+		&appsv1.Deployment{
+			ObjectMeta: metav1.ObjectMeta{Name: "api", Namespace: ns, UID: "dep1"},
+			Spec: appsv1.DeploymentSpec{
+				Replicas: &replicas,
+				Selector: &metav1.LabelSelector{MatchLabels: labels},
+				Template: corev1.PodTemplateSpec{
+					ObjectMeta: metav1.ObjectMeta{Labels: labels},
+					Spec:       corev1.PodSpec{Containers: []corev1.Container{{Name: "api", Image: "busybox"}}},
+				},
+			},
+			Status: appsv1.DeploymentStatus{ReadyReplicas: 0, UnavailableReplicas: 1},
+		},
+		&appsv1.ReplicaSet{
+			ObjectMeta: metav1.ObjectMeta{
+				Name: "api-rs", Namespace: ns,
+				OwnerReferences: []metav1.OwnerReference{{
+					APIVersion: "apps/v1", Kind: "Deployment", Name: "api", UID: "dep1",
+				}},
+			},
+			Spec: appsv1.ReplicaSetSpec{
+				Replicas: &replicas,
+				Selector: &metav1.LabelSelector{MatchLabels: labels},
+			},
+		},
+		&corev1.Pod{
+			ObjectMeta: metav1.ObjectMeta{Name: "api-1", Namespace: ns, Labels: labels},
+			Status: corev1.PodStatus{
+				Phase: corev1.PodRunning,
+				ContainerStatuses: []corev1.ContainerStatus{{
+					Name: "api", Ready: false, RestartCount: 3,
+					State: corev1.ContainerState{Waiting: &corev1.ContainerStateWaiting{Reason: "CrashLoopBackOff"}},
+				}},
+			},
+		},
+		&corev1.Service{
+			ObjectMeta: metav1.ObjectMeta{Name: "api", Namespace: ns},
+			Spec:       corev1.ServiceSpec{Selector: labels, Ports: []corev1.ServicePort{{Port: 80}}},
+		},
+		&corev1.Endpoints{ObjectMeta: metav1.ObjectMeta{Name: "api", Namespace: ns}},
+	)
+	var out bytes.Buffer
+	var got output.PlanResult
+	err := RunWith(context.Background(), config.Resolved{
+		Namespace: ns,
+		Prompt:    "investigate api in payments",
+		Output:    "json",
+	}, &out, Deps{
+		Provider: llm.InvestigateStub("api", ns, "Deployment"),
+		Client:   client,
+		OnResult: func(r output.PlanResult) { got = r },
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got.Result) == 0 {
+		t.Fatal("expected investigation JSON result")
+	}
+	if !bytes.Contains(got.Result, []byte(`"kind":"Investigation"`)) && !bytes.Contains(got.Result, []byte(`"kind": "Investigation"`)) {
+		// json.Marshal doesn't add spaces
+		if !bytes.Contains(got.Result, []byte(`"Investigation"`)) {
+			t.Fatalf("result: %s", string(got.Result))
+		}
+	}
+	if !bytes.Contains(got.Result, []byte("NoReadyEndpoints")) && !bytes.Contains(got.Result, []byte("CrashLoopBackOff")) {
+		t.Fatalf("expected findings in result: %s", string(got.Result))
 	}
 }
 

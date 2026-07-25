@@ -6,6 +6,7 @@ import (
 
 	"github.com/kprompt/kprompt/internal/cluster"
 	"github.com/kprompt/kprompt/internal/graph"
+	"github.com/kprompt/kprompt/internal/incident"
 	"github.com/kprompt/kprompt/internal/optimize"
 	"github.com/kprompt/kprompt/internal/planner"
 	"github.com/kprompt/kprompt/internal/safety"
@@ -215,6 +216,13 @@ func (r PlanResult) WithExplainResult(rep cluster.ExplainReport) PlanResult {
 		payload["log_container"] = rep.LogContainer
 	}
 	raw, _ := json.Marshal(payload)
+	r.Result = raw
+	return r
+}
+
+// WithInvestigationResult attaches an ADR-0014 Investigation document (S-002).
+func (r PlanResult) WithInvestigationResult(inv incident.Investigation) PlanResult {
+	raw, _ := json.Marshal(inv)
 	r.Result = raw
 	return r
 }

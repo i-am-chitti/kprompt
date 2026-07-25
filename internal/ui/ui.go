@@ -9,6 +9,7 @@ import (
 
 	"github.com/kprompt/kprompt/internal/cluster"
 	"github.com/kprompt/kprompt/internal/graph"
+	"github.com/kprompt/kprompt/internal/incident"
 	"github.com/kprompt/kprompt/internal/optimize"
 	"github.com/kprompt/kprompt/internal/output"
 	"github.com/kprompt/kprompt/internal/planner"
@@ -853,6 +854,49 @@ func PrintExplain(w io.Writer, rep cluster.ExplainReport) {
 	}
 	if strings.TrimSpace(rep.LogTail) != "" {
 		header := fmt.Sprintf("Log tail: Pod/%s -n %s", rep.LogPod, rep.Namespace)
+		if rep.LogContainer != "" {
+			header += " container=" + rep.LogContainer
+		}
+		fmt.Fprintln(w, t.Heading(header))
+		fmt.Fprintln(w, t.Muted(strings.TrimRight(rep.LogTail, "\n")))
+	}
+}
+
+// PrintInvestigation prints an ADR-0014 Investigation (S-002 multi-hop RCA).
+func PrintInvestigation(w io.Writer, inv incident.Investigation, rep cluster.ExplainReport) {
+	t := themeFor(w)
+	target := "workload"
+	if inv.Target != nil {
+		target = fmt.Sprintf("%s/%s", inv.Target.Kind, inv.Target.Name)
+	}
+	fmt.Fprintf(w, "%s %s\n", t.Heading("Investigation:"), t.Accent(target)+fmt.Sprintf(" -n %s", inv.Namespace))
+	fmt.Fprintf(w, "%s %s\n", t.Heading("Summary:"), inv.Summary)
+	if inv.RootCause != "" {
+		fmt.Fprintf(w, "%s %s\n", t.Heading("Root cause:"), inv.RootCause)
+	}
+	if inv.Confidence > 0 {
+		fmt.Fprintf(w, "%s %.0f%%\n", t.Heading("Confidence:"), inv.Confidence*100)
+	}
+	if len(rep.Chain) > 0 {
+		fmt.Fprintln(w, t.Heading("Hop chain:"))
+		for _, step := range rep.Chain {
+			fmt.Fprintf(w, "  - %s/%s — %s\n", step.Level, step.Name, t.Muted(step.Detail))
+		}
+	}
+	if len(inv.Findings) > 0 {
+		fmt.Fprintln(w, t.Heading("Findings:"))
+		for _, f := range inv.Findings {
+			fmt.Fprintf(w, "  - [%s] %s: %s\n", t.Severity(f.Severity), t.Accent(f.Code), f.Message)
+		}
+	}
+	if inv.SuggestedPlanHint != "" {
+		fmt.Fprintf(w, "%s %s\n", t.Heading("Suggested plan:"), t.Muted(inv.SuggestedPlanHint))
+	}
+	if len(inv.Degraded) > 0 {
+		fmt.Fprintf(w, "%s %s\n", t.Heading("Degraded (not walked):"), t.Muted(strings.Join(inv.Degraded, ", ")))
+	}
+	if strings.TrimSpace(rep.LogTail) != "" {
+		header := fmt.Sprintf("Log tail: Pod/%s -n %s", rep.LogPod, inv.Namespace)
 		if rep.LogContainer != "" {
 			header += " container=" + rep.LogContainer
 		}

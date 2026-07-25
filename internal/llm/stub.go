@@ -144,6 +144,23 @@ func ExplainStub(name, namespace, resourceKind string) *Stub {
 	return &Stub{Structured: payload}
 }
 
+// InvestigateStub returns a Stub that classifies an investigate intent (S-002).
+func InvestigateStub(name, namespace, resourceKind string) *Stub {
+	if resourceKind == "" {
+		resourceKind = "Deployment"
+	}
+	payload, _ := json.Marshal(map[string]any{
+		"kind": "investigate",
+		"target": map[string]any{
+			"name":      name,
+			"namespace": namespace,
+			"kind":      resourceKind,
+		},
+		"confidence": 1.0,
+	})
+	return &Stub{Structured: payload}
+}
+
 // PerformanceStub returns a Stub that classifies a metrics-backed diagnosis.
 func PerformanceStub(name, namespace, window string) *Stub {
 	params := map[string]any{}

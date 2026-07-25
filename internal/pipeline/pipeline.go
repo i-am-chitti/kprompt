@@ -19,6 +19,7 @@ import (
 	"github.com/kprompt/kprompt/internal/graph"
 	"github.com/kprompt/kprompt/internal/history"
 	"github.com/kprompt/kprompt/internal/intent"
+	"github.com/kprompt/kprompt/internal/investigate"
 	"github.com/kprompt/kprompt/internal/llm"
 	"github.com/kprompt/kprompt/internal/optimize"
 	"github.com/kprompt/kprompt/internal/output"
@@ -605,6 +606,57 @@ func RunWith(ctx context.Context, cfg config.Resolved, out io.Writer, deps Deps)
 			ui.PrintApplied(out, patch)
 			applied = true
 			return nil
+		case intent.KindInvestigate:
+			req, err := investigateFromPlan(plan, cfg.Prompt)
+			if err != nil {
+				return err
+			}
+			invDoc, rep, err := (&investigate.Investigator{Client: client}).Run(ctx, req)
+			if err != nil {
+				return cluster.Friendlier(fmt.Errorf("investigate: %w", err))
+			}
+			doc = doc.WithInvestigationResult(invDoc)
+			if jsonMode {
+				applied = true
+				return nil
+			}
+			ui.PrintInvestigation(out, invDoc, rep)
+
+			suggestions, err := suggest.FromExplain(ctx, client, rep)
+			if err != nil {
+				return cluster.Friendlier(fmt.Errorf("suggest: %w", err))
+			}
+			ui.PrintSuggestions(out, suggestions)
+
+			actionable := suggest.ActionablePlans(suggestions)
+			if len(actionable) == 0 {
+				applied = true
+				return nil
+			}
+			patch := *actionable[0].Plan
+			patchRisk := safety.EvaluatePlanWithOrg(patch, loadOrgPolicy())
+			if patchRisk.Denied {
+				ui.PrintDenied(out, patchRisk.Message)
+				applied = true
+				return nil
+			}
+			fmt.Fprintln(out, "Suggested fix (requires approval):")
+			ui.PrintPlan(out, patch, patchRisk)
+			approved, err := resolveApproval(cfg.Approve, out, deps)
+			if err != nil {
+				return err
+			}
+			if !approved {
+				applied = true
+				return nil
+			}
+			runner := &executor.Runner{Client: client}
+			if err := runner.Apply(ctx, patch); err != nil {
+				return cluster.Friendlier(fmt.Errorf("apply suggested patch: %w", err))
+			}
+			ui.PrintApplied(out, patch)
+			applied = true
+			return nil
 		case intent.KindLogs:
 			req, err := logsFromPlan(plan)
 			if err != nil {
@@ -905,7 +957,7 @@ func isReadOnly(plan planner.ExecutionPlan) bool {
 		return false
 	}
 	switch plan.Intent.Kind {
-	case intent.KindGet, intent.KindExplain, intent.KindLogs, intent.KindDescribe, intent.KindPerformance, intent.KindTrace, intent.KindDashboard, intent.KindOptimize, intent.KindGraph, intent.KindIstio, intent.KindGitOps:
+	case intent.KindGet, intent.KindExplain, intent.KindInvestigate, intent.KindLogs, intent.KindDescribe, intent.KindPerformance, intent.KindTrace, intent.KindDashboard, intent.KindOptimize, intent.KindGraph, intent.KindIstio, intent.KindGitOps:
 		return true
 	default:
 		return false
@@ -1062,6 +1114,22 @@ func explainFromPlan(plan planner.ExecutionPlan) (cluster.ExplainRequest, error)
 		Name:      a.Object.Name,
 		Namespace: a.Object.Namespace,
 		Kind:      a.Object.Kind,
+	}, nil
+}
+
+func investigateFromPlan(plan planner.ExecutionPlan, prompt string) (investigate.Request, error) {
+	if len(plan.Actions) == 0 {
+		return investigate.Request{}, fmt.Errorf("investigate plan has no actions")
+	}
+	a := plan.Actions[0]
+	if a.Object.Name == "" {
+		return investigate.Request{}, fmt.Errorf("investigate requires a named target")
+	}
+	return investigate.Request{
+		Name:      a.Object.Name,
+		Namespace: a.Object.Namespace,
+		Kind:      a.Object.Kind,
+		Prompt:    prompt,
 	}, nil
 }
 

@@ -338,7 +338,7 @@ func normalizeResult(res *Result, inc incident.Incident) {
 		res.RootCause = "Unknown"
 	}
 	if strings.TrimSpace(res.Recommendation) == "" {
-		res.Recommendation = "Investigate with kprompt explain / kubectl describe"
+		res.Recommendation = "Investigate with kprompt \"investigate <workload>\" or explain / kubectl describe"
 	}
 }
 

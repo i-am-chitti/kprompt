@@ -158,6 +158,22 @@ func TestBuildExplainRequiresName(t *testing.T) {
 	}
 }
 
+func TestBuildInvestigate(t *testing.T) {
+	plan, err := Build(intent.Intent{
+		Kind:   intent.KindInvestigate,
+		Target: intent.Target{Name: "api", Namespace: "payments", Kind: "Deployment"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if plan.RequiresApproval {
+		t.Fatal("investigate is read-only")
+	}
+	if !strings.Contains(plan.Summary, "Service→Endpoints") {
+		t.Fatalf("summary: %s", plan.Summary)
+	}
+}
+
 func TestBuildRollback(t *testing.T) {
 	plan, err := Build(intent.Intent{
 		Kind:   intent.KindRollback,

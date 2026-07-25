@@ -35,6 +35,8 @@ func Build(in intent.Intent) (ExecutionPlan, error) {
 		return buildGet(in, ns)
 	case intent.KindExplain:
 		return buildExplain(in, ns)
+	case intent.KindInvestigate:
+		return buildInvestigate(in, ns)
 	case intent.KindLogs:
 		return buildLogs(in, ns)
 	case intent.KindDescribe:
@@ -184,6 +186,33 @@ func buildExplain(in intent.Intent, ns string) (ExecutionPlan, error) {
 		kind = "Deployment"
 	}
 	summary := fmt.Sprintf("Explain %s/%s in %s (deployment chain + events + logs)", kind, name, ns)
+	return ExecutionPlan{
+		Intent: in,
+		Actions: []Action{{
+			Op: OpGet,
+			Object: ObjectRef{
+				Kind:      kind,
+				Name:      name,
+				Namespace: ns,
+			},
+			Diff: summary,
+		}},
+		Summary:          summary,
+		RequiresApproval: false,
+	}, nil
+}
+
+func buildInvestigate(in intent.Intent, ns string) (ExecutionPlan, error) {
+	name := strings.TrimSpace(in.Target.Name)
+	if name == "" {
+		return ExecutionPlan{}, fmt.Errorf("investigate intent missing target.name")
+	}
+	kind := first(in.Target.Kind, "Deployment")
+	kind = cluster.NormalizeKind(kind)
+	if kind != "Pod" && kind != "Deployment" {
+		kind = "Deployment"
+	}
+	summary := fmt.Sprintf("Investigate %s/%s in %s (Service→Endpoints→Deployment→Pods→Events→Logs)", kind, name, ns)
 	return ExecutionPlan{
 		Intent: in,
 		Actions: []Action{{
