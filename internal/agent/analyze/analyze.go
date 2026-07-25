@@ -237,16 +237,22 @@ func Heuristic(agentCtx ctxbuild.AgentContext) Result {
 		root = "Likely memory limit exceeded (OOMKilled)"
 		rec = "Raise memory limit/request or fix memory leak; check recent traffic/deploy"
 		conf = 0.85
-	case strings.Contains(blob, "crashloop"), strings.Contains(blob, "backoff"):
-		sev = incident.SeverityHigh
-		root = "Container repeatedly crashing (CrashLoopBackOff)"
-		rec = "Check previous container logs and readiness/liveness probes; verify config/secret refs"
-		conf = 0.8
-	case strings.Contains(blob, "imagepull"), strings.Contains(blob, "errimage"):
+	// ImagePullBackOff contains the substring "backoff", so image-pull must win
+	// before the CrashLoop / BackOff branch — otherwise demos mislabel pull failures.
+	case strings.Contains(blob, "imagepull"),
+		strings.Contains(blob, "errimage"),
+		strings.Contains(blob, "failed to pull"),
+		strings.Contains(blob, "manifest unknown"):
 		sev = incident.SeverityHigh
 		root = "Image pull failure"
 		rec = "Verify image name/tag and registry credentials (imagePullSecrets)"
 		conf = 0.85
+	case strings.Contains(blob, "crashloop"),
+		strings.Contains(blob, "backoff"):
+		sev = incident.SeverityHigh
+		root = "Container repeatedly crashing (CrashLoopBackOff)"
+		rec = "Check previous container logs and readiness/liveness probes; verify config/secret refs"
+		conf = 0.8
 	case strings.Contains(blob, "failedscheduling"), strings.Contains(blob, "pending"):
 		sev = incident.SeverityMedium
 		root = "Pod cannot be scheduled"

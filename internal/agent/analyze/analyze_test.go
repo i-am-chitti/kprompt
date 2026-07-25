@@ -3,6 +3,7 @@ package analyze
 import (
 	"context"
 	"encoding/json"
+	"strings"
 	"testing"
 	"time"
 
@@ -19,6 +20,28 @@ func TestHeuristicCrashLoop(t *testing.T) {
 	}}
 	res := Heuristic(ctxbuild.AgentContext{Incident: inc, Namespace: "payments"})
 	if res.Severity != incident.SeverityHigh || res.Confidence < 0.7 {
+		t.Fatalf("%+v", res)
+	}
+	if !strings.Contains(res.RootCause, "CrashLoop") {
+		t.Fatalf("root: %s", res.RootCause)
+	}
+}
+
+func TestHeuristicImagePullBackOffNotCrashLoop(t *testing.T) {
+	// Real Events for a bad tag look like: Reason=BackOff Message=...ImagePullBackOff...
+	// The heuristic used to match "backoff" first and call it a crashloop.
+	inc := incident.NewIncident("inc-pull", "payments", time.Now().UTC())
+	inc.Summary = "BackOff on Pod/worker"
+	inc.Evidence = []incident.EvidenceRef{{
+		Type:    incident.EvidenceEvent,
+		Reason:  "BackOff",
+		Message: `Back-off pulling image "ghcr.io/kprompt/does-not-exist:9.9.9": ImagePullBackOff`,
+	}}
+	res := Heuristic(ctxbuild.AgentContext{Incident: inc, Namespace: "payments"})
+	if res.RootCause != "Image pull failure" {
+		t.Fatalf("want image pull, got %+v", res)
+	}
+	if res.Severity != incident.SeverityHigh || res.Confidence < 0.8 {
 		t.Fatalf("%+v", res)
 	}
 }
