@@ -12,11 +12,14 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/kprompt/kprompt/internal/agent/analyze"
 	"github.com/kprompt/kprompt/internal/agent/correlate"
 	"github.com/kprompt/kprompt/internal/agent/ctxbuild"
 	agentlogs "github.com/kprompt/kprompt/internal/agent/logs"
 	agentwatch "github.com/kprompt/kprompt/internal/agent/watch"
 	"github.com/kprompt/kprompt/internal/cluster"
+	"github.com/kprompt/kprompt/internal/config"
+	"github.com/kprompt/kprompt/internal/llm"
 )
 
 func newAgentCmd() *cobra.Command {
@@ -31,33 +34,43 @@ func newAgentCmd() *cobra.Command {
 
 func newAgentRunCmd() *cobra.Command {
 	var (
-		ns           string
-		kubeCtx      string
-		inCluster    bool
-		emitJSON     bool
-		emitInitial  bool
-		incidents    bool
-		fetchLogs    bool
-		buildContext bool
-		duration     time.Duration
+		ns            string
+		kubeCtx       string
+		inCluster     bool
+		emitJSON      bool
+		emitInitial   bool
+		incidents     bool
+		fetchLogs     bool
+		buildContext  bool
+		doAnalyze     bool
+		heuristic     bool
+		providerName  string
+		modelName     string
+		minSeverity   string
+		minConfidence float64
+		duration      time.Duration
 	)
 	cmd := &cobra.Command{
 		Use:   "run",
-		Short: "Watch Pods and Events in a namespace (no LLM)",
+		Short: "Watch Pods and Events in a namespace (Observe Mode)",
 		Long: `Start the Observe watch engine for one namespace.
 
-Pipeline flags (Observe Mode, read-only):
+Pipeline flags (read-only — never mutate):
   --incidents      correlate problem signals into Incidents (AG-006)
   --fetch-logs     on-demand log tail on CrashLoop/Failed/OOM (AG-005)
-  --build-context  assemble AgentContext for LLM analysis (AG-007)
+  --build-context  assemble AgentContext (AG-007)
+  --analyze        LLM/heuristic → gated AgentAlert (AG-008)
 
-Never Follow-all-pods. Never mutate.`,
+Analysis uses ~/.kprompt config / --provider unless --heuristic is set.`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			ns = strings.TrimSpace(ns)
 			if ns == "" {
 				return fmt.Errorf("--namespace is required")
 			}
-			if (fetchLogs || buildContext) && !incidents {
+			if doAnalyze {
+				buildContext = true
+			}
+			if (fetchLogs || buildContext || doAnalyze) && !incidents {
 				incidents = true
 			}
 
@@ -76,23 +89,69 @@ Never Follow-all-pods. Never mutate.`,
 			var builder *correlate.Builder
 			var fetcher *agentlogs.Fetcher
 			var ctxBuilder *ctxbuild.Builder
+			var analyzer *analyze.Analyzer
 			if incidents {
 				builder = correlate.NewBuilder(correlate.Options{Namespace: ns})
 			}
 			if fetchLogs {
 				fetcher = agentlogs.New(clients.Clientset)
 			}
-			if buildContext {
+			if buildContext || doAnalyze {
 				ctxBuilder = &ctxbuild.Builder{Client: clients.Clientset}
+			}
+			if doAnalyze {
+				opts := analyze.Options{
+					MinSeverity:   minSeverity,
+					MinConfidence: minConfidence,
+					HeuristicOnly: heuristic,
+				}
+				var provider llm.Provider
+				if !heuristic {
+					file, err := config.LoadFile()
+					if err != nil {
+						return err
+					}
+					cfg := config.Merge(file, providerName, modelName, "", ns, false, "")
+					provider, err = llm.New(cfg.Provider, config.APIKeyFor(cfg.Provider), cfg.BaseURL, cfg.Model)
+					if err != nil {
+						fmt.Fprintf(cmd.ErrOrStderr(), "warning: LLM unavailable (%v); using heuristic analyzer\n", err)
+						opts.HeuristicOnly = true
+					}
+				}
+				analyzer = analyze.New(provider, opts)
 			}
 
 			emitChange := func(ch correlate.Change) {
-				if ctxBuilder != nil {
+				if analyzer != nil && ctxBuilder != nil {
+					switch ch.Kind {
+					case correlate.ChangeOpened, correlate.ChangeUpdated, correlate.ChangeReopened, correlate.ChangeClosed:
+						agentCtx := ctxBuilder.Build(cmd.Context(), ch.Incident, ctxbuild.Options{})
+						outcome, err := analyzer.Analyze(cmd.Context(), agentCtx, analyze.AlertStatusFor(ch.Kind))
+						if err != nil {
+							fmt.Fprintf(cmd.ErrOrStderr(), "analyze error: %v\n", err)
+							return
+						}
+						if outcome.Skipped {
+							return
+						}
+						if emitJSON {
+							_ = json.NewEncoder(out).Encode(outcome)
+							return
+						}
+						gate := "held"
+						if outcome.PassedGate {
+							gate = "alert"
+						}
+						fmt.Fprintf(out, "%s [%s/%s] id=%s severity=%s conf=%.2f summary=%s rootCause=%s\n",
+							gate, outcome.Source, outcome.Alert.Status, outcome.Alert.IncidentID,
+							outcome.Alert.Severity, outcome.Alert.Confidence, outcome.Alert.Summary, outcome.Alert.RootCause)
+						return
+					}
+				}
+				if ctxBuilder != nil && analyzer == nil {
 					switch ch.Kind {
 					case correlate.ChangeOpened, correlate.ChangeUpdated, correlate.ChangeReopened:
-						agentCtx := ctxBuilder.Build(cmd.Context(), ch.Incident, ctxbuild.Options{
-							PriorIncidents: nil,
-						})
+						agentCtx := ctxBuilder.Build(cmd.Context(), ch.Incident, ctxbuild.Options{})
 						if emitJSON {
 							_ = json.NewEncoder(out).Encode(agentCtx)
 							return
@@ -169,6 +228,8 @@ Never Follow-all-pods. Never mutate.`,
 
 			mode := "Pods+Events"
 			switch {
+			case doAnalyze:
+				mode = "watch → incidents → context → analyze"
 			case buildContext:
 				mode = "watch → incidents → context"
 			case incidents && fetchLogs:
@@ -210,6 +271,12 @@ Never Follow-all-pods. Never mutate.`,
 	cmd.Flags().BoolVar(&incidents, "incidents", false, "correlate problem signals into Incident changes (AG-006)")
 	cmd.Flags().BoolVar(&fetchLogs, "fetch-logs", false, "on CrashLoop/Failed/OOM attach a short log tail (AG-005; enables --incidents)")
 	cmd.Flags().BoolVar(&buildContext, "build-context", false, "assemble AgentContext for LLM (AG-007; enables --incidents)")
+	cmd.Flags().BoolVar(&doAnalyze, "analyze", false, "run LLM/heuristic analyzer → gated AgentAlert (AG-008)")
+	cmd.Flags().BoolVar(&heuristic, "heuristic", false, "with --analyze, skip LLM and use local heuristics only")
+	cmd.Flags().StringVar(&providerName, "provider", "", "LLM provider for --analyze (default from config)")
+	cmd.Flags().StringVar(&modelName, "model", "", "LLM model for --analyze (default from config)")
+	cmd.Flags().StringVar(&minSeverity, "min-severity", "", "alert gate minimum severity (default medium)")
+	cmd.Flags().Float64Var(&minConfidence, "min-confidence", 0, "alert gate minimum confidence 0..1 (default 0.7)")
 	cmd.Flags().DurationVar(&duration, "duration", 0, "stop after duration (0 = until signal); useful for e2e")
 	_ = cmd.MarkFlagRequired("namespace")
 	return cmd
