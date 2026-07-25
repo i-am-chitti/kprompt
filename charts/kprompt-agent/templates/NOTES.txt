@@ -1,0 +1,7 @@
+1. Watch namespace: {{ include "kprompt-agent.watchNamespace" . }}
+2. Mode: Observe only (no cluster mutate).
+3. Create/fill Secret {{ include "kprompt-agent.secretName" . }} with LLM / Slack / webhook keys, then restart the pod if needed:
+     kubectl -n {{ include "kprompt-agent.watchNamespace" . }} rollout restart deploy/{{ include "kprompt-agent.fullname" . }}
+4. Logs:
+     kubectl -n {{ include "kprompt-agent.watchNamespace" . }} logs -l app.kubernetes.io/instance={{ .Release.Name }} -f
+5. Docs: https://github.com/kprompt/kprompt/blob/main/docs/agent.md

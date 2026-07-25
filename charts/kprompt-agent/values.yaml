@@ -1,0 +1,71 @@
+# Target namespace for the agent Deployment / RBAC.
+# Empty → use the Helm release namespace (--namespace).
+watchNamespace: ""
+
+image:
+  repository: ghcr.io/kprompt/kprompt
+  # Empty → Chart.AppVersion
+  tag: ""
+  pullPolicy: IfNotPresent
+
+imagePullSecrets: []
+nameOverride: ""
+fullnameOverride: ""
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+rbac:
+  create: true
+
+# Observe Mode only — Autopilot is out of scope for this chart.
+agent:
+  analyze: true
+  fetchLogs: true
+  health: true
+  # Prefer LLM when provider secrets exist; set true for offline demos.
+  heuristic: false
+  slack: false
+  webhook: false
+  minSeverity: medium
+  minConfidence: "0.7"
+  provider: openai
+  model: ""
+  # Extra args appended to `kprompt agent run`
+  extraArgs: []
+
+# Credentials must come from a Secret (ADR-0013). Prefer an existing Secret.
+secret:
+  # If true, create an empty Secret shell (you still must patch keys).
+  create: false
+  name: kprompt-agent
+  # Optional stringData when create=true (do not commit real values).
+  stringData: {}
+  #   OPENAI_API_KEY: ""
+  #   KPROMPT_SLACK_BOT_TOKEN: ""
+  #   KPROMPT_SLACK_CHANNEL: ""
+  #   KPROMPT_SLACK_WEBHOOK_URL: ""
+  #   KPROMPT_WEBHOOK_URL: ""
+
+# Map common secret keys into process env for the agent binary.
+envFromSecret: true
+
+replicaCount: 1
+
+resources:
+  requests:
+    cpu: 50m
+    memory: 64Mi
+  limits:
+    cpu: 500m
+    memory: 256Mi
+
+nodeSelector: {}
+tolerations: []
+affinity: {}
+
+podAnnotations: {}
+podLabels:
+  app.kubernetes.io/component: observe-agent

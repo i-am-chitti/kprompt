@@ -30,7 +30,10 @@ kprompt "show service dependency graph"
 kprompt "show gitops sync status"
 kprompt "why is api slow then scale api to 4"
 kprompt login
+kprompt agent run -n payments --health --heuristic   # Observe agent (local)
 ```
+
+In-cluster Observe agent (Helm): [docs/agent.md](./docs/agent.md) · [`charts/kprompt-agent`](./charts/kprompt-agent).
 
 Generic get/list works for discoverable built-ins and CRDs (Node, ConfigMap, Secret, …). See [docs/kubernetes-reads.md](./docs/kubernetes-reads.md).
 

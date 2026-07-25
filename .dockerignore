@@ -1,0 +1,11 @@
+.git
+.bin
+bin
+**/testdata
+**/*_test.go
+test/
+docs/
+charts/
+*.md
+.github
+.goreleaser.yaml

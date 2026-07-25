@@ -1,0 +1,23 @@
+{{- if .Values.rbac.create -}}
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ include "kprompt-agent.fullname" . }}
+  namespace: {{ include "kprompt-agent.watchNamespace" . }}
+  labels:
+    {{- include "kprompt-agent.labels" . | nindent 4 }}
+rules:
+  # Observe Mode — read/watch only (ADR-0013). No create/update/patch/delete.
+  - apiGroups: [""]
+    resources: ["pods", "pods/log", "events", "configmaps"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["apps"]
+    resources: ["deployments", "replicasets", "statefulsets"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["batch"]
+    resources: ["jobs", "cronjobs"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: [""]
+    resources: ["persistentvolumeclaims"]
+    verbs: ["get", "list", "watch"]
+{{- end }}

@@ -1,0 +1,108 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "kprompt-agent.fullname" . }}
+  namespace: {{ include "kprompt-agent.watchNamespace" . }}
+  labels:
+    {{- include "kprompt-agent.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "kprompt-agent.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "kprompt-agent.selectorLabels" . | nindent 8 }}
+        {{- with .Values.podLabels }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      {{- with .Values.podAnnotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+    spec:
+      serviceAccountName: {{ include "kprompt-agent.serviceAccountName" . }}
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: agent
+          image: {{ include "kprompt-agent.image" . | quote }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          args:
+            - agent
+            - run
+            - --namespace
+            - {{ include "kprompt-agent.watchNamespace" . | quote }}
+            - --in-cluster
+            {{- if .Values.agent.analyze }}
+            - --analyze
+            {{- end }}
+            {{- if .Values.agent.fetchLogs }}
+            - --fetch-logs
+            {{- end }}
+            {{- if .Values.agent.health }}
+            - --health
+            {{- end }}
+            {{- if .Values.agent.heuristic }}
+            - --heuristic
+            {{- end }}
+            {{- if .Values.agent.slack }}
+            - --slack
+            {{- end }}
+            {{- if .Values.agent.webhook }}
+            - --webhook
+            {{- end }}
+            {{- if .Values.agent.minSeverity }}
+            - --min-severity
+            - {{ .Values.agent.minSeverity | quote }}
+            {{- end }}
+            {{- if .Values.agent.minConfidence }}
+            - --min-confidence
+            - {{ .Values.agent.minConfidence | quote }}
+            {{- end }}
+            {{- if .Values.agent.provider }}
+            - --provider
+            - {{ .Values.agent.provider | quote }}
+            {{- end }}
+            {{- if .Values.agent.model }}
+            - --model
+            - {{ .Values.agent.model | quote }}
+            {{- end }}
+            {{- with .Values.agent.extraArgs }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+          env:
+            - name: KPROMPT_WATCH_NAMESPACE
+              value: {{ include "kprompt-agent.watchNamespace" . | quote }}
+          {{- if .Values.envFromSecret }}
+          envFrom:
+            - secretRef:
+                name: {{ include "kprompt-agent.secretName" . }}
+                optional: true
+          {{- end }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
