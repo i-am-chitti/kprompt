@@ -13,6 +13,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/kprompt/kprompt/internal/agent/correlate"
+	"github.com/kprompt/kprompt/internal/agent/ctxbuild"
 	agentlogs "github.com/kprompt/kprompt/internal/agent/logs"
 	agentwatch "github.com/kprompt/kprompt/internal/agent/watch"
 	"github.com/kprompt/kprompt/internal/cluster"
@@ -30,30 +31,33 @@ func newAgentCmd() *cobra.Command {
 
 func newAgentRunCmd() *cobra.Command {
 	var (
-		ns          string
-		kubeCtx     string
-		inCluster   bool
-		emitJSON    bool
-		emitInitial bool
-		incidents   bool
-		fetchLogs   bool
-		duration    time.Duration
+		ns           string
+		kubeCtx      string
+		inCluster    bool
+		emitJSON     bool
+		emitInitial  bool
+		incidents    bool
+		fetchLogs    bool
+		buildContext bool
+		duration     time.Duration
 	)
 	cmd := &cobra.Command{
 		Use:   "run",
 		Short: "Watch Pods and Events in a namespace (no LLM)",
 		Long: `Start the Observe watch engine for one namespace.
 
-Prints Pod and Event changes until interrupted. With --incidents, correlates
-problem signals into Incident objects. With --fetch-logs (implies useful with
---incidents), attaches an on-demand log tail on CrashLoop/Failed/OOM style
-signals (AG-005) — never Follow-all-pods. Observe Mode only — no mutate.`,
+Pipeline flags (Observe Mode, read-only):
+  --incidents      correlate problem signals into Incidents (AG-006)
+  --fetch-logs     on-demand log tail on CrashLoop/Failed/OOM (AG-005)
+  --build-context  assemble AgentContext for LLM analysis (AG-007)
+
+Never Follow-all-pods. Never mutate.`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			ns = strings.TrimSpace(ns)
 			if ns == "" {
 				return fmt.Errorf("--namespace is required")
 			}
-			if fetchLogs && !incidents {
+			if (fetchLogs || buildContext) && !incidents {
 				incidents = true
 			}
 
@@ -71,11 +75,43 @@ signals (AG-005) — never Follow-all-pods. Observe Mode only — no mutate.`,
 			out := cmd.OutOrStdout()
 			var builder *correlate.Builder
 			var fetcher *agentlogs.Fetcher
+			var ctxBuilder *ctxbuild.Builder
 			if incidents {
 				builder = correlate.NewBuilder(correlate.Options{Namespace: ns})
 			}
 			if fetchLogs {
 				fetcher = agentlogs.New(clients.Clientset)
+			}
+			if buildContext {
+				ctxBuilder = &ctxbuild.Builder{Client: clients.Clientset}
+			}
+
+			emitChange := func(ch correlate.Change) {
+				if ctxBuilder != nil {
+					switch ch.Kind {
+					case correlate.ChangeOpened, correlate.ChangeUpdated, correlate.ChangeReopened:
+						agentCtx := ctxBuilder.Build(cmd.Context(), ch.Incident, ctxbuild.Options{
+							PriorIncidents: nil,
+						})
+						if emitJSON {
+							_ = json.NewEncoder(out).Encode(agentCtx)
+							return
+						}
+						fmt.Fprintf(out, "context id=%s target=%v degraded=%v\n",
+							agentCtx.Incident.ID, agentCtx.Target, agentCtx.Degraded)
+						for _, line := range agentCtx.PromptBlocks() {
+							fmt.Fprintf(out, "  %s\n", line)
+						}
+						return
+					}
+				}
+				if emitJSON {
+					_ = json.NewEncoder(out).Encode(ch)
+					return
+				}
+				fmt.Fprintf(out, "incident %s id=%s severity=%s status=%s summary=%s evidence=%d\n",
+					ch.Kind, ch.Incident.ID, ch.Incident.Severity, ch.Incident.Status,
+					ch.Incident.Summary, len(ch.Incident.Evidence))
 			}
 
 			handler := func(ev agentwatch.Event) {
@@ -93,13 +129,7 @@ signals (AG-005) — never Follow-all-pods. Observe Mode only — no mutate.`,
 								}
 							}
 						}
-						if emitJSON {
-							_ = json.NewEncoder(out).Encode(ch)
-						} else {
-							fmt.Fprintf(out, "incident %s id=%s severity=%s status=%s summary=%s evidence=%d\n",
-								ch.Kind, ch.Incident.ID, ch.Incident.Severity, ch.Incident.Status,
-								ch.Incident.Summary, len(ch.Incident.Evidence))
-						}
+						emitChange(ch)
 					}
 					return
 				}
@@ -139,6 +169,8 @@ signals (AG-005) — never Follow-all-pods. Observe Mode only — no mutate.`,
 
 			mode := "Pods+Events"
 			switch {
+			case buildContext:
+				mode = "watch → incidents → context"
 			case incidents && fetchLogs:
 				mode = "Pods+Events → Incidents + on-demand logs"
 			case incidents:
@@ -156,12 +188,7 @@ signals (AG-005) — never Follow-all-pods. Observe Mode only — no mutate.`,
 							return
 						case <-t.C:
 							for _, ch := range builder.Sweep() {
-								if emitJSON {
-									_ = json.NewEncoder(out).Encode(ch)
-								} else {
-									fmt.Fprintf(out, "incident %s id=%s status=%s summary=%s\n",
-										ch.Kind, ch.Incident.ID, ch.Incident.Status, ch.Incident.Summary)
-								}
+								emitChange(ch)
 							}
 						}
 					}
@@ -182,6 +209,7 @@ signals (AG-005) — never Follow-all-pods. Observe Mode only — no mutate.`,
 	cmd.Flags().BoolVar(&emitInitial, "emit-initial", false, "emit current Pods/Events as Added before live watch")
 	cmd.Flags().BoolVar(&incidents, "incidents", false, "correlate problem signals into Incident changes (AG-006)")
 	cmd.Flags().BoolVar(&fetchLogs, "fetch-logs", false, "on CrashLoop/Failed/OOM attach a short log tail (AG-005; enables --incidents)")
+	cmd.Flags().BoolVar(&buildContext, "build-context", false, "assemble AgentContext for LLM (AG-007; enables --incidents)")
 	cmd.Flags().DurationVar(&duration, "duration", 0, "stop after duration (0 = until signal); useful for e2e")
 	_ = cmd.MarkFlagRequired("namespace")
 	return cmd
