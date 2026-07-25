@@ -8,7 +8,9 @@ Deploys a single Deployment that runs:
 kprompt agent run --namespace <ns> --in-cluster [--analyze] [--fetch-logs] [--health] …
 ```
 
-Never mutates the cluster (ADR-0013).
+Never mutates the cluster (ADR-0013). **Observe Mode only** — Autopilot is not shipped.
+
+Honest positioning (vs K8sGPT / Kagent, RBAC, LLM cost): [docs/agent.md](../../docs/agent.md) · [kprompt.ai/docs/agent](https://kprompt.ai/docs/agent).
 
 ## Install
 

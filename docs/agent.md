@@ -1,8 +1,33 @@
 # kprompt Observe agent
 
-In-cluster, **namespace-scoped** agent that continuously watches Pods/Events, correlates incidents, optionally analyzes with an LLM, and notifies Slack/webhooks.
+In-cluster, **namespace-scoped** agent that continuously watches Pods/Events (and optional workloads), correlates incidents, optionally analyzes with an LLM, and notifies Slack/webhooks.
 
-This is **Observe Mode only** — it never applies, patches, or deletes cluster resources ([ADR-0013](https://github.com/kprompt/kprompt-architecture/blob/main/decisions/ADR-0013-in-cluster-agent.md)).
+This is **Observe Mode only** — it never applies, patches, or deletes cluster resources ([ADR-0013](https://github.com/kprompt/kprompt-architecture/blob/main/decisions/ADR-0013-in-cluster-agent.md)). **Autopilot is not shipped** and needs a separate ADR before any mutate path exists.
+
+## Positioning (honest)
+
+| Tool | Job | How kprompt Observe differs |
+|------|-----|-----------------------------|
+| **K8sGPT** | On-demand / scheduled **analyzer** (scan → explain) | We are **always-on watch → correlated Incident → gated alert**, not a fleet scanner. Use K8sGPT when you want analyzer findings; use this agent when you want threaded Slack alerts from live Events/Pods. |
+| **Kagent** | **In-cluster agent framework** (multi-agent CRDs / tools) | We ship one **kprompt-native Observe pipeline** (Incident / AgentAlert + PlanResult DNA), not a general multi-agent platform. Do not expect Kagent feature parity. |
+| **kprompt CLI** | Reactive intent compiler (plan → approve → apply) | The agent is **optional**. The laptop CLI still needs no daemon ([ADR-0001](https://github.com/kprompt/kprompt-architecture/blob/main/decisions/ADR-0001-go-cli.md)). |
+
+Explicit non-claims: no silent remediations, no ClusterRole-by-default, no “we host your fleet agent” SaaS, no Autopilot in V1.
+
+## RBAC
+
+Default install is a **Role + RoleBinding in one namespace** (get/list/watch on pods, events, logs, deployments, …). Not a ClusterRole god-mode SA.
+
+- Secrets **watch is off by default**; when enabled (`--watch …,secrets`), only **metadata** is emitted (type + key count) — never Secret values.
+- Status sync onto a `KpromptAgent` CR (`--agent-cr`) adds **status patch** verbs for that CR only — still no workload mutate.
+- You remain responsible for the ServiceAccount scope you deploy.
+
+## LLM cost
+
+- The agent does **not** call the LLM on every raw API event. It batches by open **Incident**, then applies a **severity + confidence gate** before Slack/webhook.
+- Prefer `--heuristic` for demos / offline; turn LLM on when you accept API spend.
+- Gate tighter with `--min-severity` / `--min-confidence` (defaults: medium / 0.7) to limit alert fatigue and token burn.
+- Credentials stay in a **Secret** (`envFrom`) — never in CRD/ConfigMap plaintext.
 
 ## Laptop smoke test
 
@@ -13,7 +38,7 @@ kprompt agent run -n payments --slack --fetch-logs   # needs Slack env
 
 ## Helm install (AG-012)
 
-Chart path: [`charts/kprompt-agent`](../charts/kprompt-agent).
+Preferred in-cluster path: [`charts/kprompt-agent`](../charts/kprompt-agent).
 
 ```bash
 docker build -t ghcr.io/kprompt/kprompt:dev .
@@ -27,6 +52,8 @@ helm upgrade --install kprompt-agent ./charts/kprompt-agent \
   --set image.tag=dev \
   --set agent.heuristic=false
 ```
+
+Chart README: [`charts/kprompt-agent/README.md`](../charts/kprompt-agent/README.md). Website mirror: [kprompt.ai/docs/agent](https://kprompt.ai/docs/agent).
 
 RBAC is a **Role** in the watch namespace (pods, events, logs, deployments, … — get/list/watch only).
 
@@ -61,7 +88,7 @@ kubectl get kpromptagents -n payments
 kubectl get kpa demo -n payments -o yaml   # status.healthScore / status.lastAlert
 ```
 
-Full Deployment lifecycle for the CR is **AG-014 Operator**.
+Full Deployment lifecycle for the CR is **AG-014 Operator** (deferred). Autopilot remains **AG-017** (new ADR required).
 
 ### Secret keys
 
@@ -111,4 +138,4 @@ Secrets are never watched implicitly and only metadata (type + key count) is emi
 | `--health` | AG-011 score |
 | `--agent-cr` | AG-013 status sync |
 
-Autopilot / Operator lifecycle are later tasks (AG-014 · AG-017).
+**Not shipped:** Autopilot mutate · Operator lifecycle (AG-014) · pattern learning (AG-015/016).
