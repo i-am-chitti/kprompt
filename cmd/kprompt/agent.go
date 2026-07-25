@@ -16,6 +16,7 @@ import (
 	"github.com/kprompt/kprompt/internal/agent/correlate"
 	"github.com/kprompt/kprompt/internal/agent/ctxbuild"
 	agentlogs "github.com/kprompt/kprompt/internal/agent/logs"
+	agentslack "github.com/kprompt/kprompt/internal/agent/notify/slack"
 	agentwatch "github.com/kprompt/kprompt/internal/agent/watch"
 	"github.com/kprompt/kprompt/internal/cluster"
 	"github.com/kprompt/kprompt/internal/config"
@@ -44,6 +45,7 @@ func newAgentRunCmd() *cobra.Command {
 		buildContext  bool
 		doAnalyze     bool
 		heuristic     bool
+		notifySlack   bool
 		providerName  string
 		modelName     string
 		minSeverity   string
@@ -60,12 +62,18 @@ Pipeline flags (read-only — never mutate):
   --fetch-logs     on-demand log tail on CrashLoop/Failed/OOM (AG-005)
   --build-context  assemble AgentContext (AG-007)
   --analyze        LLM/heuristic → gated AgentAlert (AG-008)
+  --slack          post gated alerts to Slack threads (AG-009)
 
-Analysis uses ~/.kprompt config / --provider unless --heuristic is set.`,
+Slack credentials from env / mounted Secret:
+  KPROMPT_SLACK_BOT_TOKEN + KPROMPT_SLACK_CHANNEL  (preferred, threaded)
+  KPROMPT_SLACK_WEBHOOK_URL                        (fallback)`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			ns = strings.TrimSpace(ns)
 			if ns == "" {
 				return fmt.Errorf("--namespace is required")
+			}
+			if notifySlack {
+				doAnalyze = true
 			}
 			if doAnalyze {
 				buildContext = true
@@ -90,6 +98,9 @@ Analysis uses ~/.kprompt config / --provider unless --heuristic is set.`,
 			var fetcher *agentlogs.Fetcher
 			var ctxBuilder *ctxbuild.Builder
 			var analyzer *analyze.Analyzer
+			var slackClient *agentslack.Client
+			threads := map[string]string{}
+
 			if incidents {
 				builder = correlate.NewBuilder(correlate.Options{Namespace: ns})
 			}
@@ -120,6 +131,17 @@ Analysis uses ~/.kprompt config / --provider unless --heuristic is set.`,
 				}
 				analyzer = analyze.New(provider, opts)
 			}
+			if notifySlack {
+				scfg := agentslack.ConfigFromEnv()
+				if !scfg.Enabled() {
+					return fmt.Errorf("--slack requires %s or %s+%s in the environment (mount from Secret)",
+						agentslack.EnvWebhookURL, agentslack.EnvBotToken, agentslack.EnvChannel)
+				}
+				slackClient = agentslack.New(scfg)
+				if !scfg.Threaded() {
+					fmt.Fprintf(cmd.ErrOrStderr(), "warning: Slack webhook mode cannot reliably thread; prefer bot token + channel\n")
+				}
+			}
 
 			emitChange := func(ch correlate.Change) {
 				if analyzer != nil && ctxBuilder != nil {
@@ -134,6 +156,27 @@ Analysis uses ~/.kprompt config / --provider unless --heuristic is set.`,
 						if outcome.Skipped {
 							return
 						}
+						if slackClient != nil && outcome.PassedGate {
+							thread := threads[outcome.Alert.IncidentID]
+							if thread == "" && builder != nil {
+								thread = builder.NotifierThread(outcome.Alert.IncidentID)
+							}
+							// Seed from incident if correlator already has it
+							if thread == "" {
+								thread = ch.Incident.NotifierThread
+							}
+							res, err := slackClient.Notify(cmd.Context(), outcome.Alert, thread)
+							if err != nil {
+								fmt.Fprintf(cmd.ErrOrStderr(), "slack notify error: %v\n", err)
+							} else if res.ThreadTS != "" {
+								threads[outcome.Alert.IncidentID] = res.ThreadTS
+								if builder != nil {
+									_ = builder.SetNotifierThread(outcome.Alert.IncidentID, res.ThreadTS)
+								}
+								outcome.Alert.IncidentID = outcome.Alert.IncidentID // keep
+								ch.Incident.NotifierThread = res.ThreadTS
+							}
+						}
 						if emitJSON {
 							_ = json.NewEncoder(out).Encode(outcome)
 							return
@@ -142,9 +185,13 @@ Analysis uses ~/.kprompt config / --provider unless --heuristic is set.`,
 						if outcome.PassedGate {
 							gate = "alert"
 						}
-						fmt.Fprintf(out, "%s [%s/%s] id=%s severity=%s conf=%.2f summary=%s rootCause=%s\n",
+						extra := ""
+						if ts := threads[outcome.Alert.IncidentID]; ts != "" {
+							extra = " thread=" + ts
+						}
+						fmt.Fprintf(out, "%s [%s/%s] id=%s severity=%s conf=%.2f summary=%s rootCause=%s%s\n",
 							gate, outcome.Source, outcome.Alert.Status, outcome.Alert.IncidentID,
-							outcome.Alert.Severity, outcome.Alert.Confidence, outcome.Alert.Summary, outcome.Alert.RootCause)
+							outcome.Alert.Severity, outcome.Alert.Confidence, outcome.Alert.Summary, outcome.Alert.RootCause, extra)
 						return
 					}
 				}
@@ -228,6 +275,8 @@ Analysis uses ~/.kprompt config / --provider unless --heuristic is set.`,
 
 			mode := "Pods+Events"
 			switch {
+			case notifySlack:
+				mode = "watch → analyze → slack"
 			case doAnalyze:
 				mode = "watch → incidents → context → analyze"
 			case buildContext:
@@ -272,6 +321,7 @@ Analysis uses ~/.kprompt config / --provider unless --heuristic is set.`,
 	cmd.Flags().BoolVar(&fetchLogs, "fetch-logs", false, "on CrashLoop/Failed/OOM attach a short log tail (AG-005; enables --incidents)")
 	cmd.Flags().BoolVar(&buildContext, "build-context", false, "assemble AgentContext for LLM (AG-007; enables --incidents)")
 	cmd.Flags().BoolVar(&doAnalyze, "analyze", false, "run LLM/heuristic analyzer → gated AgentAlert (AG-008)")
+	cmd.Flags().BoolVar(&notifySlack, "slack", false, "post gated alerts to Slack (AG-009; enables --analyze)")
 	cmd.Flags().BoolVar(&heuristic, "heuristic", false, "with --analyze, skip LLM and use local heuristics only")
 	cmd.Flags().StringVar(&providerName, "provider", "", "LLM provider for --analyze (default from config)")
 	cmd.Flags().StringVar(&modelName, "model", "", "LLM model for --analyze (default from config)")

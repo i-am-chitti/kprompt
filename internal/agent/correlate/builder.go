@@ -200,6 +200,33 @@ func (b *Builder) SyncIncident(inc incident.Incident) (incident.Incident, bool) 
 	return inc, false
 }
 
+// SetNotifierThread stores a Slack thread timestamp on an open incident.
+func (b *Builder) SetNotifierThread(id, threadTS string) bool {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	for _, cur := range b.open {
+		if cur.ID != id {
+			continue
+		}
+		cur.NotifierThread = threadTS
+		cur.UpdatedAt = b.opts.Now()
+		return true
+	}
+	return false
+}
+
+// NotifierThread returns the stored Slack thread ts for an open incident.
+func (b *Builder) NotifierThread(id string) string {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	for _, cur := range b.open {
+		if cur.ID == id {
+			return cur.NotifierThread
+		}
+	}
+	return ""
+}
+
 func (b *Builder) openNewLocked(key string, ev agentwatch.Event, now time.Time, kind string) Change {
 	b.seq++
 	id := fmt.Sprintf("inc-%d", b.seq)
