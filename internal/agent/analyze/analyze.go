@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/kprompt/kprompt/internal/agent/ctxbuild"
+	"github.com/kprompt/kprompt/internal/agent/patterns"
 	"github.com/kprompt/kprompt/internal/incident"
 	"github.com/kprompt/kprompt/internal/llm"
 )
@@ -61,6 +62,8 @@ type Options struct {
 type Analyzer struct {
 	Provider llm.Provider
 	Options  Options
+	// Patterns optional AG-016 library — boosts confidence on “seen before”; never mutates.
+	Patterns *patterns.Library
 
 	mu       sync.Mutex
 	lastFP   map[string]string // incidentID → evidence fingerprint
@@ -85,11 +88,13 @@ func New(provider llm.Provider, opts Options) *Analyzer {
 
 // AnalyzeOutcome is returned to the agent loop.
 type AnalyzeOutcome struct {
-	Alert      incident.AgentAlert `json:"alert"`
-	PassedGate bool                `json:"passedGate"`
-	Skipped    bool                `json:"skipped,omitempty"` // deduped LLM call
-	Source     string              `json:"source"`            // llm | heuristic
-	Result     Result              `json:"result"`
+	Alert       incident.AgentAlert `json:"alert"`
+	PassedGate  bool                `json:"passedGate"`
+	Skipped     bool                `json:"skipped,omitempty"` // deduped LLM call
+	Source      string              `json:"source"`            // llm | heuristic
+	Result      Result              `json:"result"`
+	SeenBefore  string              `json:"seenBefore,omitempty"` // AG-016 note
+	PatternHits int                 `json:"patternHits,omitempty"`
 }
 
 // Analyze runs structured analysis for an open/updated incident context.
@@ -131,6 +136,26 @@ func (a *Analyzer) Analyze(ctx context.Context, agentCtx ctxbuild.AgentContext, 
 
 	normalizeResult(&res, inc)
 
+	recordRoot := res.RootCause
+	recordRec := res.Recommendation
+
+	var seenNote string
+	var hits int
+	if a.Patterns != nil {
+		if match, ok := a.Patterns.Match(agentCtx.Namespace, agentCtx); ok {
+			hits = match.Count
+			boosted, note := patterns.ApplyBoost(patterns.SeverityConfidence{
+				Confidence:     res.Confidence,
+				RootCause:      res.RootCause,
+				Recommendation: res.Recommendation,
+			}, match)
+			res.Confidence = boosted.Confidence
+			res.RootCause = boosted.RootCause
+			res.Recommendation = boosted.Recommendation
+			seenNote = note
+		}
+	}
+
 	// Enrich incident fields for NewAgentAlert
 	inc.Severity = res.Severity
 	inc.Confidence = res.Confidence
@@ -153,15 +178,24 @@ func (a *Analyzer) Analyze(ctx context.Context, agentCtx ctxbuild.AgentContext, 
 		passed = false
 	}
 
+	// Learn after analysis (Observe-only — never applies a mutate from the pattern).
+	if a.Patterns != nil && alertStatus != incident.AlertRecovered {
+		if _, rerr := a.Patterns.Record(agentCtx.Namespace, agentCtx, res.Severity, res.Summary, recordRoot, recordRec); rerr != nil {
+			// Non-fatal: learning must not break the watch loop.
+		}
+	}
+
 	a.mu.Lock()
 	a.lastPass[inc.ID] = passed
 	a.mu.Unlock()
 
 	return AnalyzeOutcome{
-		Alert:      alert,
-		PassedGate: passed,
-		Source:     source,
-		Result:     res,
+		Alert:       alert,
+		PassedGate:  passed,
+		Source:      source,
+		Result:      res,
+		SeenBefore:  seenNote,
+		PatternHits: hits,
 	}, nil
 }
 

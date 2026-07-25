@@ -184,4 +184,12 @@ kprompt agent memory list -n payments --memory-backend configmap
 
 Relevant facts are filtered into `AgentContext.memory` / `namespace_memory:` prompt blocks when the incident text mentions the dependency or infra failure patterns (timeout, connection refused, …).
 
-**Not shipped:** Autopilot mutate · pattern learning (AG-016). Autopilot needs **AG-017** (new ADR).
+## Pattern learning (AG-016)
+
+Remembers incident signatures (reason + workload kind + bucket like crashloop/oom) under `~/.config/kprompt/patterns`. When a similar incident appears (≥2 priors), confidence is boosted and root cause is annotated with **Seen before (N×)** — still **Observe-only**; patterns never trigger apply/patch/delete.
+
+```bash
+kprompt agent run -n payments --analyze --heuristic --patterns
+```
+
+**Not shipped:** Autopilot mutate. Autopilot needs **AG-017** (new ADR).

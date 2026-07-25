@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -22,6 +23,7 @@ import (
 	agentslack "github.com/kprompt/kprompt/internal/agent/notify/slack"
 	agentwebhook "github.com/kprompt/kprompt/internal/agent/notify/webhook"
 	"github.com/kprompt/kprompt/internal/agent/operator"
+	"github.com/kprompt/kprompt/internal/agent/patterns"
 	agentwatch "github.com/kprompt/kprompt/internal/agent/watch"
 	"github.com/kprompt/kprompt/internal/cluster"
 	"github.com/kprompt/kprompt/internal/config"
@@ -127,6 +129,8 @@ func newAgentRunCmd() *cobra.Command {
 		useMemory     bool
 		memoryBackend string // file | configmap
 		memoryDir     string
+		usePatterns   bool
+		patternsDir   string
 	)
 	cmd := &cobra.Command{
 		Use:   "run",
@@ -148,10 +152,14 @@ Pipeline flags (read-only — never mutate workload objects):
   --health         emit namespace health score / risk_increasing (AG-011)
   --agent-cr       patch KpromptAgent.status (AG-013; health + lastAlert)
   --memory         discover/load namespace deps+facts into analyzer context (AG-015)
+  --patterns       learn incident signatures; boost confidence on “seen before” (AG-016)
 
 Namespace memory (local / in-cluster only — never uploaded to api.kprompt.ai):
   --memory-backend file|configmap   (default: file; configmap uses kprompt-namespace-memory)
   --memory-dir     file backend directory (default: ~/.config/kprompt/memory)
+
+Pattern learning (local only — never mutates from a match):
+  --patterns-dir   pattern store directory (default: ~/.config/kprompt/patterns)
 
 Slack credentials from env / mounted Secret:
   KPROMPT_SLACK_BOT_TOKEN + KPROMPT_SLACK_CHANNEL  (preferred, threaded)
@@ -180,6 +188,11 @@ KpromptAgent status sync:
 				incidents = true
 			}
 			if useMemory && !buildContext && !doAnalyze {
+				buildContext = true
+				incidents = true
+			}
+			if usePatterns {
+				doAnalyze = true
 				buildContext = true
 				incidents = true
 			}
@@ -273,6 +286,13 @@ KpromptAgent status sync:
 					}
 				}
 				analyzer = analyze.New(provider, opts)
+				if usePatterns {
+					dir := strings.TrimSpace(patternsDir)
+					if dir == "" {
+						dir = patterns.DefaultDir()
+					}
+					analyzer.Patterns = patterns.New(patterns.FileStore{Dir: dir})
+				}
 			}
 			if notifySlack {
 				scfg := agentslack.ConfigFromEnv()
@@ -380,6 +400,9 @@ KpromptAgent status sync:
 						extra := ""
 						if ts := threads[outcome.Alert.IncidentID]; ts != "" {
 							extra = " thread=" + ts
+						}
+						if outcome.SeenBefore != "" {
+							extra += " seenBefore=" + strconv.Itoa(outcome.PatternHits)
 						}
 						fmt.Fprintf(out, "%s [%s/%s] id=%s severity=%s conf=%.2f summary=%s rootCause=%s%s\n",
 							gate, outcome.Source, outcome.Alert.Status, outcome.Alert.IncidentID,
@@ -541,6 +564,8 @@ KpromptAgent status sync:
 	cmd.Flags().BoolVar(&useMemory, "memory", false, "discover/load namespace dependency facts into analyzer context (AG-015)")
 	cmd.Flags().StringVar(&memoryBackend, "memory-backend", "file", "memory store: file|configmap")
 	cmd.Flags().StringVar(&memoryDir, "memory-dir", "", "file backend directory (default ~/.config/kprompt/memory)")
+	cmd.Flags().BoolVar(&usePatterns, "patterns", false, "learn incident signatures; boost confidence on seen-before (AG-016; never mutates)")
+	cmd.Flags().StringVar(&patternsDir, "patterns-dir", "", "pattern store directory (default ~/.config/kprompt/patterns)")
 	cmd.Flags().BoolVar(&heuristic, "heuristic", false, "with --analyze, skip LLM and use local heuristics only")
 	cmd.Flags().StringVar(&providerName, "provider", "", "LLM provider for --analyze (default from config)")
 	cmd.Flags().StringVar(&modelName, "model", "", "LLM model for --analyze (default from config)")
