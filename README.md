@@ -51,7 +51,7 @@ Longer positioning: [intent compiler, not chat](https://kprompt.ai/blog/intent-c
 
 ## Status
 
-**v0.4.0 (experimental)** — Kubernetes plan → safety → apply for deploy, scale, rollback, and named delete; deep explain, logs, describe, history, JSON CI output, and terminal themes. Integrations: Helm, Argo Workflows, Prometheus, OpenTelemetry, Grafana, Tekton, KEDA, Istio (read-first), Crossplane, Flux/Argo CD GitOps, optimize reports, service graphs, multi-tool routes with one approval, Homebrew install, and optional Team login/policy/audit. See [docs/integration-matrix.md](./docs/integration-matrix.md) and [docs/kubernetes-reads.md](./docs/kubernetes-reads.md).
+**v0.5.0 (experimental)** — Adds the optional **Observe agent** runtime: namespace watch → Incident → gated Slack/webhook, Helm + Operator, memory/patterns, and Autopilot **propose-only** (ADR-0015). Still includes the v0.4 plan → safety → apply CLI, deep explain, integrations (Helm through GitOps), optimize/graph, multi-context, Homebrew, and optional Team login. See [docs/agent.md](./docs/agent.md) and [docs/integration-matrix.md](./docs/integration-matrix.md).
 
 ## Install
 
@@ -70,7 +70,7 @@ brew install kprompt/tap/kprompt
 Fallback (pinned release script on jsDelivr):
 
 ```bash
-curl -fsSL https://cdn.jsdelivr.net/gh/kprompt/kprompt@v0.4.0/install/install.sh | bash
+curl -fsSL https://cdn.jsdelivr.net/gh/kprompt/kprompt@v0.5.0/install/install.sh | bash
 ```
 
 ### From source (dev)
