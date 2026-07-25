@@ -59,11 +59,17 @@ func newAgentRunCmd() *cobra.Command {
 		duration      time.Duration
 		agentCR       string
 		agentCRNS     string
+		watchList     []string
 	)
 	cmd := &cobra.Command{
 		Use:   "run",
 		Short: "Watch Pods and Events in a namespace (Observe Mode)",
 		Long: `Start the Observe watch engine for one namespace.
+
+Watched resources (read-only):
+  --watch          comma-separated: pods,events (default) plus deployments,
+                   replicasets,statefulsets,jobs,cronjobs,pvc,configmaps,secrets
+                   (AG-004). secrets are opt-in and metadata-only (never values).
 
 Pipeline flags (read-only — never mutate workload objects):
   --incidents      correlate problem signals into Incidents (AG-006)
@@ -330,16 +336,25 @@ KpromptAgent status sync:
 				case agentwatch.ResourceEvent:
 					fmt.Fprintf(out, "%s Event %s/%s reason=%s involved=%s/%s %s\n",
 						ev.Type, ev.Namespace, ev.Name, ev.Reason, ev.InvolvedKind, ev.InvolvedName, ev.Message)
-				default:
+				case agentwatch.ResourcePod:
 					fmt.Fprintf(out, "%s %s %s/%s phase=%s\n",
 						ev.Type, ev.Resource, ev.Namespace, ev.Name, ev.PodPhase)
+				default:
+					extra := ev.Detail
+					if ev.PodPhase != "" {
+						extra = "phase=" + ev.PodPhase + " " + extra
+					}
+					fmt.Fprintf(out, "%s %s %s/%s %s\n",
+						ev.Type, ev.Resource, ev.Namespace, ev.Name, strings.TrimSpace(extra))
 				}
 			}
 
+			resources := agentwatch.NormalizeResources(watchList)
 			eng := &agentwatch.Engine{
 				Client: clients.Clientset,
 				Options: agentwatch.Options{
 					Namespace:   ns,
+					Resources:   resources,
 					EmitInitial: emitInitial,
 				},
 				Handler: handler,
@@ -371,7 +386,8 @@ KpromptAgent status sync:
 			case incidents:
 				mode = "Pods+Events → Incidents"
 			}
-			fmt.Fprintf(cmd.ErrOrStderr(), "kprompt agent watching namespace %q (%s, read-only)…\n", ns, mode)
+			fmt.Fprintf(cmd.ErrOrStderr(), "kprompt agent watching namespace %q resources=%s (%s, read-only)…\n",
+				ns, strings.Join(resources, ","), mode)
 
 			if builder != nil {
 				go func() {
@@ -403,6 +419,7 @@ KpromptAgent status sync:
 	cmd.Flags().BoolVar(&inCluster, "in-cluster", false, "use InClusterConfig (ServiceAccount)")
 	cmd.Flags().BoolVar(&emitJSON, "json", false, "emit one JSON object per line")
 	cmd.Flags().BoolVar(&emitInitial, "emit-initial", false, "emit current Pods/Events as Added before live watch")
+	cmd.Flags().StringSliceVar(&watchList, "watch", nil, "resources to watch (default pods,events; AG-004: deployments,replicasets,statefulsets,jobs,cronjobs,pvc,configmaps,secrets). secrets are opt-in and metadata-only")
 	cmd.Flags().BoolVar(&incidents, "incidents", false, "correlate problem signals into Incident changes (AG-006)")
 	cmd.Flags().BoolVar(&fetchLogs, "fetch-logs", false, "on CrashLoop/Failed/OOM attach a short log tail (AG-005; enables --incidents)")
 	cmd.Flags().BoolVar(&buildContext, "build-context", false, "assemble AgentContext for LLM (AG-007; enables --incidents)")

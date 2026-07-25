@@ -2,10 +2,14 @@ package watch
 
 import (
 	"context"
+	"reflect"
+	"strings"
 	"sync"
 	"testing"
 	"time"
 
+	appsv1 "k8s.io/api/apps/v1"
+	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -145,6 +149,118 @@ func TestEngineEmitInitial(t *testing.T) {
 	}
 }
 
+func TestNormalizeResources(t *testing.T) {
+	cases := []struct {
+		name string
+		in   []string
+		want []string
+	}{
+		{"empty defaults", nil, []string{ResourcePod, ResourceEvent}},
+		{"aliases + dedupe", []string{"deploy", "Deployments", "rs", "cm"}, []string{ResourceConfigMap, ResourceDeployment, ResourceReplicaSet}},
+		{"unknown dropped", []string{"pods", "widgets"}, []string{ResourcePod}},
+		{"secrets opt-in only when named", []string{"secrets"}, []string{ResourceSecret}},
+		{"all unknown falls back", []string{"widgets"}, []string{ResourcePod, ResourceEvent}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := NormalizeResources(tc.in)
+			if !reflect.DeepEqual(got, tc.want) {
+				t.Fatalf("got %v want %v", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestSecretsNeverImplicit(t *testing.T) {
+	got := NormalizeResources([]string{"pods", "configmaps"})
+	for _, r := range got {
+		if r == ResourceSecret {
+			t.Fatal("secrets must never be added implicitly")
+		}
+	}
+}
+
+func TestNormalizeWorkloadKinds(t *testing.T) {
+	dep := &appsv1.Deployment{
+		ObjectMeta: metav1.ObjectMeta{Name: "api", Namespace: "payments"},
+		Spec:       appsv1.DeploymentSpec{Replicas: int32Ptr(3)},
+		Status:     appsv1.DeploymentStatus{ReadyReplicas: 2, AvailableReplicas: 2, UpdatedReplicas: 3},
+	}
+	ev, ok := normalize(ResourceDeployment, watch.Event{Type: watch.Modified, Object: dep})
+	if !ok || ev.Resource != ResourceDeployment || ev.Detail == "" {
+		t.Fatalf("deployment normalize: %+v ok=%v", ev, ok)
+	}
+
+	job := &batchv1.Job{
+		ObjectMeta: metav1.ObjectMeta{Name: "backfill", Namespace: "payments"},
+		Status: batchv1.JobStatus{
+			Failed:     1,
+			Conditions: []batchv1.JobCondition{{Type: batchv1.JobFailed, Status: corev1.ConditionTrue}},
+		},
+	}
+	jev, ok := normalize(ResourceJob, watch.Event{Type: watch.Modified, Object: job})
+	if !ok || jev.PodPhase != "Failed" {
+		t.Fatalf("job normalize: %+v ok=%v", jev, ok)
+	}
+
+	sec := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{Name: "db", Namespace: "payments"},
+		Type:       corev1.SecretTypeOpaque,
+		Data:       map[string][]byte{"password": []byte("hunter2")},
+	}
+	sev, ok := normalize(ResourceSecret, watch.Event{Type: watch.Added, Object: sec})
+	if !ok || sev.Resource != ResourceSecret {
+		t.Fatalf("secret normalize: %+v ok=%v", sev, ok)
+	}
+	if strings.Contains(sev.Detail, "hunter2") {
+		t.Fatalf("secret value leaked into event: %q", sev.Detail)
+	}
+}
+
+func TestEngineSeesDeployment(t *testing.T) {
+	dep := &appsv1.Deployment{
+		ObjectMeta: metav1.ObjectMeta{Name: "api", Namespace: "payments", ResourceVersion: "1"},
+		Spec:       appsv1.DeploymentSpec{Replicas: int32Ptr(1)},
+	}
+	client := fake.NewSimpleClientset(dep)
+	client.PrependWatchReactor("deployments", func(action k8stesting.Action) (bool, watch.Interface, error) {
+		return true, watch.NewFake(), nil
+	})
+
+	var mu sync.Mutex
+	var got []Event
+	eng := &Engine{
+		Client: client,
+		Options: Options{
+			Namespace:   "payments",
+			Resources:   []string{"deployments"},
+			EmitInitial: true,
+			MinBackoff:  10 * time.Millisecond,
+			MaxBackoff:  20 * time.Millisecond,
+		},
+		Handler: func(ev Event) {
+			mu.Lock()
+			got = append(got, ev)
+			mu.Unlock()
+		},
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
+	defer cancel()
+	_ = eng.Run(ctx)
+
+	mu.Lock()
+	defer mu.Unlock()
+	found := false
+	for _, ev := range got {
+		if ev.Resource == ResourceDeployment && ev.Name == "api" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("expected deployment event, got %#v", got)
+	}
+}
+
 func TestNextBackoff(t *testing.T) {
 	if nextBackoff(time.Second, 30*time.Second) != 2*time.Second {
 		t.Fatal("double")
@@ -156,3 +272,5 @@ func TestNextBackoff(t *testing.T) {
 
 // Ensure fake list works for events resource type registration.
 var _ runtime.Object = &corev1.Event{}
+
+func int32Ptr(i int32) *int32 { return &i }

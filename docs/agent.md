@@ -73,10 +73,35 @@ Full Deployment lifecycle for the CR is **AG-014 Operator**.
 | `KPROMPT_WEBHOOK_URL` | Generic AgentAlert JSON POST |
 | `KPROMPT_AGENT_CR` (+ `_NAMESPACE`) | Patch KpromptAgent.status |
 
+## Watched resources (AG-004)
+
+Default is `pods,events`. Expand with `--watch`:
+
+```bash
+kprompt agent run -n payments \
+  --watch pods,events,deployments,replicasets,statefulsets,jobs,cronjobs,pvc,configmaps
+```
+
+| Value(s) | Kind |
+|----------|------|
+| `pods` | Pod |
+| `events` | Event |
+| `deployments` / `deploy` | Deployment (ready/updated/available) |
+| `replicasets` / `rs` | ReplicaSet |
+| `statefulsets` / `sts` | StatefulSet |
+| `jobs` | Job (Complete/Failed) |
+| `cronjobs` / `cj` | CronJob (schedule/suspend) |
+| `pvc` | PersistentVolumeClaim (phase) |
+| `configmaps` / `cm` | ConfigMap (key count) |
+| `secrets` | Secret — **opt-in, metadata only** (never values, ADR-0013) |
+
+Secrets are never watched implicitly and only metadata (type + key count) is emitted.
+
 ## Pipeline flags
 
 | Flag | Task |
 |------|------|
+| `--watch` | AG-004 resource selection |
 | `--incidents` | AG-006 correlate |
 | `--fetch-logs` | AG-005 on-demand logs |
 | `--build-context` | AG-007 context |
