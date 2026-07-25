@@ -28,7 +28,7 @@ func LooksLikeInvestigatePrompt(prompt string) bool {
 }
 
 // NormalizeInvestigate maps investigate-shaped prompts onto KindInvestigate.
-// Crash-focused "why is X crashing" stays KindExplain (T-024); investigate is the
+// Crash-focused "why is X crashing" is KindWhy (S-003); investigate is the
 // multi-hop Service→…→Logs path (S-002).
 func NormalizeInvestigate(in Intent, prompt string) Intent {
 	if !LooksLikeInvestigatePrompt(prompt) {

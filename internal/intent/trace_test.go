@@ -31,7 +31,7 @@ func TestNormalizeShowTracePrompt(t *testing.T) {
 
 func TestNormalizeTraceLeavesNonTracePromptAlone(t *testing.T) {
 	got := NormalizeVerb(Intent{Kind: KindExplain}, "why is payment failing")
-	if got.Kind != KindExplain {
+	if got.Kind != KindWhy {
 		t.Fatalf("kind=%s", got.Kind)
 	}
 }

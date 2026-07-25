@@ -36,6 +36,7 @@ import (
 	toolprometheus "github.com/kprompt/kprompt/internal/tools/prometheus"
 	"github.com/kprompt/kprompt/internal/ui"
 	"github.com/kprompt/kprompt/internal/verify"
+	"github.com/kprompt/kprompt/internal/why"
 )
 
 // ConfirmFunc asks the user whether to apply a mutating plan.
@@ -657,6 +658,23 @@ func RunWith(ctx context.Context, cfg config.Resolved, out io.Writer, deps Deps)
 			ui.PrintApplied(out, patch)
 			applied = true
 			return nil
+		case intent.KindWhy:
+			req, err := whyFromPlan(plan, cfg.Prompt)
+			if err != nil {
+				return err
+			}
+			invDoc, err := (&why.Analyzer{Client: client}).Run(ctx, req)
+			if err != nil {
+				return cluster.Friendlier(fmt.Errorf("why: %w", err))
+			}
+			doc = doc.WithInvestigationResult(invDoc)
+			if jsonMode {
+				applied = true
+				return nil
+			}
+			ui.PrintInvestigation(out, invDoc, cluster.ExplainReport{})
+			applied = true
+			return nil
 		case intent.KindLogs:
 			req, err := logsFromPlan(plan)
 			if err != nil {
@@ -957,7 +975,7 @@ func isReadOnly(plan planner.ExecutionPlan) bool {
 		return false
 	}
 	switch plan.Intent.Kind {
-	case intent.KindGet, intent.KindExplain, intent.KindInvestigate, intent.KindLogs, intent.KindDescribe, intent.KindPerformance, intent.KindTrace, intent.KindDashboard, intent.KindOptimize, intent.KindGraph, intent.KindIstio, intent.KindGitOps:
+	case intent.KindGet, intent.KindExplain, intent.KindInvestigate, intent.KindWhy, intent.KindLogs, intent.KindDescribe, intent.KindPerformance, intent.KindTrace, intent.KindDashboard, intent.KindOptimize, intent.KindGraph, intent.KindIstio, intent.KindGitOps:
 		return true
 	default:
 		return false
@@ -1126,6 +1144,22 @@ func investigateFromPlan(plan planner.ExecutionPlan, prompt string) (investigate
 		return investigate.Request{}, fmt.Errorf("investigate requires a named target")
 	}
 	return investigate.Request{
+		Name:      a.Object.Name,
+		Namespace: a.Object.Namespace,
+		Kind:      a.Object.Kind,
+		Prompt:    prompt,
+	}, nil
+}
+
+func whyFromPlan(plan planner.ExecutionPlan, prompt string) (why.Request, error) {
+	if len(plan.Actions) == 0 {
+		return why.Request{}, fmt.Errorf("why plan has no actions")
+	}
+	a := plan.Actions[0]
+	if a.Object.Name == "" {
+		return why.Request{}, fmt.Errorf("why requires a named target")
+	}
+	return why.Request{
 		Name:      a.Object.Name,
 		Namespace: a.Object.Namespace,
 		Kind:      a.Object.Kind,

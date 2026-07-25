@@ -174,6 +174,22 @@ func TestBuildInvestigate(t *testing.T) {
 	}
 }
 
+func TestBuildWhy(t *testing.T) {
+	plan, err := Build(intent.Intent{
+		Kind:   intent.KindWhy,
+		Target: intent.Target{Name: "ledger", Namespace: "payments", Kind: "Pod"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if plan.RequiresApproval {
+		t.Fatal("why is read-only")
+	}
+	if !strings.Contains(plan.Summary, "symptom → proximate → root") {
+		t.Fatalf("summary: %s", plan.Summary)
+	}
+}
+
 func TestBuildRollback(t *testing.T) {
 	plan, err := Build(intent.Intent{
 		Kind:   intent.KindRollback,

@@ -20,15 +20,17 @@ Root cause + confidence come from findings (CrashLoop / ImagePull / OOM / no rea
 
 ## Honest gaps (`degraded`)
 
-MVP lists `ingress`, `mesh`, and `prometheus` in `Investigation.degraded` — those hops are not walked yet (S-003/S-004 and later slices).
+MVP lists `ingress`, `mesh`, and `prometheus` in `Investigation.degraded` — those hops are not walked yet (S-004 and later slices).
 
-## vs `explain`
+## vs `explain` / `why`
 
-| | `explain` | `investigate` |
-|--|-----------|----------------|
-| Focus | Deployment → Pods → Events → Logs | + Service / Endpoints ahead of that chain |
-| Artifact | explain-lite JSON | `Investigation` (`kprompt.io/v1`) |
-| Trigger | “why is X crashing” | “investigate X” / root cause / RCA |
+| | `explain` | `why` | `investigate` |
+|--|-----------|-------|----------------|
+| Focus | Deployment → Pods → Events → Logs | Cause tree on one pod/workload | + Service / Endpoints ahead of that chain |
+| Artifact | explain-lite JSON | `Investigation` (`kprompt.io/v1`) | `Investigation` (`kprompt.io/v1`) |
+| Trigger | generic diagnosis | “why is X pending/crashing” | “investigate X” / root cause / RCA |
+
+See also [docs/why.md](./why.md).
 
 Try against [kprompt-examples](https://github.com/kprompt/kprompt-examples):
 

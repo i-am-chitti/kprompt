@@ -17,13 +17,13 @@ func TestNormalizePerformanceSlowPrompt(t *testing.T) {
 	}
 }
 
-func TestNormalizePerformanceLeavesCrashExplainAlone(t *testing.T) {
+func TestNormalizePerformanceLeavesCrashForWhy(t *testing.T) {
 	in := Intent{
 		Kind:   KindExplain,
 		Target: Target{Name: "api"},
 	}
 	got := NormalizeVerb(in, "why is api crashing")
-	if got.Kind != KindExplain {
+	if got.Kind != KindWhy {
 		t.Fatalf("kind=%s", got.Kind)
 	}
 }

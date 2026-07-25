@@ -1065,6 +1065,48 @@ func TestPipelineInvestigateEmitsInvestigation(t *testing.T) {
 	}
 }
 
+func TestPipelineWhyEmitsCausalInvestigation(t *testing.T) {
+	ns := "payments"
+	labels := map[string]string{"app": "ledger"}
+	client := fake.NewSimpleClientset(
+		&corev1.Pod{
+			ObjectMeta: metav1.ObjectMeta{Name: "ledger", Namespace: ns, Labels: labels},
+			Status: corev1.PodStatus{
+				Phase: corev1.PodPending,
+				Conditions: []corev1.PodCondition{{
+					Type:    corev1.PodScheduled,
+					Status:  corev1.ConditionFalse,
+					Reason:  "Unschedulable",
+					Message: "persistentvolumeclaim \"ledger-data\" not found",
+				}},
+			},
+		},
+	)
+	var out bytes.Buffer
+	var got output.PlanResult
+	err := RunWith(context.Background(), config.Resolved{
+		Namespace: ns,
+		Prompt:    "why is ledger Pending",
+		Output:    "json",
+	}, &out, Deps{
+		Provider: llm.WhyStub("ledger", ns, "Pod"),
+		Client:   client,
+		OnResult: func(r output.PlanResult) { got = r },
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got.Result) == 0 {
+		t.Fatal("expected investigation JSON result")
+	}
+	if !bytes.Contains(got.Result, []byte(`"Investigation"`)) {
+		t.Fatalf("result: %s", string(got.Result))
+	}
+	if !bytes.Contains(got.Result, []byte("Symptom.Pending")) && !bytes.Contains(got.Result, []byte("Pending")) {
+		t.Fatalf("expected Pending findings: %s", string(got.Result))
+	}
+}
+
 func deployment(name, ns string, replicas int32) *appsv1.Deployment {
 	return &appsv1.Deployment{
 		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: ns},

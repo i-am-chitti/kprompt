@@ -11,9 +11,9 @@ func TestNormalizeInvestigate(t *testing.T) {
 	if got.Kind != KindInvestigate {
 		t.Fatalf("got %s", got.Kind)
 	}
-	// Crash explain stays explain (not investigate).
+	// Crash why is KindWhy (S-003), not investigate.
 	got = NormalizeVerb(Intent{Kind: KindExplain}, "why is api crashing")
-	if got.Kind != KindExplain {
-		t.Fatalf("crash explain became %s", got.Kind)
+	if got.Kind != KindWhy {
+		t.Fatalf("crash why became %s", got.Kind)
 	}
 }
