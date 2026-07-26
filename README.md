@@ -37,6 +37,8 @@ cd kprompt-examples && make walkthrough
 
 Prefer one failure at a time? `make up && make break SCENARIO=01-crashloop && make agent`.
 
+![Observe agent on a deliberately broken kind cluster — incidents, health score, propose-only Autopilot, zero LLM spend](./.github/assets/kprompt-observe-demo.gif)
+
 If the plan-before-apply contract is what you want in your own cluster workflow, a ⭐ helps other SREs find it.
 
 ## Why kprompt
