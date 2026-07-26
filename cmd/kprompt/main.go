@@ -89,7 +89,7 @@ func main() {
 	root.PersistentFlags().StringVar(&provider, "provider", "", "LLM provider (openai|anthropic|gemini|groq|mistral|deepseek|openrouter|together|ollama|openai-compatible)")
 	root.PersistentFlags().StringVar(&model, "model", "", "LLM model id")
 	root.PersistentFlags().StringVar(&kubeCtx, "context", "", "kubeconfig context")
-	root.PersistentFlags().StringVar(&kubeCtxs, "contexts", "", "comma-separated contexts for read-only fan-out (aliases ok)")
+	root.PersistentFlags().StringVar(&kubeCtxs, "contexts", "", "comma-separated contexts for read fan-out / per-context mutate (aliases ok)")
 	root.PersistentFlags().StringVarP(&namespace, "namespace", "n", "", "default namespace")
 	root.PersistentFlags().StringVarP(&outputFmt, "output", "o", "text", "output format: text|json")
 	root.PersistentFlags().StringVar(&theme, "theme", "", "color theme: auto|dracula|nord|gruvbox|mono|none")
