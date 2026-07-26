@@ -36,8 +36,8 @@ kprompt "audit payments" -n payments --output json | jq '.result'
 ## Harden plan (approve-required)
 
 `audit` offers **one aggregate harden plan** that only ever *removes* a privilege
-grant on Deployment containers — never a change that could stop a container from
-starting or that requires an invented value:
+grant on Deployment, StatefulSet, and DaemonSet containers — never a change that
+could stop a container from starting or that requires an invented value:
 
 | Finding | Auto-patch (approve-gated) |
 |---------|-----------------------------|
@@ -47,7 +47,7 @@ starting or that requires an invented value:
 Everything else stays **guidance-only** — `Audit.RunAsRoot` (enforcing non-root
 can break a root image), `Audit.HostNamespace`, `Audit.LatestTag` (never invent a
 tag), `Audit.MissingRequests` / `Audit.MissingLimits` (never invent CPU/memory),
-and StatefulSet / DaemonSet findings (patch executor is Deployment-only today).
+and any other workload kind (Pod, Job, CronJob templates are reported, not patched).
 
 ## Honest limits
 

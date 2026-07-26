@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"strings"
 
-	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
@@ -20,18 +19,19 @@ import (
 // plus guidance for findings kprompt will not auto-patch.
 //
 // The only auto-patched fixes REMOVE a privilege grant (privileged=false,
-// allowPrivilegeEscalation=false) on Deployment containers — changes that never
-// invent workload-specific values and never tighten a constraint that could stop
-// a container from starting. Everything else (runAsNonRoot, host namespaces,
-// image tags, resource requests/limits, non-Deployment kinds) stays guidance-only.
+// allowPrivilegeEscalation=false) on Deployment / StatefulSet / DaemonSet
+// containers — changes that never invent workload-specific values and never
+// tighten a constraint that could stop a container from starting. Everything else
+// (runAsNonRoot, host namespaces, image tags, resource requests/limits) stays
+// guidance-only.
 func FromAudit(ctx context.Context, client kubernetes.Interface, inv incident.Investigation) ([]Suggestion, error) {
 	if client == nil {
 		return nil, nil
 	}
 
-	type depKey struct{ name, ns string }
-	patchable := map[depKey][]incident.Finding{}
-	var order []depKey
+	type workloadKey struct{ kind, name, ns string }
+	patchable := map[workloadKey][]incident.Finding{}
+	var order []workloadKey
 	seenGuidance := map[string]bool{}
 	var guidance []Suggestion
 
@@ -42,14 +42,14 @@ func FromAudit(ctx context.Context, client kubernetes.Interface, inv incident.In
 		}
 		switch f.Code {
 		case "Audit.Privileged", "Audit.PrivilegeEscalation":
-			if ref.Kind != "Deployment" {
-				addAuditGuidance(&guidance, seenGuidance, "Audit.NonDeployment",
+			if !hardenableKind(ref.Kind) {
+				addAuditGuidance(&guidance, seenGuidance, "Audit.UnsupportedKind",
 					"Harden via workload manifest",
-					fmt.Sprintf("harden %s/%s", strings.ToLower(ref.Kind), ref.Name),
-					"StatefulSet/DaemonSet harden patches are not auto-generated yet — remove the privilege grant in your manifest")
+					fmt.Sprintf("describe %s/%s", strings.ToLower(ref.Kind), ref.Name),
+					fmt.Sprintf("%s harden patches are not auto-generated — remove the privilege grant in your manifest", ref.Kind))
 				continue
 			}
-			k := depKey{ref.Name, ref.Namespace}
+			k := workloadKey{ref.Kind, ref.Name, ref.Namespace}
 			if _, ok := patchable[k]; !ok {
 				order = append(order, k)
 			}
@@ -61,13 +61,13 @@ func FromAudit(ctx context.Context, client kubernetes.Interface, inv incident.In
 
 	var actions []planner.Action
 	for _, k := range order {
-		act, err := hardenDeployment(ctx, client, k.name, k.ns, patchable[k])
+		act, err := hardenWorkload(ctx, client, k.kind, k.name, k.ns, patchable[k])
 		if err != nil {
 			guidance = append(guidance, Suggestion{
 				Code:    "Audit.Harden",
-				Title:   "Harden Deployment",
+				Title:   "Harden workload",
 				Prompt:  fmt.Sprintf("harden %s", k.name),
-				Summary: fmt.Sprintf("Could not build a patch for Deployment/%s: %v", k.name, err),
+				Summary: fmt.Sprintf("Could not build a patch for %s/%s: %v", k.kind, k.name, err),
 			})
 			continue
 		}
@@ -81,17 +81,17 @@ func FromAudit(ctx context.Context, client kubernetes.Interface, inv incident.In
 		plan := &planner.ExecutionPlan{
 			Intent: intent.Intent{
 				Kind:   intent.KindPatch,
-				Target: intent.Target{Kind: "Deployment", Namespace: inv.Namespace},
+				Target: intent.Target{Kind: actions[0].Object.Kind, Namespace: inv.Namespace},
 				Params: map[string]any{"reason": "AuditHarden"},
 			},
 			Actions:          actions,
-			Summary:          fmt.Sprintf("Harden %d Deployment(s): remove privilege grants", len(actions)),
+			Summary:          fmt.Sprintf("Harden %d workload(s): remove privilege grants", len(actions)),
 			RequiresApproval: true,
 		}
 		out = append(out, Suggestion{
 			Code:    "Audit.Harden",
 			Title:   "Remove privilege grants",
-			Prompt:  "harden deployments",
+			Prompt:  "harden workloads",
 			Plan:    plan,
 			Summary: plan.Summary,
 		})
@@ -100,18 +100,81 @@ func FromAudit(ctx context.Context, client kubernetes.Interface, inv incident.In
 	return out, nil
 }
 
-// hardenDeployment returns a single OpUpdate action removing privilege grants,
-// or nil when the live spec already has nothing to remove.
-func hardenDeployment(ctx context.Context, client kubernetes.Interface, name, ns string, findings []incident.Finding) (*planner.Action, error) {
-	dep, err := client.AppsV1().Deployments(ns).Get(ctx, name, metav1.GetOptions{})
+func hardenableKind(kind string) bool {
+	switch kind {
+	case "Deployment", "StatefulSet", "DaemonSet":
+		return true
+	default:
+		return false
+	}
+}
+
+// hardenWorkload returns a single OpUpdate action removing privilege grants from
+// a Deployment / StatefulSet / DaemonSet, or nil when the live spec already has
+// nothing to remove.
+func hardenWorkload(ctx context.Context, client kubernetes.Interface, kind, name, ns string, findings []incident.Finding) (*planner.Action, error) {
+	var (
+		obj     any
+		podSpec *corev1.PodSpec
+	)
+	switch kind {
+	case "Deployment":
+		dep, err := client.AppsV1().Deployments(ns).Get(ctx, name, metav1.GetOptions{})
+		if err != nil {
+			return nil, err
+		}
+		patched := dep.DeepCopy()
+		patched.TypeMeta = metav1.TypeMeta{APIVersion: "apps/v1", Kind: kind}
+		obj, podSpec = patched, &patched.Spec.Template.Spec
+	case "StatefulSet":
+		sts, err := client.AppsV1().StatefulSets(ns).Get(ctx, name, metav1.GetOptions{})
+		if err != nil {
+			return nil, err
+		}
+		patched := sts.DeepCopy()
+		patched.TypeMeta = metav1.TypeMeta{APIVersion: "apps/v1", Kind: kind}
+		obj, podSpec = patched, &patched.Spec.Template.Spec
+	case "DaemonSet":
+		ds, err := client.AppsV1().DaemonSets(ns).Get(ctx, name, metav1.GetOptions{})
+		if err != nil {
+			return nil, err
+		}
+		patched := ds.DeepCopy()
+		patched.TypeMeta = metav1.TypeMeta{APIVersion: "apps/v1", Kind: kind}
+		obj, podSpec = patched, &patched.Spec.Template.Spec
+	default:
+		return nil, fmt.Errorf("harden of %s not supported", kind)
+	}
+
+	changes := removePrivilegeGrants(podSpec, findings)
+	if len(changes) == 0 {
+		return nil, nil
+	}
+	raw, err := yaml.Marshal(obj)
 	if err != nil {
 		return nil, err
 	}
-	patched := dep.DeepCopy()
+	diff := fmt.Sprintf("~ %s/%s (update)\n  %s", kind, name, strings.Join(changes, "\n  "))
+	return &planner.Action{
+		Op: planner.OpUpdate,
+		Object: planner.ObjectRef{
+			APIVersion: "apps/v1",
+			Kind:       kind,
+			Name:       name,
+			Namespace:  ns,
+		},
+		Manifest: string(raw),
+		Diff:     diff,
+	}, nil
+}
+
+// removePrivilegeGrants drops privileged / allowPrivilegeEscalation on the
+// containers named by each finding, returning a human-readable change list.
+func removePrivilegeGrants(spec *corev1.PodSpec, findings []incident.Finding) []string {
 	var changes []string
 	for _, f := range findings {
 		container := containerFromMessage(f.Title)
-		for _, c := range matchContainers(patched, container) {
+		for _, c := range matchContainers(spec, container) {
 			switch f.Code {
 			case "Audit.Privileged":
 				if c.SecurityContext != nil && c.SecurityContext.Privileged != nil && *c.SecurityContext.Privileged {
@@ -129,38 +192,19 @@ func hardenDeployment(ctx context.Context, client kubernetes.Interface, name, ns
 			}
 		}
 	}
-	if len(changes) == 0 {
-		return nil, nil
-	}
-	patched.TypeMeta = metav1.TypeMeta{APIVersion: "apps/v1", Kind: "Deployment"}
-	raw, err := yaml.Marshal(patched)
-	if err != nil {
-		return nil, err
-	}
-	diff := fmt.Sprintf("~ Deployment/%s (update)\n  %s", dep.Name, strings.Join(changes, "\n  "))
-	return &planner.Action{
-		Op: planner.OpUpdate,
-		Object: planner.ObjectRef{
-			APIVersion: "apps/v1",
-			Kind:       "Deployment",
-			Name:       dep.Name,
-			Namespace:  dep.Namespace,
-		},
-		Manifest: string(raw),
-		Diff:     diff,
-	}, nil
+	return changes
 }
 
 // matchContainers returns pointers into the patched spec (init + main). When a
 // container name is given it returns just that one; otherwise all containers so a
 // privilege-removal applies broadly (always safe — it only drops a grant).
-func matchContainers(dep *appsv1.Deployment, name string) []*corev1.Container {
+func matchContainers(spec *corev1.PodSpec, name string) []*corev1.Container {
 	var all []*corev1.Container
-	for i := range dep.Spec.Template.Spec.InitContainers {
-		all = append(all, &dep.Spec.Template.Spec.InitContainers[i])
+	for i := range spec.InitContainers {
+		all = append(all, &spec.InitContainers[i])
 	}
-	for i := range dep.Spec.Template.Spec.Containers {
-		all = append(all, &dep.Spec.Template.Spec.Containers[i])
+	for i := range spec.Containers {
+		all = append(all, &spec.Containers[i])
 	}
 	if name == "" {
 		return all

@@ -146,6 +146,18 @@ func (r *Runner) applyManifest(ctx context.Context, a planner.Action) error {
 			return fmt.Errorf("decode Deployment: %w", err)
 		}
 		return r.applyDeployment(ctx, &dep)
+	case "StatefulSet":
+		var sts appsv1.StatefulSet
+		if err := yaml.Unmarshal([]byte(a.Manifest), &sts); err != nil {
+			return fmt.Errorf("decode StatefulSet: %w", err)
+		}
+		return r.applyStatefulSet(ctx, &sts)
+	case "DaemonSet":
+		var ds appsv1.DaemonSet
+		if err := yaml.Unmarshal([]byte(a.Manifest), &ds); err != nil {
+			return fmt.Errorf("decode DaemonSet: %w", err)
+		}
+		return r.applyDaemonSet(ctx, &ds)
 	case "Service":
 		var svc corev1.Service
 		if err := yaml.Unmarshal([]byte(a.Manifest), &svc); err != nil {
@@ -175,6 +187,52 @@ func (r *Runner) applyDeployment(ctx context.Context, dep *appsv1.Deployment) er
 	}
 	dep.ResourceVersion = existing.ResourceVersion
 	_, err = r.Client.AppsV1().Deployments(ns).Update(ctx, dep, metav1.UpdateOptions{
+		FieldManager: FieldManager,
+	})
+	return err
+}
+
+func (r *Runner) applyStatefulSet(ctx context.Context, sts *appsv1.StatefulSet) error {
+	ns := sts.Namespace
+	if ns == "" {
+		ns = "default"
+		sts.Namespace = ns
+	}
+	existing, err := r.Client.AppsV1().StatefulSets(ns).Get(ctx, sts.Name, metav1.GetOptions{})
+	if apierrors.IsNotFound(err) {
+		_, err = r.Client.AppsV1().StatefulSets(ns).Create(ctx, sts, metav1.CreateOptions{
+			FieldManager: FieldManager,
+		})
+		return err
+	}
+	if err != nil {
+		return err
+	}
+	sts.ResourceVersion = existing.ResourceVersion
+	_, err = r.Client.AppsV1().StatefulSets(ns).Update(ctx, sts, metav1.UpdateOptions{
+		FieldManager: FieldManager,
+	})
+	return err
+}
+
+func (r *Runner) applyDaemonSet(ctx context.Context, ds *appsv1.DaemonSet) error {
+	ns := ds.Namespace
+	if ns == "" {
+		ns = "default"
+		ds.Namespace = ns
+	}
+	existing, err := r.Client.AppsV1().DaemonSets(ns).Get(ctx, ds.Name, metav1.GetOptions{})
+	if apierrors.IsNotFound(err) {
+		_, err = r.Client.AppsV1().DaemonSets(ns).Create(ctx, ds, metav1.CreateOptions{
+			FieldManager: FieldManager,
+		})
+		return err
+	}
+	if err != nil {
+		return err
+	}
+	ds.ResourceVersion = existing.ResourceVersion
+	_, err = r.Client.AppsV1().DaemonSets(ns).Update(ctx, ds, metav1.UpdateOptions{
 		FieldManager: FieldManager,
 	})
 	return err

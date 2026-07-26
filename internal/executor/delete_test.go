@@ -33,6 +33,44 @@ func TestDeleteDeployment(t *testing.T) {
 	}
 }
 
+func TestApplyStatefulSetAndDaemonSet(t *testing.T) {
+	client := fake.NewSimpleClientset(
+		&appsv1.StatefulSet{ObjectMeta: metav1.ObjectMeta{Name: "db", Namespace: "demo"}},
+		&appsv1.DaemonSet{ObjectMeta: metav1.ObjectMeta{Name: "agent", Namespace: "demo"}},
+	)
+	err := (&Runner{Client: client}).Apply(context.Background(), planner.ExecutionPlan{
+		Actions: []planner.Action{
+			{
+				Op:       planner.OpUpdate,
+				Object:   planner.ObjectRef{Kind: "StatefulSet", Name: "db", Namespace: "demo"},
+				Manifest: "apiVersion: apps/v1\nkind: StatefulSet\nmetadata:\n  name: db\n  namespace: demo\n  labels:\n    hardened: \"true\"\n",
+			},
+			{
+				Op:       planner.OpUpdate,
+				Object:   planner.ObjectRef{Kind: "DaemonSet", Name: "agent", Namespace: "demo"},
+				Manifest: "apiVersion: apps/v1\nkind: DaemonSet\nmetadata:\n  name: agent\n  namespace: demo\n  labels:\n    hardened: \"true\"\n",
+			},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	sts, err := client.AppsV1().StatefulSets("demo").Get(context.Background(), "db", metav1.GetOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if sts.Labels["hardened"] != "true" {
+		t.Fatalf("StatefulSet not updated: %+v", sts.Labels)
+	}
+	ds, err := client.AppsV1().DaemonSets("demo").Get(context.Background(), "agent", metav1.GetOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ds.Labels["hardened"] != "true" {
+		t.Fatalf("DaemonSet not updated: %+v", ds.Labels)
+	}
+}
+
 func TestDeleteJobAndReplicaSet(t *testing.T) {
 	client := fake.NewSimpleClientset(
 		&batchv1.Job{ObjectMeta: metav1.ObjectMeta{Name: "old-migrate", Namespace: "payments"}},
