@@ -584,7 +584,7 @@ func RunWith(ctx context.Context, cfg config.Resolved, out io.Writer, deps Deps)
 			}
 			ui.PrintExplain(out, rep)
 
-			suggestions, err := suggest.FromExplain(ctx, client, rep)
+			suggestions, err := suggest.FromExplain(ctx, client, rep, cfg.Prompt)
 			if err != nil {
 				return cluster.Friendlier(fmt.Errorf("suggest: %w", err))
 			}
@@ -635,7 +635,7 @@ func RunWith(ctx context.Context, cfg config.Resolved, out io.Writer, deps Deps)
 			}
 			ui.PrintInvestigation(out, invDoc, rep)
 
-			suggestions, err := suggest.FromExplain(ctx, client, rep)
+			suggestions, err := suggest.FromExplain(ctx, client, rep, cfg.Prompt)
 			if err != nil {
 				return cluster.Friendlier(fmt.Errorf("suggest: %w", err))
 			}
@@ -685,6 +685,40 @@ func RunWith(ctx context.Context, cfg config.Resolved, out io.Writer, deps Deps)
 				return nil
 			}
 			ui.PrintInvestigation(out, invDoc, cluster.ExplainReport{})
+
+			suggestions, err := suggest.FromInvestigation(ctx, client, invDoc, cfg.Prompt)
+			if err != nil {
+				return cluster.Friendlier(fmt.Errorf("suggest: %w", err))
+			}
+			ui.PrintSuggestions(out, suggestions)
+
+			actionable := suggest.ActionablePlans(suggestions)
+			if len(actionable) == 0 {
+				applied = true
+				return nil
+			}
+			patch := *actionable[0].Plan
+			patchRisk := safety.EvaluatePlanWithOrg(patch, loadOrgPolicy())
+			if patchRisk.Denied {
+				ui.PrintDenied(out, patchRisk.Message)
+				applied = true
+				return nil
+			}
+			fmt.Fprintln(out, "Suggested fix (requires approval):")
+			ui.PrintPlan(out, patch, patchRisk)
+			approved, err := resolveApproval(cfg.Approve, out, deps)
+			if err != nil {
+				return err
+			}
+			if !approved {
+				applied = true
+				return nil
+			}
+			runner := &executor.Runner{Client: client}
+			if err := runner.Apply(ctx, patch); err != nil {
+				return cluster.Friendlier(fmt.Errorf("apply suggested patch: %w", err))
+			}
+			ui.PrintApplied(out, patch)
 			applied = true
 			return nil
 		case intent.KindTimeline:

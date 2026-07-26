@@ -371,9 +371,9 @@ func planHint(steps []incident.Finding, target string) string {
 		case "Cause.MemoryLimit", "Cause.OOMKilled":
 			return fmt.Sprintf("Suggested (approve required): raise memory for %s", target)
 		case "Cause.BadImageRef":
-			return fmt.Sprintf("Suggested: verify image tag / imagePullSecrets for %s", target)
+			return fmt.Sprintf("Suggested: name a replacement — set %s image to <tag> — for a reviewable plan", target)
 		case "Cause.ExitNonZero":
-			return fmt.Sprintf("Suggested: kprompt \"logs %s\" then fix start command / config", target)
+			return fmt.Sprintf("Suggested (approve required): rollback %s when a prior revision exists; else kprompt \"logs %s\"", target, target)
 		case "Cause.NoGPUNodes":
 			return "Fix: add GPU nodes or remove the GPU request/affinity"
 		}

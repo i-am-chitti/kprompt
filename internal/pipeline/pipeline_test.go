@@ -17,6 +17,7 @@ import (
 	discoveryv1 "k8s.io/api/discovery/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/kubernetes/fake"
 
 	"github.com/kprompt/kprompt/internal/config"
@@ -1104,6 +1105,91 @@ func TestPipelineWhyEmitsCausalInvestigation(t *testing.T) {
 	}
 	if !bytes.Contains(got.Result, []byte("Symptom.Pending")) && !bytes.Contains(got.Result, []byte("Pending")) {
 		t.Fatalf("expected Pending findings: %s", string(got.Result))
+	}
+}
+
+func TestPipelineWhyCrashLoopSuggestsRollback(t *testing.T) {
+	ns := "payments"
+	labels := map[string]string{"app": "api"}
+	ctrl := true
+	depUID := types.UID("dep1")
+	var replicas int32 = 1
+	client := fake.NewSimpleClientset(
+		&appsv1.Deployment{
+			ObjectMeta: metav1.ObjectMeta{
+				Name: "api", Namespace: ns, UID: depUID,
+				Annotations: map[string]string{"deployment.kubernetes.io/revision": "2"},
+			},
+			Spec: appsv1.DeploymentSpec{
+				Replicas: &replicas,
+				Selector: &metav1.LabelSelector{MatchLabels: labels},
+				Template: corev1.PodTemplateSpec{
+					ObjectMeta: metav1.ObjectMeta{Labels: labels},
+					Spec:       corev1.PodSpec{Containers: []corev1.Container{{Name: "api", Image: "busybox:bad"}}},
+				},
+			},
+		},
+		&appsv1.ReplicaSet{
+			ObjectMeta: metav1.ObjectMeta{
+				Name: "api-1", Namespace: ns,
+				Annotations: map[string]string{"deployment.kubernetes.io/revision": "1"},
+				OwnerReferences: []metav1.OwnerReference{{
+					APIVersion: "apps/v1", Kind: "Deployment", Name: "api", UID: depUID, Controller: &ctrl,
+				}},
+			},
+		},
+		&appsv1.ReplicaSet{
+			ObjectMeta: metav1.ObjectMeta{
+				Name: "api-2", Namespace: ns,
+				Annotations: map[string]string{"deployment.kubernetes.io/revision": "2"},
+				OwnerReferences: []metav1.OwnerReference{{
+					APIVersion: "apps/v1", Kind: "Deployment", Name: "api", UID: depUID, Controller: &ctrl,
+				}},
+			},
+			Spec: appsv1.ReplicaSetSpec{Selector: &metav1.LabelSelector{MatchLabels: labels}},
+		},
+		&corev1.Pod{
+			ObjectMeta: metav1.ObjectMeta{
+				Name: "api-2-pod", Namespace: ns, Labels: labels,
+				OwnerReferences: []metav1.OwnerReference{{
+					APIVersion: "apps/v1", Kind: "ReplicaSet", Name: "api-2", Controller: &ctrl,
+				}},
+			},
+			Spec: corev1.PodSpec{Containers: []corev1.Container{{Name: "api", Image: "busybox:bad"}}},
+			Status: corev1.PodStatus{
+				Phase: corev1.PodRunning,
+				ContainerStatuses: []corev1.ContainerStatus{{
+					Name: "api",
+					State: corev1.ContainerState{
+						Waiting: &corev1.ContainerStateWaiting{Reason: "CrashLoopBackOff", Message: "back-off"},
+					},
+					LastTerminationState: corev1.ContainerState{
+						Terminated: &corev1.ContainerStateTerminated{ExitCode: 1, Reason: "Error"},
+					},
+				}},
+			},
+		},
+	)
+	var out bytes.Buffer
+	err := RunWith(context.Background(), config.Resolved{
+		Approve:   true,
+		Namespace: ns,
+		Prompt:    "why is api crashing",
+	}, &out, Deps{
+		Provider: llm.WhyStub("api", ns, "Deployment"),
+		Client:   client,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Contains(out.Bytes(), []byte("CrashLoop")) {
+		t.Fatalf("expected crashloop finding:\n%s", out.String())
+	}
+	if !bytes.Contains(out.Bytes(), []byte("Suggested fix")) {
+		t.Fatalf("expected suggested fix:\n%s", out.String())
+	}
+	if !bytes.Contains(out.Bytes(), []byte("Rollback")) && !bytes.Contains(out.Bytes(), []byte("rollout undo")) {
+		t.Fatalf("expected rollback plan:\n%s", out.String())
 	}
 }
 
