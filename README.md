@@ -41,6 +41,8 @@ Prefer one failure at a time? `make up && make break SCENARIO=01-crashloop && ma
 
 If the plan-before-apply contract is what you want in your own cluster workflow, a ⭐ helps other SREs find it.
 
+Questions, demos, and roadmap ideas: **[Discussions](https://github.com/kprompt/kprompt/discussions)**. First PR? See [CONTRIBUTING.md](./CONTRIBUTING.md) and [`good first issue`](https://github.com/kprompt/kprompt/labels/good%20first%20issue).
+
 ## Why kprompt
 
 | | |
@@ -263,6 +265,7 @@ Package layout matches the private architecture ADRs (`cmd/kprompt`, `internal/{
 | | |
 |--|--|
 | Site | [kprompt.ai](https://kprompt.ai) · [Docs](https://kprompt.ai/docs) · [Roadmap](https://kprompt.ai/docs/roadmap) |
+| Community | [Discussions](https://github.com/kprompt/kprompt/discussions) · [Contributing](./CONTRIBUTING.md) · [Good first issues](https://github.com/kprompt/kprompt/labels/good%20first%20issue) |
 | Compare | [vs kubectl-ai](https://kprompt.ai/blog/kprompt-vs-kubectl-ai) · [AI tools map](https://kprompt.ai/blog/kubernetes-ai-tools-comparison) |
 | Product | [optimize my cluster](https://kprompt.ai/blog/optimize-my-cluster) · [PlanResult JSON](https://kprompt.ai/blog/planresult-json-deep-dive) · [AI SRE](https://kprompt.ai/blog/ai-sre-not-ai-kubectl) |
 
