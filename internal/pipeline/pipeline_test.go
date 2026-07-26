@@ -13,6 +13,7 @@ import (
 
 	appsv1 "k8s.io/api/apps/v1"
 	autoscalingv2 "k8s.io/api/autoscaling/v2"
+	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	discoveryv1 "k8s.io/api/discovery/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
@@ -1241,6 +1242,68 @@ func TestPipelineAuditSuggestsHarden(t *testing.T) {
 	}
 	if sc.AllowPrivilegeEscalation == nil || *sc.AllowPrivilegeEscalation {
 		t.Fatalf("expected allowPrivilegeEscalation=false after apply: %+v", sc)
+	}
+}
+
+func TestPipelineCleanupSuggestsDelete(t *testing.T) {
+	ns := "payments"
+	ctrl := true
+	zero := int32(0)
+	finished := metav1.NewTime(time.Now().Add(-48 * time.Hour))
+	client := fake.NewSimpleClientset(
+		&appsv1.Deployment{
+			ObjectMeta: metav1.ObjectMeta{Name: "api", Namespace: ns, UID: "dep1"},
+			Spec: appsv1.DeploymentSpec{
+				Selector: &metav1.LabelSelector{MatchLabels: map[string]string{"app": "api"}},
+				Template: corev1.PodTemplateSpec{
+					ObjectMeta: metav1.ObjectMeta{Labels: map[string]string{"app": "api"}},
+					Spec:       corev1.PodSpec{Containers: []corev1.Container{{Name: "api", Image: "busybox:1.36"}}},
+				},
+			},
+		},
+		&appsv1.ReplicaSet{
+			ObjectMeta: metav1.ObjectMeta{
+				Name: "api-old", Namespace: ns,
+				OwnerReferences: []metav1.OwnerReference{{
+					APIVersion: "apps/v1", Kind: "Deployment", Name: "api", UID: "dep1", Controller: &ctrl,
+				}},
+			},
+			Spec:   appsv1.ReplicaSetSpec{Replicas: &zero},
+			Status: appsv1.ReplicaSetStatus{Replicas: 0},
+		},
+		&batchv1.Job{
+			ObjectMeta: metav1.ObjectMeta{Name: "old-migrate", Namespace: ns},
+			Status: batchv1.JobStatus{
+				Conditions: []batchv1.JobCondition{{
+					Type:               batchv1.JobComplete,
+					Status:             corev1.ConditionTrue,
+					LastTransitionTime: finished,
+				}},
+				CompletionTime: &finished,
+			},
+		},
+	)
+	var out bytes.Buffer
+	err := RunWith(context.Background(), config.Resolved{
+		Approve:   true,
+		Namespace: ns,
+		Prompt:    "cleanup payments namespace",
+	}, &out, Deps{
+		Provider:      llm.CleanupStub(ns, false),
+		Client:        client,
+		SkipOrgPolicy: true, // delete is RiskHigh; ignore Team max_risk=medium in CI/dev enrollments
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Contains(out.Bytes(), []byte("Suggested cleanup")) {
+		t.Fatalf("expected cleanup suggestion:\n%s", out.String())
+	}
+	if _, err := client.BatchV1().Jobs(ns).Get(context.Background(), "old-migrate", metav1.GetOptions{}); err == nil {
+		t.Fatal("expected Job deleted after approve")
+	}
+	if _, err := client.AppsV1().ReplicaSets(ns).Get(context.Background(), "api-old", metav1.GetOptions{}); err == nil {
+		t.Fatal("expected ReplicaSet deleted after approve")
 	}
 }
 

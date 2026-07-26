@@ -48,16 +48,17 @@ type ConfirmFunc func(out io.Writer) (bool, error)
 
 // Deps allows tests to inject LLM, Kubernetes clients, and approval behavior.
 type Deps struct {
-	Provider   llm.Provider
-	Client     kubernetes.Interface
-	Dynamic    dynamic.Interface // optional; built from rest config when unset (T-050)
-	Resolver   *cluster.Resolver // optional discovery resolver (T-049); built from rest config when unset
-	Prometheus toolprometheus.Querier
-	OTel       toolotel.Querier
-	Grafana    toolgrafana.Querier
-	Confirm    ConfirmFunc             // if set, used instead of TTY prompt
-	IsTerminal *bool                   // override ui.StdinIsTerminal when non-nil
-	OnResult   func(output.PlanResult) // optional per-plan completion observer
+	Provider      llm.Provider
+	Client        kubernetes.Interface
+	Dynamic       dynamic.Interface // optional; built from rest config when unset (T-050)
+	Resolver      *cluster.Resolver // optional discovery resolver (T-049); built from rest config when unset
+	Prometheus    toolprometheus.Querier
+	OTel          toolotel.Querier
+	Grafana       toolgrafana.Querier
+	Confirm       ConfirmFunc             // if set, used instead of TTY prompt
+	IsTerminal    *bool                   // override ui.StdinIsTerminal when non-nil
+	OnResult      func(output.PlanResult) // optional per-plan completion observer
+	SkipOrgPolicy bool                    // tests: ignore Team org policy (Free CLI path)
 }
 
 // Run executes the full prompt → plan → safety → optional apply flow.
@@ -197,7 +198,7 @@ func RunWith(ctx context.Context, cfg config.Resolved, out io.Writer, deps Deps)
 		return err
 	}
 
-	risk := safety.EvaluatePlanWithOrg(plan, loadOrgPolicy())
+	risk := safety.EvaluatePlanWithOrg(plan, orgPolicy(deps))
 	if risk.Denied {
 		doc := output.FromPlan(cfg.Prompt, cfg.Context, plan, risk, false)
 		team.PushAuditBestEffort(ctx, auditFromPlan(cfg, plan, risk, "denied"))
@@ -455,7 +456,7 @@ func RunWith(ctx context.Context, cfg config.Resolved, out io.Writer, deps Deps)
 				return nil
 			}
 			fix := *actionable[0].Plan
-			fixRisk := safety.EvaluatePlanWithOrg(fix, loadOrgPolicy())
+			fixRisk := safety.EvaluatePlanWithOrg(fix, orgPolicy(deps))
 			if fixRisk.Denied {
 				if !jsonMode {
 					ui.PrintDenied(out, fixRisk.Message)
@@ -596,7 +597,7 @@ func RunWith(ctx context.Context, cfg config.Resolved, out io.Writer, deps Deps)
 				return nil
 			}
 			patch := *actionable[0].Plan
-			patchRisk := safety.EvaluatePlanWithOrg(patch, loadOrgPolicy())
+			patchRisk := safety.EvaluatePlanWithOrg(patch, orgPolicy(deps))
 			if patchRisk.Denied {
 				ui.PrintDenied(out, patchRisk.Message)
 				applied = true
@@ -647,7 +648,7 @@ func RunWith(ctx context.Context, cfg config.Resolved, out io.Writer, deps Deps)
 				return nil
 			}
 			patch := *actionable[0].Plan
-			patchRisk := safety.EvaluatePlanWithOrg(patch, loadOrgPolicy())
+			patchRisk := safety.EvaluatePlanWithOrg(patch, orgPolicy(deps))
 			if patchRisk.Denied {
 				ui.PrintDenied(out, patchRisk.Message)
 				applied = true
@@ -698,7 +699,7 @@ func RunWith(ctx context.Context, cfg config.Resolved, out io.Writer, deps Deps)
 				return nil
 			}
 			patch := *actionable[0].Plan
-			patchRisk := safety.EvaluatePlanWithOrg(patch, loadOrgPolicy())
+			patchRisk := safety.EvaluatePlanWithOrg(patch, orgPolicy(deps))
 			if patchRisk.Denied {
 				ui.PrintDenied(out, patchRisk.Message)
 				applied = true
@@ -781,7 +782,7 @@ func RunWith(ctx context.Context, cfg config.Resolved, out io.Writer, deps Deps)
 				return nil
 			}
 			patch := *actionable[0].Plan
-			patchRisk := safety.EvaluatePlanWithOrg(patch, loadOrgPolicy())
+			patchRisk := safety.EvaluatePlanWithOrg(patch, orgPolicy(deps))
 			if patchRisk.Denied {
 				ui.PrintDenied(out, patchRisk.Message)
 				applied = true
@@ -814,9 +815,45 @@ func RunWith(ctx context.Context, cfg config.Resolved, out io.Writer, deps Deps)
 				return cluster.Friendlier(fmt.Errorf("cleanup: %w", err))
 			}
 			doc = doc.WithInvestigationResult(invDoc)
-			if !jsonMode {
-				ui.PrintInvestigation(out, invDoc, cluster.ExplainReport{})
+			if jsonMode {
+				applied = true
+				return nil
 			}
+			ui.PrintInvestigation(out, invDoc, cluster.ExplainReport{})
+
+			suggestions, err := suggest.FromCleanup(ctx, invDoc)
+			if err != nil {
+				return cluster.Friendlier(fmt.Errorf("suggest: %w", err))
+			}
+			ui.PrintSuggestions(out, suggestions)
+
+			actionable := suggest.ActionablePlans(suggestions)
+			if len(actionable) == 0 {
+				applied = true
+				return nil
+			}
+			patch := *actionable[0].Plan
+			patchRisk := safety.EvaluatePlanWithOrg(patch, orgPolicy(deps))
+			if patchRisk.Denied {
+				ui.PrintDenied(out, patchRisk.Message)
+				applied = true
+				return nil
+			}
+			fmt.Fprintln(out, "Suggested cleanup (requires approval):")
+			ui.PrintPlan(out, patch, patchRisk)
+			approved, err := resolveApproval(cfg.Approve, out, deps)
+			if err != nil {
+				return err
+			}
+			if !approved {
+				applied = true
+				return nil
+			}
+			runner := &executor.Runner{Client: client}
+			if err := runner.Apply(ctx, patch); err != nil {
+				return cluster.Friendlier(fmt.Errorf("apply suggested cleanup: %w", err))
+			}
+			ui.PrintApplied(out, patch)
 			applied = true
 			return nil
 		case intent.KindLogs:
@@ -1442,6 +1479,13 @@ func loadOrgPolicy() *safety.OrgPolicy {
 		DenyNamespaces:  pol.DenyNamespaces,
 		RequireApprove:  pol.RequireApprove,
 	}
+}
+
+func orgPolicy(deps Deps) *safety.OrgPolicy {
+	if deps.SkipOrgPolicy {
+		return nil
+	}
+	return loadOrgPolicy()
 }
 
 func auditFromPlan(cfg config.Resolved, plan planner.ExecutionPlan, risk safety.Result, decision string) team.AuditEventInput {

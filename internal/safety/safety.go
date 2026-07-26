@@ -99,7 +99,9 @@ func EvaluatePlan(plan planner.ExecutionPlan) Result {
 			}
 		}
 		switch strings.ToLower(a.Object.Kind) {
-		case "pod", "deployment", "service":
+		case "pod", "deployment", "service", "job", "replicaset":
+			// Job / ReplicaSet deletes are allowed for cleanup remediations
+			// (named only; never ConfigMap/Secret — those stay guidance-only).
 		case "":
 			return Result{
 				Risk:    RiskDenied,
@@ -110,7 +112,7 @@ func EvaluatePlan(plan planner.ExecutionPlan) Result {
 			return Result{
 				Risk:    RiskDenied,
 				Denied:  true,
-				Message: fmt.Sprintf("🛡️ Refusing delete of %s (allowed: Pod, Deployment, Service)", a.Object.Kind),
+				Message: fmt.Sprintf("🛡️ Refusing delete of %s (allowed: Pod, Deployment, Service, Job, ReplicaSet)", a.Object.Kind),
 			}
 		}
 	}

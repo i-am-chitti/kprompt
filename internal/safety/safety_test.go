@@ -79,6 +79,28 @@ func TestEvaluatePlanDelete(t *testing.T) {
 	if !unscoped.Denied {
 		t.Fatal("expected unscoped denied")
 	}
+
+	jobOK := EvaluatePlan(planner.ExecutionPlan{
+		Intent: intent.Intent{Kind: intent.KindDelete},
+		Actions: []planner.Action{{
+			Op: planner.OpDelete,
+			Object: planner.ObjectRef{Kind: "Job", Name: "old-migrate", Namespace: "payments"},
+		}},
+	})
+	if jobOK.Denied || jobOK.Risk != RiskHigh {
+		t.Fatalf("Job delete should be RiskHigh: %+v", jobOK)
+	}
+
+	cmDenied := EvaluatePlan(planner.ExecutionPlan{
+		Intent: intent.Intent{Kind: intent.KindDelete},
+		Actions: []planner.Action{{
+			Op: planner.OpDelete,
+			Object: planner.ObjectRef{Kind: "ConfigMap", Name: "orphan", Namespace: "payments"},
+		}},
+	})
+	if !cmDenied.Denied {
+		t.Fatal("expected ConfigMap delete denied")
+	}
 }
 
 func TestEvaluatePlanAllowsSecretGet(t *testing.T) {

@@ -1,8 +1,8 @@
 // Package cleanup detects unused / stale Kubernetes resources (S-007 · T-085).
 //
-// The MVP is read-only: it reports orphaned ConfigMaps/Secrets, completed Jobs,
-// and superseded ReplicaSets as ADR-0014 Investigation findings. It never
-// deletes anything — delete plans with hard-denies are deferred to Phase 2.
+// The MVP reports orphaned ConfigMaps/Secrets, completed Jobs, and superseded
+// ReplicaSets as ADR-0014 Investigation findings. Approve-gated delete plans may
+// remove stale Jobs and ReplicaSets; ConfigMaps/Secrets stay guidance-only.
 package cleanup
 
 import (
@@ -86,7 +86,7 @@ func (a *Analyzer) Run(ctx context.Context, req Request) (incident.Investigation
 	} else {
 		out.Confidence = 0.8
 	}
-	out.SuggestedPlanHint = "Review candidates before deleting; cleanup never deletes automatically in this MVP."
+	out.SuggestedPlanHint = "Approve-gated delete covers stale Jobs / ReplicaSets only; ConfigMaps/Secrets stay guidance-only."
 
 	sortInvestigation(&out)
 	if err := incident.ValidateInvestigation(out); err != nil {

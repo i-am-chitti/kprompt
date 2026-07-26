@@ -76,10 +76,14 @@ func (r *Runner) delete(ctx context.Context, a planner.Action) error {
 	switch a.Object.Kind {
 	case "Deployment":
 		return r.Client.AppsV1().Deployments(ns).Delete(ctx, name, opts)
+	case "ReplicaSet":
+		return r.Client.AppsV1().ReplicaSets(ns).Delete(ctx, name, opts)
 	case "Service":
 		return r.Client.CoreV1().Services(ns).Delete(ctx, name, opts)
 	case "Pod":
 		return r.Client.CoreV1().Pods(ns).Delete(ctx, name, opts)
+	case "Job":
+		return r.Client.BatchV1().Jobs(ns).Delete(ctx, name, opts)
 	default:
 		return fmt.Errorf("delete of %s not implemented", a.Object.Kind)
 	}
