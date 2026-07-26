@@ -14,6 +14,7 @@ import (
 	"k8s.io/client-go/rest"
 
 	"github.com/kprompt/kprompt/internal/audit"
+	"github.com/kprompt/kprompt/internal/cleanup"
 	"github.com/kprompt/kprompt/internal/cluster"
 	"github.com/kprompt/kprompt/internal/config"
 	"github.com/kprompt/kprompt/internal/executor"
@@ -147,6 +148,10 @@ func RunWith(ctx context.Context, cfg config.Resolved, out io.Writer, deps Deps)
 		ForceNamespace:   cfg.NamespaceFromCLI,
 	})
 	in = intent.ApplyAuditScope(in, cfg.Prompt, intent.ScopePrefs{
+		DefaultNamespace: cfg.Namespace,
+		ForceNamespace:   cfg.NamespaceFromCLI,
+	})
+	in = intent.ApplyCleanupScope(in, cfg.Prompt, intent.ScopePrefs{
 		DefaultNamespace: cfg.Namespace,
 		ForceNamespace:   cfg.NamespaceFromCLI,
 	})
@@ -729,6 +734,21 @@ func RunWith(ctx context.Context, cfg config.Resolved, out io.Writer, deps Deps)
 			}
 			applied = true
 			return nil
+		case intent.KindCleanup:
+			req, err := cleanupFromPlan(plan, cfg.Prompt)
+			if err != nil {
+				return err
+			}
+			invDoc, err := (&cleanup.Analyzer{Client: client}).Run(ctx, req)
+			if err != nil {
+				return cluster.Friendlier(fmt.Errorf("cleanup: %w", err))
+			}
+			doc = doc.WithInvestigationResult(invDoc)
+			if !jsonMode {
+				ui.PrintInvestigation(out, invDoc, cluster.ExplainReport{})
+			}
+			applied = true
+			return nil
 		case intent.KindLogs:
 			req, err := logsFromPlan(plan)
 			if err != nil {
@@ -1029,7 +1049,7 @@ func isReadOnly(plan planner.ExecutionPlan) bool {
 		return false
 	}
 	switch plan.Intent.Kind {
-	case intent.KindGet, intent.KindExplain, intent.KindInvestigate, intent.KindWhy, intent.KindTimeline, intent.KindImpact, intent.KindAudit, intent.KindLogs, intent.KindDescribe, intent.KindPerformance, intent.KindTrace, intent.KindDashboard, intent.KindOptimize, intent.KindGraph, intent.KindIstio, intent.KindGitOps:
+	case intent.KindGet, intent.KindExplain, intent.KindInvestigate, intent.KindWhy, intent.KindTimeline, intent.KindImpact, intent.KindAudit, intent.KindCleanup, intent.KindLogs, intent.KindDescribe, intent.KindPerformance, intent.KindTrace, intent.KindDashboard, intent.KindOptimize, intent.KindGraph, intent.KindIstio, intent.KindGitOps:
 		return true
 	default:
 		return false
@@ -1265,6 +1285,17 @@ func hygieneAuditFromPlan(plan planner.ExecutionPlan, prompt string) (audit.Requ
 	}
 	a := plan.Actions[0]
 	return audit.Request{
+		Namespace: a.Object.Namespace,
+		Prompt:    prompt,
+	}, nil
+}
+
+func cleanupFromPlan(plan planner.ExecutionPlan, prompt string) (cleanup.Request, error) {
+	if len(plan.Actions) == 0 {
+		return cleanup.Request{}, fmt.Errorf("cleanup plan has no actions")
+	}
+	a := plan.Actions[0]
+	return cleanup.Request{
 		Namespace: a.Object.Namespace,
 		Prompt:    prompt,
 	}, nil

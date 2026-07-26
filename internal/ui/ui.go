@@ -880,9 +880,16 @@ func PrintInvestigation(w io.Writer, inv incident.Investigation, rep cluster.Exp
 			heading = "Audit:"
 			break
 		}
+		if strings.HasPrefix(f.Code, "Cleanup.") {
+			heading = "Cleanup:"
+			break
+		}
 	}
 	if heading == "Investigation:" && strings.Contains(strings.ToLower(inv.Summary), "hygiene") {
 		heading = "Audit:"
+	}
+	if heading == "Investigation:" && strings.Contains(strings.ToLower(inv.Summary), "cleanup candidate") {
+		heading = "Cleanup:"
 	}
 	fmt.Fprintf(w, "%s %s\n", t.Heading(heading), t.Accent(target)+fmt.Sprintf(" -n %s", inv.Namespace))
 	fmt.Fprintf(w, "%s %s\n", t.Heading("Summary:"), inv.Summary)

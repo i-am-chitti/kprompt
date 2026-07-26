@@ -29,6 +29,7 @@ const (
 	OpOptimize           Op = "optimize"
 	OpGraph              Op = "graph"
 	OpAudit              Op = "audit"
+	OpCleanup            Op = "cleanup"
 )
 
 // ObjectRef is a Kubernetes object identity.

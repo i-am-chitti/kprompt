@@ -1253,6 +1253,31 @@ func TestPipelineAuditEmitsFindings(t *testing.T) {
 	}
 }
 
+func TestPipelineCleanupEmitsCandidates(t *testing.T) {
+	ns := "payments"
+	client := fake.NewSimpleClientset(
+		&corev1.ConfigMap{ObjectMeta: metav1.ObjectMeta{Name: "orphan-config", Namespace: ns}},
+	)
+	var out bytes.Buffer
+	var got output.PlanResult
+	err := RunWith(context.Background(), config.Resolved{
+		Namespace: ns,
+		Prompt:    "cleanup payments namespace",
+		Output:    "json",
+	}, &out, Deps{
+		Provider: llm.CleanupStub(ns, false),
+		Client:   client,
+		OnResult: func(r output.PlanResult) { got = r },
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Contains(got.Result, []byte("Cleanup.UnusedConfigMap")) ||
+		!bytes.Contains(got.Result, []byte(`"kind":"Investigation"`)) {
+		t.Fatalf("expected cleanup candidates: %s", string(got.Result))
+	}
+}
+
 func deployment(name, ns string, replicas int32) *appsv1.Deployment {
 	return &appsv1.Deployment{
 		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: ns},

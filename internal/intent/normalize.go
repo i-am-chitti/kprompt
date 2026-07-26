@@ -23,6 +23,7 @@ func NormalizeVerb(in Intent, prompt string) Intent {
 	in = NormalizeTimeline(in, prompt)
 	in = NormalizeImpact(in, prompt)
 	in = NormalizeAudit(in, prompt)
+	in = NormalizeCleanup(in, prompt)
 	in = NormalizeTrace(in, prompt)
 	in = NormalizeDashboard(in, prompt)
 	in = NormalizeOptimize(in, prompt)

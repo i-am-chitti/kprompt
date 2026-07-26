@@ -153,6 +153,9 @@ func prepareRoute(
 		in = intent.ApplyAuditScope(in, prompt, intent.ScopePrefs{
 			ForceNamespace: cfg.NamespaceFromCLI,
 		})
+		in = intent.ApplyCleanupScope(in, prompt, intent.ScopePrefs{
+			ForceNamespace: cfg.NamespaceFromCLI,
+		})
 		plan, err := planner.Build(in)
 		if err != nil {
 			return routePreflight{}, fmt.Errorf("route step %d: %w", index+1, err)
