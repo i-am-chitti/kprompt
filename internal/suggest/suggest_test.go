@@ -324,3 +324,153 @@ func TestBumpMemoryDefault(t *testing.T) {
 		t.Fatalf("old=%s new=%s", old.String(), neu.String())
 	}
 }
+
+func TestSuggestOOMOnStatefulSet(t *testing.T) {
+	limit := resource.MustParse("256Mi")
+	client := fake.NewSimpleClientset(&appsv1.StatefulSet{
+		ObjectMeta: metav1.ObjectMeta{Name: "db", Namespace: "demo"},
+		Spec: appsv1.StatefulSetSpec{
+			Selector: &metav1.LabelSelector{MatchLabels: map[string]string{"app": "db"}},
+			Template: corev1.PodTemplateSpec{
+				ObjectMeta: metav1.ObjectMeta{Labels: map[string]string{"app": "db"}},
+				Spec: corev1.PodSpec{
+					Containers: []corev1.Container{{
+						Name:  "postgres",
+						Image: "postgres:16",
+						Resources: corev1.ResourceRequirements{
+							Limits: corev1.ResourceList{corev1.ResourceMemory: limit},
+						},
+					}},
+				},
+			},
+		},
+	})
+	suggestions, err := FromExplain(context.Background(), client, cluster.ExplainReport{
+		Target: "db", Namespace: "demo", Kind: "StatefulSet",
+		Findings: []cluster.Finding{{Code: "OOMKilled", Container: "postgres", Severity: "error"}},
+	}, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(suggestions) != 1 || suggestions[0].Plan == nil {
+		t.Fatalf("%+v", suggestions)
+	}
+	if suggestions[0].Plan.Actions[0].Object.Kind != "StatefulSet" {
+		t.Fatalf("kind=%s", suggestions[0].Plan.Actions[0].Object.Kind)
+	}
+	if !strings.Contains(suggestions[0].Plan.Summary, "StatefulSet/db") {
+		t.Fatalf("summary=%s", suggestions[0].Plan.Summary)
+	}
+}
+
+func TestSuggestImagePullOnDaemonSet(t *testing.T) {
+	client := fake.NewSimpleClientset(&appsv1.DaemonSet{
+		ObjectMeta: metav1.ObjectMeta{Name: "agent", Namespace: "demo"},
+		Spec: appsv1.DaemonSetSpec{
+			Selector: &metav1.LabelSelector{MatchLabels: map[string]string{"app": "agent"}},
+			Template: corev1.PodTemplateSpec{
+				ObjectMeta: metav1.ObjectMeta{Labels: map[string]string{"app": "agent"}},
+				Spec:       corev1.PodSpec{Containers: []corev1.Container{{Name: "agent", Image: "agent:bad"}}},
+			},
+		},
+	})
+	suggestions, err := FromExplain(context.Background(), client, cluster.ExplainReport{
+		Target: "agent", Namespace: "demo", Kind: "DaemonSet",
+		Findings: []cluster.Finding{{Code: "ImagePullBackOff", Container: "agent"}},
+	}, `set agent image to ghcr.io/example/agent:1.0.0`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(suggestions) != 1 || suggestions[0].Plan == nil {
+		t.Fatalf("%+v", suggestions)
+	}
+	if suggestions[0].Plan.Actions[0].Object.Kind != "DaemonSet" {
+		t.Fatalf("kind=%s", suggestions[0].Plan.Actions[0].Object.Kind)
+	}
+}
+
+func TestSuggestImagePullAuthIsGuidance(t *testing.T) {
+	client := fake.NewSimpleClientset(&appsv1.Deployment{
+		ObjectMeta: metav1.ObjectMeta{Name: "api", Namespace: "demo"},
+		Spec: appsv1.DeploymentSpec{
+			Selector: &metav1.LabelSelector{MatchLabels: map[string]string{"app": "api"}},
+			Template: corev1.PodTemplateSpec{
+				ObjectMeta: metav1.ObjectMeta{Labels: map[string]string{"app": "api"}},
+				Spec:       corev1.PodSpec{Containers: []corev1.Container{{Name: "app", Image: "private/app:1"}}},
+			},
+		},
+	})
+	suggestions, err := FromExplain(context.Background(), client, cluster.ExplainReport{
+		Target: "api", Namespace: "demo", Kind: "Deployment",
+		Findings: []cluster.Finding{{
+			Code: "ImagePullBackOff", Container: "app",
+			Message: `Failed to pull image "private/app:1": unauthorized: authentication required`,
+		}},
+	}, `set api image to private/app:2`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(suggestions) != 1 || suggestions[0].Plan != nil {
+		t.Fatalf("auth ImagePull must stay guidance: %+v", suggestions)
+	}
+	if !strings.Contains(strings.ToLower(suggestions[0].Title), "pullsecret") &&
+		!strings.Contains(strings.ToLower(suggestions[0].Summary), "auth") {
+		t.Fatalf("expected auth guidance, got %+v", suggestions[0])
+	}
+}
+
+func TestSuggestCrashLoopSkippedWhenOOMPresent(t *testing.T) {
+	ctrl := true
+	depUID := types.UID("dep-oom")
+	client := fake.NewSimpleClientset(
+		&appsv1.Deployment{
+			ObjectMeta: metav1.ObjectMeta{Name: "api", Namespace: "demo", UID: depUID},
+			Spec: appsv1.DeploymentSpec{
+				Selector: &metav1.LabelSelector{MatchLabels: map[string]string{"app": "api"}},
+				Template: corev1.PodTemplateSpec{
+					ObjectMeta: metav1.ObjectMeta{Labels: map[string]string{"app": "api"}},
+					Spec: corev1.PodSpec{Containers: []corev1.Container{{
+						Name:  "app",
+						Image: "app:2",
+						Resources: corev1.ResourceRequirements{
+							Limits: corev1.ResourceList{corev1.ResourceMemory: resource.MustParse("64Mi")},
+						},
+					}}},
+				},
+			},
+		},
+		&appsv1.ReplicaSet{
+			ObjectMeta: metav1.ObjectMeta{
+				Name: "api-1", Namespace: "demo",
+				Annotations:     map[string]string{"deployment.kubernetes.io/revision": "1"},
+				OwnerReferences: []metav1.OwnerReference{{APIVersion: "apps/v1", Kind: "Deployment", Name: "api", UID: depUID, Controller: &ctrl}},
+			},
+		},
+		&appsv1.ReplicaSet{
+			ObjectMeta: metav1.ObjectMeta{
+				Name: "api-2", Namespace: "demo",
+				Annotations:     map[string]string{"deployment.kubernetes.io/revision": "2"},
+				OwnerReferences: []metav1.OwnerReference{{APIVersion: "apps/v1", Kind: "Deployment", Name: "api", UID: depUID, Controller: &ctrl}},
+			},
+		},
+	)
+	suggestions, err := FromExplain(context.Background(), client, cluster.ExplainReport{
+		Target: "api", Namespace: "demo", Kind: "Deployment",
+		Findings: []cluster.Finding{
+			{Code: "CrashLoopBackOff", Container: "app"},
+			{Code: "OOMKilled", Container: "app"},
+		},
+	}, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	actionable := ActionablePlans(suggestions)
+	if len(actionable) != 1 || actionable[0].Code != "OOMKilled" {
+		t.Fatalf("want only OOM plan, got %+v", suggestions)
+	}
+	for _, s := range suggestions {
+		if s.Code == "CrashLoopBackOff" {
+			t.Fatalf("CrashLoop must be skipped when OOM present: %+v", suggestions)
+		}
+	}
+}

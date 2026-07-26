@@ -8,10 +8,10 @@ When findings are actionable, `why` may offer a **reviewable follow-up plan** (s
 
 | Finding | Suggested plan (when evidence is strong) |
 |---------|------------------------------------------|
-| OOMKilled / memory limit | Raise Deployment memory limit |
-| CrashLoopBackOff with ≥2 ReplicaSet revisions | `rollout undo` previous revision |
-| ImagePullBackOff | Image patch **only** if the prompt names a replacement (`set … image to …`) |
-| Readiness / liveness probe fail | Relax `initialDelaySeconds` / `failureThreshold` on the Deployment probe |
+| OOMKilled / memory limit | Raise memory limit on Deployment / StatefulSet / DaemonSet |
+| CrashLoopBackOff with ≥2 ReplicaSet revisions | `rollout undo` previous Deployment revision (skipped when OOMKilled is also present — memory bump wins) |
+| ImagePullBackOff | Image patch on Deployment / StatefulSet / DaemonSet **only** if the prompt names a replacement (`set … image to …`); auth failures stay `imagePullSecrets` guidance |
+| Readiness / liveness probe fail | Relax `initialDelaySeconds` / `failureThreshold` on the workload probe |
 | Pending / PVC / StorageClass / affinity / taints / capacity | Guidance only (`describe` / fix StorageClass / add nodes) — never invent classes, tolerations, or node pools |
 
 Otherwise you get prompt-only hints (logs / describe) — never an invented image tag or StorageClass name.

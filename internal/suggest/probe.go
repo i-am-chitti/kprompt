@@ -6,7 +6,6 @@ import (
 	"strings"
 
 	corev1 "k8s.io/api/core/v1"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
 	"sigs.k8s.io/yaml"
 
@@ -15,7 +14,7 @@ import (
 	"github.com/kprompt/kprompt/internal/planner"
 )
 
-// suggestProbe emits a conservative Deployment patch that relaxes probe timing.
+// suggestProbe emits a conservative workload patch that relaxes probe timing.
 // Prefer fixing the app health endpoint; this only buys startup headroom.
 func suggestProbe(ctx context.Context, client kubernetes.Interface, rep cluster.ExplainReport, f cluster.Finding) (*Suggestion, error) {
 	guidance := &Suggestion{
@@ -24,18 +23,18 @@ func suggestProbe(ctx context.Context, client kubernetes.Interface, rep cluster.
 		Prompt:  fmt.Sprintf(`describe %s`, rep.Target),
 		Summary: "Check readiness/liveness endpoint health; a timing bump is only a stopgap",
 	}
-	dep, container, err := resolveDeploymentContainer(ctx, client, rep, f.Container)
-	if err != nil || dep == nil {
+	w, err := resolveWorkload(ctx, client, rep)
+	if err != nil || w == nil {
 		return guidance, nil
 	}
-	idx := containerIndex(dep, container)
+	container := f.Container
+	idx := containerIndexInSpec(w.PodSpec, container)
 	if idx < 0 {
 		idx = 0
-		container = dep.Spec.Template.Spec.Containers[0].Name
+		container = w.PodSpec.Containers[0].Name
 	}
 	probeKind := probeKindFromFinding(f)
-	patched := dep.DeepCopy()
-	c := &patched.Spec.Template.Spec.Containers[idx]
+	c := &w.PodSpec.Containers[idx]
 	var probe *corev1.Probe
 	switch probeKind {
 	case "liveness":
@@ -56,20 +55,19 @@ func suggestProbe(ctx context.Context, client kubernetes.Interface, rep cluster.
 	}
 	oldDelay, oldThresh := probe.InitialDelaySeconds, probe.FailureThreshold
 	relaxProbe(probe)
-	patched.TypeMeta = metav1.TypeMeta{APIVersion: "apps/v1", Kind: "Deployment"}
-	raw, err := yaml.Marshal(patched)
+	raw, err := yaml.Marshal(w.Object)
 	if err != nil {
 		return nil, err
 	}
-	diff := fmt.Sprintf("~ Deployment/%s (update)\n  container: %s\n  %sProbe.initialDelaySeconds: %d → %d\n  %sProbe.failureThreshold: %d → %d",
-		dep.Name, container, probeKind, oldDelay, probe.InitialDelaySeconds, probeKind, oldThresh, probe.FailureThreshold)
+	diff := fmt.Sprintf("~ %s/%s (update)\n  container: %s\n  %sProbe.initialDelaySeconds: %d → %d\n  %sProbe.failureThreshold: %d → %d",
+		w.Kind, w.Name, container, probeKind, oldDelay, probe.InitialDelaySeconds, probeKind, oldThresh, probe.FailureThreshold)
 	plan := &planner.ExecutionPlan{
 		Intent: intent.Intent{
 			Kind: intent.KindPatch,
 			Target: intent.Target{
-				Name:      dep.Name,
-				Namespace: dep.Namespace,
-				Kind:      "Deployment",
+				Name:      w.Name,
+				Namespace: w.Namespace,
+				Kind:      w.Kind,
 			},
 			Params: map[string]any{
 				"reason":    "ProbeFailure",
@@ -81,21 +79,21 @@ func suggestProbe(ctx context.Context, client kubernetes.Interface, rep cluster.
 			Op: planner.OpUpdate,
 			Object: planner.ObjectRef{
 				APIVersion: "apps/v1",
-				Kind:       "Deployment",
-				Name:       dep.Name,
-				Namespace:  dep.Namespace,
+				Kind:       w.Kind,
+				Name:       w.Name,
+				Namespace:  w.Namespace,
 			},
 			Manifest: string(raw),
 			Diff:     diff,
 		}},
-		Summary: fmt.Sprintf("Relax %s probe on Deployment/%s container %s (initialDelay %d→%d, failureThreshold %d→%d)",
-			probeKind, dep.Name, container, oldDelay, probe.InitialDelaySeconds, oldThresh, probe.FailureThreshold),
+		Summary: fmt.Sprintf("Relax %s probe on %s/%s container %s (initialDelay %d→%d, failureThreshold %d→%d)",
+			probeKind, w.Kind, w.Name, container, oldDelay, probe.InitialDelaySeconds, oldThresh, probe.FailureThreshold),
 		RequiresApproval: true,
 	}
 	return &Suggestion{
 		Code:    "ProbeFailure",
 		Title:   "Relax probe timing",
-		Prompt:  fmt.Sprintf(`relax %s probe on %s`, probeKind, dep.Name),
+		Prompt:  fmt.Sprintf(`relax %s probe on %s`, probeKind, w.Name),
 		Plan:    plan,
 		Summary: plan.Summary,
 	}, nil

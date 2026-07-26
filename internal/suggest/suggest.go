@@ -37,6 +37,12 @@ func FromExplain(ctx context.Context, client kubernetes.Interface, rep cluster.E
 	if client == nil {
 		return nil, nil
 	}
+	oomContainers := map[string]bool{}
+	for _, f := range rep.Findings {
+		if f.Code == "OOMKilled" {
+			oomContainers[f.Container] = true
+		}
+	}
 	var out []Suggestion
 	seen := map[string]bool{}
 	for _, f := range rep.Findings {
@@ -55,6 +61,10 @@ func FromExplain(ctx context.Context, client kubernetes.Interface, rep cluster.E
 				out = append(out, *s)
 			}
 		case "CrashLoopBackOff":
+			// Edge: OOMKilled on the same container → prefer memory bump over rollback.
+			if oomContainers[f.Container] || (f.Container == "" && len(oomContainers) > 0) {
+				continue
+			}
 			s, err := suggestCrashLoop(ctx, client, rep, f)
 			if err != nil {
 				return out, err
@@ -178,25 +188,27 @@ func containerFromMessage(msg string) string {
 }
 
 func suggestOOM(ctx context.Context, client kubernetes.Interface, rep cluster.ExplainReport, f cluster.Finding) (*Suggestion, error) {
-	dep, container, err := resolveDeploymentContainer(ctx, client, rep, f.Container)
-	if err != nil || dep == nil {
+	w, err := resolveWorkload(ctx, client, rep)
+	if err != nil || w == nil {
 		return &Suggestion{
 			Code:    "OOMKilled",
 			Title:   "Raise memory limit",
 			Prompt:  fmt.Sprintf(`raise memory for %s`, rep.Target),
-			Summary: "Could not load Deployment for an auto-plan; try a manual resource patch",
+			Summary: "Could not load workload for an auto-plan; try a manual resource patch",
 		}, nil
 	}
-	idx := containerIndex(dep, container)
+	container := f.Container
+	idx := containerIndexInSpec(w.PodSpec, container)
 	if idx < 0 {
 		idx = 0
-		container = dep.Spec.Template.Spec.Containers[0].Name
+		container = w.PodSpec.Containers[0].Name
 	}
-	oldLimit, newLimit := bumpMemory(dep.Spec.Template.Spec.Containers[idx].Resources.Limits)
-	oldReq, newReq := bumpMemory(dep.Spec.Template.Spec.Containers[idx].Resources.Requests)
+	hadRequest := w.PodSpec.Containers[idx].Resources.Requests != nil &&
+		!w.PodSpec.Containers[idx].Resources.Requests.Memory().IsZero()
+	oldLimit, newLimit := bumpMemory(w.PodSpec.Containers[idx].Resources.Limits)
+	_, newReq := bumpMemory(w.PodSpec.Containers[idx].Resources.Requests)
 
-	patched := dep.DeepCopy()
-	c := &patched.Spec.Template.Spec.Containers[idx]
+	c := &w.PodSpec.Containers[idx]
 	if c.Resources.Limits == nil {
 		c.Resources.Limits = corev1.ResourceList{}
 	}
@@ -204,7 +216,7 @@ func suggestOOM(ctx context.Context, client kubernetes.Interface, rep cluster.Ex
 		c.Resources.Requests = corev1.ResourceList{}
 	}
 	c.Resources.Limits[corev1.ResourceMemory] = newLimit
-	if !oldReq.IsZero() || !dep.Spec.Template.Spec.Containers[idx].Resources.Requests.Memory().IsZero() {
+	if hadRequest {
 		c.Resources.Requests[corev1.ResourceMemory] = newReq
 	} else {
 		req := newLimit.DeepCopy()
@@ -213,21 +225,20 @@ func suggestOOM(ctx context.Context, client kubernetes.Interface, rep cluster.Ex
 		}
 		c.Resources.Requests[corev1.ResourceMemory] = req
 	}
-	patched.TypeMeta = metav1.TypeMeta{APIVersion: "apps/v1", Kind: "Deployment"}
-	raw, err := yaml.Marshal(patched)
+	raw, err := yaml.Marshal(w.Object)
 	if err != nil {
 		return nil, err
 	}
 
-	diff := fmt.Sprintf("~ Deployment/%s (update)\n  container: %s\n  memory limit: %s → %s",
-		dep.Name, container, qtyString(oldLimit), qtyString(newLimit))
+	diff := fmt.Sprintf("~ %s/%s (update)\n  container: %s\n  memory limit: %s → %s",
+		w.Kind, w.Name, container, qtyString(oldLimit), qtyString(newLimit))
 	plan := &planner.ExecutionPlan{
 		Intent: intent.Intent{
 			Kind: intent.KindPatch,
 			Target: intent.Target{
-				Name:      dep.Name,
-				Namespace: dep.Namespace,
-				Kind:      "Deployment",
+				Name:      w.Name,
+				Namespace: w.Namespace,
+				Kind:      w.Kind,
 			},
 			Params: map[string]any{
 				"reason":    "OOMKilled",
@@ -239,20 +250,20 @@ func suggestOOM(ctx context.Context, client kubernetes.Interface, rep cluster.Ex
 			Op: planner.OpUpdate,
 			Object: planner.ObjectRef{
 				APIVersion: "apps/v1",
-				Kind:       "Deployment",
-				Name:       dep.Name,
-				Namespace:  dep.Namespace,
+				Kind:       w.Kind,
+				Name:       w.Name,
+				Namespace:  w.Namespace,
 			},
 			Manifest: string(raw),
 			Diff:     diff,
 		}},
-		Summary:          fmt.Sprintf("Raise memory limit on Deployment/%s container %s (%s → %s)", dep.Name, container, qtyString(oldLimit), qtyString(newLimit)),
+		Summary:          fmt.Sprintf("Raise memory limit on %s/%s container %s (%s → %s)", w.Kind, w.Name, container, qtyString(oldLimit), qtyString(newLimit)),
 		RequiresApproval: true,
 	}
 	return &Suggestion{
 		Code:    "OOMKilled",
 		Title:   "Raise memory limit",
-		Prompt:  fmt.Sprintf(`raise memory for %s to %s`, dep.Name, newLimit.String()),
+		Prompt:  fmt.Sprintf(`raise memory for %s to %s`, w.Name, newLimit.String()),
 		Plan:    plan,
 		Summary: plan.Summary,
 	}, nil
@@ -306,6 +317,14 @@ func suggestCrashLoop(ctx context.Context, client kubernetes.Interface, rep clus
 }
 
 func suggestImagePull(ctx context.Context, client kubernetes.Interface, rep cluster.ExplainReport, f cluster.Finding, prompt string) (*Suggestion, error) {
+	if looksLikePullAuth(f) {
+		return &Suggestion{
+			Code:    f.Code,
+			Title:   "Check imagePullSecrets / registry auth",
+			Prompt:  fmt.Sprintf(`describe %s`, rep.Target),
+			Summary: "Pull looks like an auth failure — verify imagePullSecrets and registry credentials (no auto-invented secret)",
+		}, nil
+	}
 	guidance := &Suggestion{
 		Code:    f.Code,
 		Title:   "Check image name / pull secrets",
@@ -316,40 +335,39 @@ func suggestImagePull(ctx context.Context, client kubernetes.Interface, rep clus
 	if newImage == "" {
 		return guidance, nil
 	}
-	dep, container, err := resolveDeploymentContainer(ctx, client, rep, f.Container)
-	if err != nil || dep == nil {
+	w, err := resolveWorkload(ctx, client, rep)
+	if err != nil || w == nil {
 		return &Suggestion{
 			Code:    f.Code,
 			Title:   "Set container image",
 			Prompt:  fmt.Sprintf(`set %s image to %s`, rep.Target, newImage),
-			Summary: "Could not load Deployment for an auto-plan; try a manual image patch",
+			Summary: "Could not load workload for an auto-plan; try a manual image patch",
 		}, nil
 	}
-	idx := containerIndex(dep, container)
+	container := f.Container
+	idx := containerIndexInSpec(w.PodSpec, container)
 	if idx < 0 {
 		idx = 0
-		container = dep.Spec.Template.Spec.Containers[0].Name
+		container = w.PodSpec.Containers[0].Name
 	}
-	oldImage := dep.Spec.Template.Spec.Containers[idx].Image
+	oldImage := w.PodSpec.Containers[idx].Image
 	if oldImage == newImage {
 		return guidance, nil
 	}
-	patched := dep.DeepCopy()
-	patched.Spec.Template.Spec.Containers[idx].Image = newImage
-	patched.TypeMeta = metav1.TypeMeta{APIVersion: "apps/v1", Kind: "Deployment"}
-	raw, err := yaml.Marshal(patched)
+	w.PodSpec.Containers[idx].Image = newImage
+	raw, err := yaml.Marshal(w.Object)
 	if err != nil {
 		return nil, err
 	}
-	diff := fmt.Sprintf("~ Deployment/%s (update)\n  container: %s\n  image: %s → %s",
-		dep.Name, container, oldImage, newImage)
+	diff := fmt.Sprintf("~ %s/%s (update)\n  container: %s\n  image: %s → %s",
+		w.Kind, w.Name, container, oldImage, newImage)
 	plan := &planner.ExecutionPlan{
 		Intent: intent.Intent{
 			Kind: intent.KindPatch,
 			Target: intent.Target{
-				Name:      dep.Name,
-				Namespace: dep.Namespace,
-				Kind:      "Deployment",
+				Name:      w.Name,
+				Namespace: w.Namespace,
+				Kind:      w.Kind,
 			},
 			Params: map[string]any{
 				"reason":    f.Code,
@@ -361,23 +379,36 @@ func suggestImagePull(ctx context.Context, client kubernetes.Interface, rep clus
 			Op: planner.OpUpdate,
 			Object: planner.ObjectRef{
 				APIVersion: "apps/v1",
-				Kind:       "Deployment",
-				Name:       dep.Name,
-				Namespace:  dep.Namespace,
+				Kind:       w.Kind,
+				Name:       w.Name,
+				Namespace:  w.Namespace,
 			},
 			Manifest: string(raw),
 			Diff:     diff,
 		}},
-		Summary:          fmt.Sprintf("Set image on Deployment/%s container %s (%s → %s)", dep.Name, container, oldImage, newImage),
+		Summary:          fmt.Sprintf("Set image on %s/%s container %s (%s → %s)", w.Kind, w.Name, container, oldImage, newImage),
 		RequiresApproval: true,
 	}
 	return &Suggestion{
 		Code:    f.Code,
 		Title:   "Set container image",
-		Prompt:  fmt.Sprintf(`set %s image to %s`, dep.Name, newImage),
+		Prompt:  fmt.Sprintf(`set %s image to %s`, w.Name, newImage),
 		Plan:    plan,
 		Summary: plan.Summary,
 	}, nil
+}
+
+func looksLikePullAuth(f cluster.Finding) bool {
+	blob := strings.ToLower(f.Code + " " + f.Message)
+	for _, needle := range []string{
+		"unauthorized", "authentication required", "denied",
+		"pull access denied", "imagepullsecret", "401", "403",
+	} {
+		if strings.Contains(blob, needle) {
+			return true
+		}
+	}
+	return false
 }
 
 var (
@@ -459,51 +490,6 @@ func revisionOf(rs *appsv1.ReplicaSet) int {
 		return 0
 	}
 	return n
-}
-
-func resolveDeploymentContainer(ctx context.Context, client kubernetes.Interface, rep cluster.ExplainReport, container string) (*appsv1.Deployment, string, error) {
-	ns := rep.Namespace
-	if ns == "" {
-		ns = "default"
-	}
-	name := rep.Target
-	if rep.Kind == "Deployment" || rep.Kind == "" {
-		dep, err := client.AppsV1().Deployments(ns).Get(ctx, name, metav1.GetOptions{})
-		if err == nil {
-			return dep, container, nil
-		}
-	}
-	pod, err := client.CoreV1().Pods(ns).Get(ctx, name, metav1.GetOptions{})
-	if err != nil {
-		return nil, container, err
-	}
-	for _, ow := range pod.OwnerReferences {
-		if ow.Kind == "ReplicaSet" && ow.Controller != nil && *ow.Controller {
-			rs, err := client.AppsV1().ReplicaSets(ns).Get(ctx, ow.Name, metav1.GetOptions{})
-			if err != nil {
-				return nil, container, err
-			}
-			for _, row := range rs.OwnerReferences {
-				if row.Kind == "Deployment" && row.Controller != nil && *row.Controller {
-					dep, err := client.AppsV1().Deployments(ns).Get(ctx, row.Name, metav1.GetOptions{})
-					return dep, container, err
-				}
-			}
-		}
-	}
-	return nil, container, fmt.Errorf("no owning Deployment for Pod/%s", name)
-}
-
-func containerIndex(dep *appsv1.Deployment, name string) int {
-	if name == "" {
-		return 0
-	}
-	for i, c := range dep.Spec.Template.Spec.Containers {
-		if c.Name == name {
-			return i
-		}
-	}
-	return -1
 }
 
 func bumpMemory(list corev1.ResourceList) (oldQty, newQty resource.Quantity) {
