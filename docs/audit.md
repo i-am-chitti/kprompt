@@ -10,8 +10,11 @@ kprompt "hygiene check" -n shop --output json
 ```
 
 It walks Deployment, StatefulSet, and DaemonSet pod templates and emits an
-ADR-0014 `Investigation` with coded findings. It never mutates and never asks
-for approval.
+ADR-0014 `Investigation` with coded findings. The scan itself never mutates.
+
+When findings include privilege grants, `audit` may offer a single **reviewable
+harden plan** (same gate as `explain` / `why`): TTY `y/N` or `--approve`. Nothing
+applies silently, and `-o json` stays report-only.
 
 ## MVP checks
 
@@ -30,11 +33,24 @@ for approval.
 kprompt "audit payments" -n payments --output json | jq '.result'
 ```
 
+## Harden plan (approve-required)
+
+`audit` offers **one aggregate harden plan** that only ever *removes* a privilege
+grant on Deployment containers — never a change that could stop a container from
+starting or that requires an invented value:
+
+| Finding | Auto-patch (approve-gated) |
+|---------|-----------------------------|
+| `Audit.Privileged` | set `securityContext.privileged: false` |
+| `Audit.PrivilegeEscalation` | set `allowPrivilegeEscalation: false` |
+
+Everything else stays **guidance-only** — `Audit.RunAsRoot` (enforcing non-root
+can break a root image), `Audit.HostNamespace`, `Audit.LatestTag` (never invent a
+tag), `Audit.MissingRequests` / `Audit.MissingLimits` (never invent CPU/memory),
+and StatefulSet / DaemonSet findings (patch executor is Deployment-only today).
+
 ## Honest limits
 
 This MVP does **not** cover NetworkPolicy gaps, RBAC over-permission,
 PodSecurity admission levels, or `readOnlyRootFilesystem`. Findings are
 static template rules — not a CIS benchmark or live runtime attestation.
-
-Suggested harden patches (approve-required) are deferred; review findings
-manually before changing production workloads.

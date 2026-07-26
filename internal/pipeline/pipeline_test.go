@@ -1193,6 +1193,57 @@ func TestPipelineWhyCrashLoopSuggestsRollback(t *testing.T) {
 	}
 }
 
+func TestPipelineAuditSuggestsHarden(t *testing.T) {
+	ns := "payments"
+	priv, esc := true, true
+	client := fake.NewSimpleClientset(&appsv1.Deployment{
+		ObjectMeta: metav1.ObjectMeta{Name: "bad", Namespace: ns},
+		Spec: appsv1.DeploymentSpec{
+			Selector: &metav1.LabelSelector{MatchLabels: map[string]string{"app": "bad"}},
+			Template: corev1.PodTemplateSpec{
+				ObjectMeta: metav1.ObjectMeta{Labels: map[string]string{"app": "bad"}},
+				Spec: corev1.PodSpec{Containers: []corev1.Container{{
+					Name:  "app",
+					Image: "nginx:1.27",
+					SecurityContext: &corev1.SecurityContext{
+						Privileged:               &priv,
+						AllowPrivilegeEscalation: &esc,
+					},
+				}}},
+			},
+		},
+	})
+	var out bytes.Buffer
+	err := RunWith(context.Background(), config.Resolved{
+		Approve:   true,
+		Namespace: ns,
+		Prompt:    "audit payments namespace",
+	}, &out, Deps{
+		Provider: llm.AuditStub(ns, false),
+		Client:   client,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Contains(out.Bytes(), []byte("Suggested hardening")) {
+		t.Fatalf("expected harden suggestion:\n%s", out.String())
+	}
+	if !bytes.Contains(out.Bytes(), []byte("privileged=false")) {
+		t.Fatalf("expected privileged removal:\n%s", out.String())
+	}
+	dep, err := client.AppsV1().Deployments(ns).Get(context.Background(), "bad", metav1.GetOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	sc := dep.Spec.Template.Spec.Containers[0].SecurityContext
+	if sc == nil || sc.Privileged == nil || *sc.Privileged {
+		t.Fatalf("expected privileged=false after apply: %+v", sc)
+	}
+	if sc.AllowPrivilegeEscalation == nil || *sc.AllowPrivilegeEscalation {
+		t.Fatalf("expected allowPrivilegeEscalation=false after apply: %+v", sc)
+	}
+}
+
 func TestPipelineTimelineEmitsChronology(t *testing.T) {
 	ns := "payments"
 	now := metav1.Now()
