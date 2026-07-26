@@ -1212,6 +1212,47 @@ func TestPipelineImpactEmitsConsumers(t *testing.T) {
 	}
 }
 
+func TestPipelineAuditEmitsFindings(t *testing.T) {
+	ns := "payments"
+	priv := true
+	client := fake.NewSimpleClientset(
+		&appsv1.Deployment{
+			ObjectMeta: metav1.ObjectMeta{Name: "api", Namespace: ns},
+			Spec: appsv1.DeploymentSpec{
+				Selector: &metav1.LabelSelector{MatchLabels: map[string]string{"app": "api"}},
+				Template: corev1.PodTemplateSpec{
+					ObjectMeta: metav1.ObjectMeta{Labels: map[string]string{"app": "api"}},
+					Spec: corev1.PodSpec{Containers: []corev1.Container{{
+						Name:  "api",
+						Image: "nginx:latest",
+						SecurityContext: &corev1.SecurityContext{
+							Privileged: &priv,
+						},
+					}}},
+				},
+			},
+		},
+	)
+	var out bytes.Buffer
+	var got output.PlanResult
+	err := RunWith(context.Background(), config.Resolved{
+		Namespace: ns,
+		Prompt:    "audit payments namespace",
+		Output:    "json",
+	}, &out, Deps{
+		Provider: llm.AuditStub(ns, false),
+		Client:   client,
+		OnResult: func(r output.PlanResult) { got = r },
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Contains(got.Result, []byte("Audit.Privileged")) ||
+		!bytes.Contains(got.Result, []byte(`"kind":"Investigation"`)) {
+		t.Fatalf("expected audit findings: %s", string(got.Result))
+	}
+}
+
 func deployment(name, ns string, replicas int32) *appsv1.Deployment {
 	return &appsv1.Deployment{
 		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: ns},

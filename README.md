@@ -96,6 +96,7 @@ kprompt "list configmaps" -n default
 kprompt "get secret db-creds" -n prod
 kprompt "timeline for api" -n payments
 kprompt "impact of deployment checkout" -n payments
+kprompt "audit payments namespace" -n payments
 kprompt "why is my api slow?" -n production
 kprompt "show service dependency graph"
 kprompt "why is api slow then scale api to 4"   # multi-tool chain, one approval
@@ -104,7 +105,7 @@ kprompt login
 
 </details>
 
-Multi-hop RCA: [docs/investigate.md](./docs/investigate.md) · Causal why: [docs/why.md](./docs/why.md) · Timeline: [docs/timeline.md](./docs/timeline.md) · Reverse dependencies: [docs/impact.md](./docs/impact.md). In-cluster Observe agent (Helm): [docs/agent.md](./docs/agent.md) · [`charts/kprompt-agent`](./charts/kprompt-agent).
+Multi-hop RCA: [docs/investigate.md](./docs/investigate.md) · Causal why: [docs/why.md](./docs/why.md) · Timeline: [docs/timeline.md](./docs/timeline.md) · Reverse dependencies: [docs/impact.md](./docs/impact.md) · Security hygiene: [docs/audit.md](./docs/audit.md). In-cluster Observe agent (Helm): [docs/agent.md](./docs/agent.md) · [`charts/kprompt-agent`](./charts/kprompt-agent).
 
 Generic get/list works for discoverable built-ins and CRDs (Node, ConfigMap, Secret, …). See [docs/kubernetes-reads.md](./docs/kubernetes-reads.md).
 
@@ -269,7 +270,7 @@ Package layout matches the private architecture ADRs (`cmd/kprompt`, `internal/{
 | Site | [kprompt.ai](https://kprompt.ai) · [Docs](https://kprompt.ai/docs) · [Roadmap](https://kprompt.ai/docs/roadmap) |
 | Community | [Discussions](https://github.com/kprompt/kprompt/discussions) · [Contributing](./CONTRIBUTING.md) · [Good first issues](https://github.com/kprompt/kprompt/labels/good%20first%20issue) |
 | Compare | [vs kubectl-ai](https://kprompt.ai/blog/kprompt-vs-kubectl-ai) · [AI tools map](https://kprompt.ai/blog/kubernetes-ai-tools-comparison) |
-| Product | [impact](./docs/impact.md) · [optimize my cluster](https://kprompt.ai/blog/optimize-my-cluster) · [PlanResult JSON](https://kprompt.ai/blog/planresult-json-deep-dive) · [AI SRE](https://kprompt.ai/blog/ai-sre-not-ai-kubectl) |
+| Product | [audit](./docs/audit.md) · [impact](./docs/impact.md) · [optimize my cluster](https://kprompt.ai/blog/optimize-my-cluster) · [PlanResult JSON](https://kprompt.ai/blog/planresult-json-deep-dive) · [AI SRE](https://kprompt.ai/blog/ai-sre-not-ai-kubectl) |
 
 ## License
 

@@ -222,6 +222,33 @@ func TestBuildImpact(t *testing.T) {
 	}
 }
 
+func TestBuildAudit(t *testing.T) {
+	plan, err := Build(intent.Intent{
+		Kind:   intent.KindAudit,
+		Target: intent.Target{Namespace: "payments", Kind: "Namespace"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if plan.RequiresApproval || len(plan.Actions) != 1 || plan.Actions[0].Op != OpAudit {
+		t.Fatalf("plan=%+v", plan)
+	}
+	if got := plan.Actions[0].Object; got.Namespace != "payments" {
+		t.Fatalf("object=%+v", got)
+	}
+	clusterPlan, err := Build(intent.Intent{
+		Kind:   intent.KindAudit,
+		Target: intent.Target{Kind: "Cluster"},
+		Params: map[string]any{"scope": "cluster"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if clusterPlan.Actions[0].Object.Namespace != "" {
+		t.Fatalf("cluster scope should clear namespace: %+v", clusterPlan.Actions[0].Object)
+	}
+}
+
 func TestBuildRollback(t *testing.T) {
 	plan, err := Build(intent.Intent{
 		Kind:   intent.KindRollback,

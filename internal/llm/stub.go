@@ -217,6 +217,25 @@ func ImpactStub(name, namespace, resourceKind string) *Stub {
 	return &Stub{Structured: payload}
 }
 
+// AuditStub returns a Stub that classifies a security / hygiene audit (S-006).
+func AuditStub(namespace string, clusterScope bool) *Stub {
+	params := map[string]any{}
+	target := map[string]any{"kind": "Namespace"}
+	if clusterScope {
+		params["scope"] = "cluster"
+		target["kind"] = "Cluster"
+	} else if namespace != "" {
+		target["namespace"] = namespace
+	}
+	payload, _ := json.Marshal(map[string]any{
+		"kind":       "audit",
+		"target":     target,
+		"params":     params,
+		"confidence": 1.0,
+	})
+	return &Stub{Structured: payload}
+}
+
 // PerformanceStub returns a Stub that classifies a metrics-backed diagnosis.
 func PerformanceStub(name, namespace, window string) *Stub {
 	params := map[string]any{}

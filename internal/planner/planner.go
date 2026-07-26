@@ -69,6 +69,8 @@ func Build(in intent.Intent) (ExecutionPlan, error) {
 		return buildOptimize(in)
 	case intent.KindGraph:
 		return buildGraph(in)
+	case intent.KindAudit:
+		return buildAudit(in)
 	case intent.KindDelete:
 		return buildDelete(in, ns)
 	case intent.KindDeny:
