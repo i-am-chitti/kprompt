@@ -2,45 +2,58 @@
 
 **AI Kubernetes CLI** — natural language compiles into a **reviewable plan**, then you approve before anything touches the cluster.
 
+[![CI](https://github.com/kprompt/kprompt/actions/workflows/ci.yml/badge.svg)](https://github.com/kprompt/kprompt/actions/workflows/ci.yml)
+[![Release](https://img.shields.io/github/v/release/kprompt/kprompt?logo=github)](https://github.com/kprompt/kprompt/releases/latest)
+[![Go](https://img.shields.io/badge/go-1.23-00ADD8?logo=go&logoColor=white)](./go.mod)
+[![License](https://img.shields.io/badge/license-Apache--2.0-blue)](./LICENSE)
+[![Stars](https://img.shields.io/github/stars/kprompt/kprompt?style=flat&logo=github)](https://github.com/kprompt/kprompt/stargazers)
+
 > Talk to Your Cluster.
+
+```console
+$ kprompt "scale api to 10" -n payments
+Intent: scale
+Plan:   Scale Deployment/api in payments to 10 replicas
+Risk:   medium
+Actions:
+  1. scale Deployment/api -n payments → 10 replicas
+     Diff:
+       scale Deployment/api to 10 replicas
+Blast radius:
+  namespaces: payments
+  - scale Deployment/api -n payments
+      labels: app=api
+      scales: HorizontalPodAutoscaler/api-hpa
+Next: confirm interactively on a TTY, or re-run with --approve.
+Apply this plan? [y/N]:
+```
+
+Nothing touched the cluster. That is the whole point: every mutation becomes a **typed plan you review first** — actions, diff, risk, blast radius — and the prompts that should never compile, don't:
+
+```console
+$ kprompt "delete everything in the cluster"
+🚨 Intent: destructive cluster operation
+🛡️ Safe execution: denied
+😅 Your cluster lives another day
+```
 
 Open source (Apache-2.0). **Experimental.** Always review the plan before apply, prefer non-production first, and treat `--approve` with care. Safety hard-denies help; they do not make unattended production use safe.
 
-Same NL-CLI lane as [kubectl-ai](https://github.com/GoogleCloudPlatform/kubectl-ai); different contract: **PlanResult → safety → approve → apply** (not a free-form chat REPL). See [kprompt vs kubectl-ai](https://kprompt.ai/blog/kprompt-vs-kubectl-ai).
+## Try it in 60 seconds — no API key, no cloud
+
+[kprompt-examples](https://github.com/kprompt/kprompt-examples) spins up kind, breaks seven workloads on purpose, then runs the Observe agent in `--heuristic` mode: **deterministic, offline, zero LLM spend.**
 
 ```bash
-kprompt "scale api to 10" --approve --wait
-kprompt "deploy redis" --approve
-kprompt "install redis" --approve   # Helm chart (requires helm on PATH)
-kprompt "upgrade nginx to 1.3" --approve   # Helm upgrade (params.version from LLM)
-kprompt "deploy nginx" --approve
-kprompt "rollback payment-api" --approve
-kprompt "logs payment-api"
-kprompt "describe payment-api"
-kprompt "delete deployment redis" --approve
-kprompt "list deployments"
-kprompt "show pods" -n default
-kprompt "how many nodes are in the cluster"
-kprompt "list configmaps" -n default
-kprompt "get secret db-creds" -n prod
-kprompt "explain why payment-api is crashing"
-kprompt "why is ledger Pending" -n payments
-kprompt "timeline for api" -n payments
-kprompt "investigate api" -n payments
-kprompt "why is my api slow?" -n production
-kprompt "optimize my cluster"
-kprompt "show service dependency graph"
-kprompt "show gitops sync status"
-kprompt "why is api slow then scale api to 4"
-kprompt login
-kprompt agent run -n payments --health --heuristic   # Observe agent (local)
+brew install kind kubectl
+curl -fsSL https://kprompt.ai/install | bash
+
+git clone https://github.com/kprompt/kprompt-examples.git
+cd kprompt-examples && make walkthrough
 ```
 
-In-cluster Observe agent (Helm): [docs/agent.md](./docs/agent.md) · [`charts/kprompt-agent`](./charts/kprompt-agent).
+Prefer one failure at a time? `make up && make break SCENARIO=01-crashloop && make agent`.
 
-Want a cluster to try it against? [kprompt-examples](https://github.com/kprompt/kprompt-examples) spins up kind with deliberately broken workloads — `make up && make break SCENARIO=01-crashloop`. Multi-hop RCA: [docs/investigate.md](./docs/investigate.md). Causal why: [docs/why.md](./docs/why.md). Timeline: [docs/timeline.md](./docs/timeline.md).
-
-Generic get/list works for discoverable built-ins and CRDs (Node, ConfigMap, Secret, …). See [docs/kubernetes-reads.md](./docs/kubernetes-reads.md).
+If the plan-before-apply contract is what you want in your own cluster workflow, a ⭐ helps other SREs find it.
 
 ## Why kprompt
 
@@ -52,7 +65,58 @@ Generic get/list works for discoverable built-ins and CRDs (Node, ConfigMap, Sec
 | **Day-2 stack** | Helm, Prom, OTel, Grafana, GitOps… under one approval loop |
 | **Local BYOK** | Your kubeconfig + your LLM keys — no cluster creds uploaded |
 
+Same NL-CLI lane as [kubectl-ai](https://github.com/GoogleCloudPlatform/kubectl-ai); different contract: **PlanResult → safety → approve → apply** (not a free-form chat REPL). See [kprompt vs kubectl-ai](https://kprompt.ai/blog/kprompt-vs-kubectl-ai).
+
 Longer positioning: [intent compiler, not chat](https://kprompt.ai/blog/intent-compiler-not-chat) · [AI SRE direction](https://kprompt.ai/blog/ai-sre-not-ai-kubectl) · [Roadmap](https://kprompt.ai/docs/roadmap)
+
+## What you can ask
+
+```bash
+# read
+kprompt "show pods" -n payments
+kprompt "how many nodes are in the cluster"
+
+# explain / root-cause
+kprompt "explain why payment-api is crashing"
+kprompt "why is ledger Pending" -n payments
+kprompt "investigate api" -n payments
+
+# mutate — plan first, approve second
+kprompt "scale api to 10" --approve --wait
+kprompt "rollback payment-api" --approve
+kprompt "install redis" --approve            # Helm chart (needs helm on PATH)
+
+# day-2
+kprompt "optimize my cluster"
+kprompt "show gitops sync status"
+kprompt agent run -n payments --health --heuristic   # Observe agent (local)
+```
+
+<details>
+<summary>Full prompt catalogue</summary>
+
+```bash
+kprompt "deploy redis" --approve
+kprompt "deploy nginx" --approve
+kprompt "upgrade nginx to 1.3" --approve   # Helm upgrade (params.version from LLM)
+kprompt "delete deployment redis" --approve
+kprompt "logs payment-api"
+kprompt "describe payment-api"
+kprompt "list deployments"
+kprompt "list configmaps" -n default
+kprompt "get secret db-creds" -n prod
+kprompt "timeline for api" -n payments
+kprompt "why is my api slow?" -n production
+kprompt "show service dependency graph"
+kprompt "why is api slow then scale api to 4"   # multi-tool chain, one approval
+kprompt login
+```
+
+</details>
+
+Multi-hop RCA: [docs/investigate.md](./docs/investigate.md) · Causal why: [docs/why.md](./docs/why.md) · Timeline: [docs/timeline.md](./docs/timeline.md). In-cluster Observe agent (Helm): [docs/agent.md](./docs/agent.md) · [`charts/kprompt-agent`](./charts/kprompt-agent).
+
+Generic get/list works for discoverable built-ins and CRDs (Node, ConfigMap, Secret, …). See [docs/kubernetes-reads.md](./docs/kubernetes-reads.md).
 
 ## Status
 
