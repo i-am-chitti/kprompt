@@ -238,6 +238,76 @@ func TestFromInvestigationImagePullDedupesSymptomAndCause(t *testing.T) {
 	}
 }
 
+func TestSuggestProbeRelaxesTiming(t *testing.T) {
+	client := fake.NewSimpleClientset(&appsv1.Deployment{
+		ObjectMeta: metav1.ObjectMeta{Name: "web", Namespace: "demo"},
+		Spec: appsv1.DeploymentSpec{
+			Template: corev1.PodTemplateSpec{
+				Spec: corev1.PodSpec{Containers: []corev1.Container{{
+					Name:  "web",
+					Image: "nginx",
+					ReadinessProbe: &corev1.Probe{
+						ProbeHandler:        corev1.ProbeHandler{HTTPGet: &corev1.HTTPGetAction{Path: "/ready"}},
+						InitialDelaySeconds: 5,
+						FailureThreshold:    3,
+					},
+				}}},
+			},
+		},
+	})
+	rep := cluster.ExplainReport{
+		Kind: "Deployment", Target: "web", Namespace: "demo",
+		Findings: []cluster.Finding{{Code: "ProbeFailure", Container: "web", Message: "Readiness probe failed"}},
+	}
+	suggestions, err := FromExplain(context.Background(), client, rep, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	actionable := ActionablePlans(suggestions)
+	if len(actionable) != 1 {
+		t.Fatalf("suggestions=%+v", suggestions)
+	}
+	if !strings.Contains(actionable[0].Summary, "initialDelay 5→10") {
+		t.Fatalf("summary=%q", actionable[0].Summary)
+	}
+	if !strings.Contains(actionable[0].Summary, "failureThreshold 3→5") {
+		t.Fatalf("summary=%q", actionable[0].Summary)
+	}
+}
+
+func TestSuggestGuidanceForMissingStorageClass(t *testing.T) {
+	inv := incident.Investigation{
+		Namespace: "payments",
+		Target:    &incident.ResourceRef{Kind: "Deployment", Name: "ledger", Namespace: "payments"},
+		Findings: []incident.Finding{
+			{Code: "Symptom.Pending", Message: "Pod/ledger-1 phase=Pending"},
+			{Code: "Cause.MissingStorageClass", Message: `StorageClass "missing" is missing`},
+		},
+	}
+	suggestions, err := FromInvestigation(context.Background(), fake.NewSimpleClientset(), inv, "why is ledger Pending")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(ActionablePlans(suggestions)) != 0 {
+		t.Fatalf("storage guidance must not invent a mutating plan: %+v", suggestions)
+	}
+	if len(suggestions) == 0 {
+		t.Fatal("expected guidance suggestions")
+	}
+	found := false
+	for _, s := range suggestions {
+		if s.Code == "MissingStorageClass" {
+			found = true
+			if s.Plan != nil {
+				t.Fatal("MissingStorageClass must be guidance-only")
+			}
+		}
+	}
+	if !found {
+		t.Fatalf("suggestions=%+v", suggestions)
+	}
+}
+
 func TestExtractReplacementImage(t *testing.T) {
 	got := extractReplacementImage(`set worker image to ghcr.io/example/worker:1.2.3`)
 	if got != "ghcr.io/example/worker:1.2.3" {

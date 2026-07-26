@@ -168,6 +168,72 @@ func TestWhyImagePull(t *testing.T) {
 	}
 }
 
+func TestWhyProbeFailFromUnhealthyEvent(t *testing.T) {
+	ns := "payments"
+	labels := map[string]string{"app": "web"}
+	var replicas int32 = 1
+	client := fake.NewSimpleClientset(
+		&appsv1.Deployment{
+			ObjectMeta: metav1.ObjectMeta{Name: "web", Namespace: ns},
+			Spec: appsv1.DeploymentSpec{
+				Replicas: &replicas,
+				Selector: &metav1.LabelSelector{MatchLabels: labels},
+				Template: corev1.PodTemplateSpec{
+					ObjectMeta: metav1.ObjectMeta{Labels: labels},
+					Spec: corev1.PodSpec{Containers: []corev1.Container{{
+						Name:  "web",
+						Image: "nginx",
+						ReadinessProbe: &corev1.Probe{
+							ProbeHandler:        corev1.ProbeHandler{HTTPGet: &corev1.HTTPGetAction{Path: "/ready"}},
+							InitialDelaySeconds: 5,
+							FailureThreshold:    3,
+						},
+					}}},
+				},
+			},
+		},
+		&corev1.Pod{
+			ObjectMeta: metav1.ObjectMeta{Name: "web-1", Namespace: ns, Labels: labels},
+			Spec: corev1.PodSpec{Containers: []corev1.Container{{
+				Name:  "web",
+				Image: "nginx",
+				ReadinessProbe: &corev1.Probe{
+					ProbeHandler:        corev1.ProbeHandler{HTTPGet: &corev1.HTTPGetAction{Path: "/ready"}},
+					InitialDelaySeconds: 5,
+					FailureThreshold:    3,
+				},
+			}}},
+			Status: corev1.PodStatus{
+				Phase: corev1.PodRunning,
+				ContainerStatuses: []corev1.ContainerStatus{{
+					Name:  "web",
+					Ready: false,
+					State: corev1.ContainerState{Running: &corev1.ContainerStateRunning{}},
+				}},
+			},
+		},
+		&corev1.Event{
+			ObjectMeta: metav1.ObjectMeta{Name: "web-1.unhealthy", Namespace: ns},
+			InvolvedObject: corev1.ObjectReference{Kind: "Pod", Name: "web-1", Namespace: ns},
+			Reason:  "Unhealthy",
+			Message: "Readiness probe failed: HTTP probe failed with statuscode: 503",
+		},
+	)
+	doc, err := (&Analyzer{Client: client}).Run(context.Background(), Request{
+		Name: "web", Namespace: ns, Kind: "Deployment",
+		Prompt: "why is web not ready",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !hasCode(doc, "Symptom.ProbeFail") || !hasCode(doc, "Cause.ReadinessProbe") {
+		t.Fatalf("findings: %+v", doc.Findings)
+	}
+	if doc.SuggestedPlanHint == "" {
+		t.Fatal("expected plan hint for probe")
+	}
+}
+
 func hasCode(doc incident.Investigation, code string) bool {
 	for _, f := range doc.Findings {
 		if f.Code == code {

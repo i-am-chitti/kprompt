@@ -7,6 +7,7 @@ package why
 import (
 	"context"
 	"fmt"
+	"regexp"
 	"strings"
 
 	corev1 "k8s.io/api/core/v1"
@@ -167,6 +168,10 @@ func (a *Analyzer) causeTree(ctx context.Context, ns string, pod *corev1.Pod) []
 		}
 	}
 
+	if probeSteps := a.probeFailures(ctx, ns, pod); len(probeSteps) > 0 {
+		return probeSteps
+	}
+
 	if pod.Status.Phase == corev1.PodPending || hasUnschedulable(pod) {
 		steps = append(steps, finding("Symptom.Pending", incident.SeverityMedium,
 			"Pod is Pending",
@@ -186,6 +191,104 @@ func (a *Analyzer) causeTree(ctx context.Context, ns string, pod *corev1.Pod) []
 	}
 
 	return steps
+}
+
+// probeFailures returns Symptom.ProbeFail → Cause.{Readiness,Liveness}Probe when
+// Unhealthy events or a not-ready container with a configured probe is present.
+func (a *Analyzer) probeFailures(ctx context.Context, ns string, pod *corev1.Pod) []incident.Finding {
+	if pod.Status.Phase == corev1.PodPending || hasUnschedulable(pod) {
+		return nil
+	}
+	kind, msg, container := a.unhealthyProbeSignal(ctx, ns, pod.Name)
+	if kind == "" {
+		kind, msg, container = notReadyProbeSignal(pod)
+	}
+	if kind == "" {
+		return nil
+	}
+	causeCode := "Cause.ReadinessProbe"
+	causeTitle := "Readiness probe failing"
+	if kind == "liveness" {
+		causeCode = "Cause.LivenessProbe"
+		causeTitle = "Liveness probe failing"
+	}
+	return []incident.Finding{
+		finding("Symptom.ProbeFail", incident.SeverityHigh, "Container probe is failing",
+			fmt.Sprintf("container %s: %s", firstNonEmpty(container, "unknown"), firstNonEmpty(msg, kind+" probe failing")), ns),
+		finding(causeCode, incident.SeverityHigh, causeTitle,
+			firstNonEmpty(msg, causeTitle+"; consider relaxing initialDelaySeconds / failureThreshold or fixing the app"), ns),
+	}
+}
+
+func (a *Analyzer) unhealthyProbeSignal(ctx context.Context, ns, podName string) (kind, msg, container string) {
+	list, err := a.Client.CoreV1().Events(ns).List(ctx, metav1.ListOptions{
+		FieldSelector: fmt.Sprintf("involvedObject.kind=Pod,involvedObject.name=%s", podName),
+	})
+	if err != nil {
+		return "", "", ""
+	}
+	for i := len(list.Items) - 1; i >= 0; i-- {
+		ev := list.Items[i]
+		if ev.Reason != "Unhealthy" {
+			continue
+		}
+		lower := strings.ToLower(ev.Message)
+		container = containerFromProbeMessage(ev.Message)
+		switch {
+		case strings.Contains(lower, "liveness"):
+			return "liveness", strings.TrimSpace(ev.Message), container
+		case strings.Contains(lower, "readiness"), strings.Contains(lower, "startup"):
+			return "readiness", strings.TrimSpace(ev.Message), container
+		default:
+			return "readiness", strings.TrimSpace(ev.Message), container
+		}
+	}
+	return "", "", ""
+}
+
+func notReadyProbeSignal(pod *corev1.Pod) (kind, msg, container string) {
+	if pod.Status.Phase != corev1.PodRunning {
+		return "", "", ""
+	}
+	for _, cs := range pod.Status.ContainerStatuses {
+		if cs.Ready {
+			continue
+		}
+		spec := containerSpec(pod, cs.Name)
+		if spec == nil {
+			continue
+		}
+		switch {
+		case spec.ReadinessProbe != nil:
+			return "readiness",
+				fmt.Sprintf("container %s is not Ready and has a readinessProbe", cs.Name),
+				cs.Name
+		case spec.LivenessProbe != nil:
+			return "liveness",
+				fmt.Sprintf("container %s is not Ready and has a livenessProbe", cs.Name),
+				cs.Name
+		}
+	}
+	return "", "", ""
+}
+
+func containerSpec(pod *corev1.Pod, name string) *corev1.Container {
+	for i := range pod.Spec.Containers {
+		if pod.Spec.Containers[i].Name == name {
+			return &pod.Spec.Containers[i]
+		}
+	}
+	return nil
+}
+
+var probeContainerRE = regexp.MustCompile(`(?i)container\s+["']?([a-z0-9][-a-z0-9]*)`)
+
+func containerFromProbeMessage(msg string) string {
+	m := probeContainerRE.FindStringSubmatch(msg)
+	if len(m) == 2 {
+		return m[1]
+	}
+	return ""
 }
 
 func (a *Analyzer) pendingRootCauses(ctx context.Context, ns string, pod *corev1.Pod, schedMsg string) []incident.Finding {
@@ -352,7 +455,9 @@ func confidenceFor(steps []incident.Finding) float64 {
 	case strings.HasPrefix(last, "Cause.MissingStorageClass"),
 		strings.HasPrefix(last, "Cause.NoGPUNodes"),
 		strings.HasPrefix(last, "Cause.OOMKilled"),
-		strings.HasPrefix(last, "Cause.BadImageRef"):
+		strings.HasPrefix(last, "Cause.BadImageRef"),
+		strings.HasPrefix(last, "Cause.ReadinessProbe"),
+		strings.HasPrefix(last, "Cause.LivenessProbe"):
 		return 0.9
 	case strings.HasPrefix(last, "Cause."):
 		return 0.8
@@ -374,8 +479,14 @@ func planHint(steps []incident.Finding, target string) string {
 			return fmt.Sprintf("Suggested: name a replacement — set %s image to <tag> — for a reviewable plan", target)
 		case "Cause.ExitNonZero":
 			return fmt.Sprintf("Suggested (approve required): rollback %s when a prior revision exists; else kprompt \"logs %s\"", target, target)
+		case "Cause.ReadinessProbe", "Cause.LivenessProbe":
+			return fmt.Sprintf("Suggested (approve required): relax probe timing on %s, or fix the app health endpoint", target)
 		case "Cause.NoGPUNodes":
 			return "Fix: add GPU nodes or remove the GPU request/affinity"
+		case "Cause.PVCMissing", "Cause.PVCPending":
+			return fmt.Sprintf("Next: describe PVC / StorageClass for %s — no auto-delete of claims", target)
+		case "Cause.NodeSelector", "Cause.TaintToleration", "Cause.ResourcePressure", "Cause.UnknownSchedule":
+			return fmt.Sprintf("Next: kprompt \"describe %s\" — scheduling fixes are cluster/ops changes, not invented patches", target)
 		}
 	}
 	return ""
@@ -451,6 +562,9 @@ func problemScore(p corev1.Pod) int {
 			case "CrashLoopBackOff", "ImagePullBackOff", "ErrImagePull":
 				score += 40
 			}
+		}
+		if !cs.Ready && p.Status.Phase == corev1.PodRunning {
+			score += 15
 		}
 	}
 	if hasUnschedulable(&p) {

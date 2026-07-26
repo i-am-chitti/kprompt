@@ -1,6 +1,6 @@
 # why (S-003)
 
-On-demand **causal state chain** for Pending / CrashLoop / ImagePull / OOM — structured symptom → proximate → root, not chat.
+On-demand **causal state chain** for Pending / CrashLoop / ImagePull / OOM / probe failures — structured symptom → proximate → root, not chat.
 
 Emits the same ADR-0014 **`Investigation`** artifact as [`investigate`](./investigate.md).
 
@@ -11,8 +11,10 @@ When findings are actionable, `why` may offer a **reviewable follow-up plan** (s
 | OOMKilled / memory limit | Raise Deployment memory limit |
 | CrashLoopBackOff with ≥2 ReplicaSet revisions | `rollout undo` previous revision |
 | ImagePullBackOff | Image patch **only** if the prompt names a replacement (`set … image to …`) |
+| Readiness / liveness probe fail | Relax `initialDelaySeconds` / `failureThreshold` on the Deployment probe |
+| Pending / PVC / StorageClass / affinity / taints / capacity | Guidance only (`describe` / fix StorageClass / add nodes) — never invent classes, tolerations, or node pools |
 
-Otherwise you get prompt-only hints (logs / describe) — never an invented image tag.
+Otherwise you get prompt-only hints (logs / describe) — never an invented image tag or StorageClass name.
 
 ## Usage
 
@@ -20,6 +22,7 @@ Otherwise you get prompt-only hints (logs / describe) — never an invented imag
 kprompt "why is ledger Pending" -n payments
 kprompt "why is api crashing" -n payments
 kprompt "why is worker ImagePullBackOff" -n payments
+kprompt "why is web not ready" -n payments
 # with a named fix:
 kprompt "why is worker ImagePullBackOff — set worker image to ghcr.io/example/worker:1.2.3" -n payments
 kprompt "why is api crashing" -n payments -o json   # Investigation JSON (plan gate is text/TTY path)
@@ -27,8 +30,8 @@ kprompt "why is api crashing" -n payments -o json   # Investigation JSON (plan g
 
 Findings are ordered:
 
-1. **Symptom.*** (e.g. `Symptom.Pending`, `Symptom.CrashLoop`)
-2. **Cause.*** proximate then root (PVC missing, ImagePullBackOff, OOMKilled, affinity/taints, …)
+1. **Symptom.*** (e.g. `Symptom.Pending`, `Symptom.CrashLoop`, `Symptom.ProbeFail`)
+2. **Cause.*** proximate then root (PVC missing, ImagePullBackOff, OOMKilled, probe, affinity/taints, …)
 
 ## vs `explain` / `investigate`
 
@@ -36,7 +39,7 @@ Findings are ordered:
 |--|-----------|-------|----------------|
 | Focus | Deployment → Pods → Events → Logs | Cause tree on one pod/workload | + Service / Endpoints multi-hop |
 | Artifact | explain-lite JSON | `Investigation` | `Investigation` |
-| Suggest → approve | OOM / CrashLoop rollback / named image | Same suggest path | Same suggest path |
+| Suggest → approve | OOM / CrashLoop / named image / probe / scheduling guidance | Same suggest path | Same suggest path |
 | Trigger | generic diagnosis | “why is X pending/crashing/oom” | “investigate X” / RCA |
 
 ## Honest gaps (`degraded`)

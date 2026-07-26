@@ -70,6 +70,20 @@ func FromExplain(ctx context.Context, client kubernetes.Interface, rep cluster.E
 			if s != nil {
 				out = append(out, *s)
 			}
+		case "ProbeFailure":
+			s, err := suggestProbe(ctx, client, rep, f)
+			if err != nil {
+				return out, err
+			}
+			if s != nil {
+				out = append(out, *s)
+			}
+		case "Pending", "Unschedulable", "PVCMissing", "PVCPending", "MissingStorageClass",
+			"StorageClassError", "NodeSelector", "NoGPUNodes", "TaintToleration",
+			"ResourcePressure", "UnknownSchedule":
+			if s := suggestGuidance(rep, f); s != nil {
+				out = append(out, *s)
+			}
 		}
 	}
 	return out, nil
@@ -124,6 +138,30 @@ func mapInvestigationCode(code string) string {
 		return "ImagePullBackOff"
 	case "Symptom.OOM", "Cause.OOMKilled", "Cause.MemoryLimit":
 		return "OOMKilled"
+	case "Symptom.ProbeFail", "Cause.ReadinessProbe", "Cause.LivenessProbe":
+		return "ProbeFailure"
+	case "Symptom.Pending":
+		return "Pending"
+	case "Cause.Unschedulable":
+		return "Unschedulable"
+	case "Cause.PVCMissing":
+		return "PVCMissing"
+	case "Cause.PVCPending":
+		return "PVCPending"
+	case "Cause.MissingStorageClass":
+		return "MissingStorageClass"
+	case "Cause.StorageClassError":
+		return "StorageClassError"
+	case "Cause.NodeSelector":
+		return "NodeSelector"
+	case "Cause.NoGPUNodes":
+		return "NoGPUNodes"
+	case "Cause.TaintToleration":
+		return "TaintToleration"
+	case "Cause.ResourcePressure":
+		return "ResourcePressure"
+	case "Cause.UnknownSchedule":
+		return "UnknownSchedule"
 	default:
 		return ""
 	}
