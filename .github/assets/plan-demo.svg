@@ -1,0 +1,47 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1040" height="590" viewBox="0 0 1040 590" role="img" aria-labelledby="title desc">
+  <title id="title">kprompt compiles a prompt into a reviewable plan and waits for approval</title>
+  <desc id="desc">Terminal showing kprompt "scale api to 10" -n payments. The output lists Intent scale, a plan to scale Deployment/api in payments to 10 replicas, Risk medium, the scale action with its diff, a blast radius naming the payments namespace and the HorizontalPodAutoscaler that also scales the target, and finally the prompt "Apply this plan? [y/N]:" so nothing is applied without approval.</desc>
+
+  <defs>
+    <style>
+      .mono {
+        font-family: Menlo, "DejaVu Sans Mono", "Liberation Mono", Consolas, ui-monospace, SFMono-Regular, monospace;
+        font-size: 20px;
+        font-variant-ligatures: none;
+        font-feature-settings: "liga" 0, "calt" 0;
+      }
+      .fg { fill: #f8f8f2; }
+      .heading { fill: #bd93f9; font-weight: 700; }
+      .accent { fill: #ff79c6; }
+      .warn { fill: #f1fa8c; }
+      .muted { fill: #6272a4; }
+      .success { fill: #50fa7b; }
+      .bold { font-weight: 700; }
+    </style>
+  </defs>
+
+  <rect x="0" y="0" width="1040" height="590" rx="14" fill="#282a36"/>
+  <rect x="0" y="0" width="1040" height="52" rx="14" fill="#21222c"/>
+  <rect x="0" y="38" width="1040" height="14" fill="#21222c"/>
+  <circle cx="28" cy="26" r="6.5" fill="#ff5555"/>
+  <circle cx="52" cy="26" r="6.5" fill="#f1fa8c"/>
+  <circle cx="76" cy="26" r="6.5" fill="#50fa7b"/>
+  <text class="mono muted" x="520" y="33" text-anchor="middle" style="font-size:15px">kprompt &#8212; plan before apply</text>
+
+  <text class="mono" x="40" y="98" xml:space="preserve"><tspan class="success">$</tspan><tspan class="fg"> kprompt </tspan><tspan class="warn">"scale api to 10"</tspan><tspan class="muted"> -n payments</tspan></text>
+
+  <text class="mono" x="40" y="158" xml:space="preserve"><tspan class="heading">Intent:</tspan><tspan class="fg"> scale</tspan></text>
+  <text class="mono" x="40" y="188" xml:space="preserve"><tspan class="heading">Plan:  </tspan><tspan class="fg"> Scale Deployment/api in payments to 10 replicas</tspan></text>
+  <text class="mono" x="40" y="218" xml:space="preserve"><tspan class="heading">Risk:  </tspan><tspan class="warn"> medium</tspan></text>
+  <text class="mono heading" x="40" y="248" xml:space="preserve">Actions:</text>
+  <text class="mono" x="40" y="278" xml:space="preserve"><tspan class="fg">  1. scale </tspan><tspan class="accent">Deployment/api</tspan><tspan class="fg"> -n payments &#8594; 10 replicas</tspan></text>
+  <text class="mono muted" x="40" y="308" xml:space="preserve">     Diff:</text>
+  <text class="mono muted" x="40" y="338" xml:space="preserve">       scale Deployment/api to 10 replicas</text>
+  <text class="mono heading" x="40" y="368" xml:space="preserve">Blast radius:</text>
+  <text class="mono fg" x="40" y="398" xml:space="preserve">  namespaces: payments</text>
+  <text class="mono fg" x="40" y="428" xml:space="preserve">  - scale Deployment/api -n payments</text>
+  <text class="mono fg" x="40" y="458" xml:space="preserve">      labels: app=api</text>
+  <text class="mono fg" x="40" y="488" xml:space="preserve">      scales: HorizontalPodAutoscaler/api-hpa</text>
+  <text class="mono muted" x="40" y="518" xml:space="preserve">Next: confirm interactively on a TTY, or re-run with --approve.</text>
+  <text class="mono" x="40" y="556" xml:space="preserve"><tspan class="fg bold">Apply this plan?</tspan><tspan class="fg"> [y/N]: </tspan><tspan class="success">&#9608;</tspan></text>
+</svg>

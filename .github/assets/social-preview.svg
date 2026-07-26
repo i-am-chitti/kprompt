@@ -1,0 +1,50 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="640" viewBox="0 0 1280 640" role="img" aria-labelledby="title desc">
+  <title id="title">kprompt &#8212; Talk to Your Cluster</title>
+  <desc id="desc">Social preview card for kprompt, an AI Kubernetes CLI that turns natural language into a reviewable plan you approve before apply.</desc>
+
+  <defs>
+    <style>
+      .sans {
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, Roboto, "Helvetica Neue", Arial, sans-serif;
+      }
+      .mono {
+        font-family: Menlo, "DejaVu Sans Mono", "Liberation Mono", Consolas, ui-monospace, SFMono-Regular, monospace;
+        font-variant-ligatures: none;
+        font-feature-settings: "liga" 0, "calt" 0;
+      }
+    </style>
+    <radialGradient id="glowPurple" cx="0.5" cy="0.5" r="0.5">
+      <stop offset="0%" stop-color="#7c3aed" stop-opacity="0.42"/>
+      <stop offset="100%" stop-color="#7c3aed" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="glowBlue" cx="0.5" cy="0.5" r="0.5">
+      <stop offset="0%" stop-color="#2563eb" stop-opacity="0.34"/>
+      <stop offset="100%" stop-color="#2563eb" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+
+  <rect x="0" y="0" width="1280" height="640" fill="#0f172a"/>
+  <circle cx="1090" cy="70" r="440" fill="url(#glowPurple)"/>
+  <circle cx="130" cy="600" r="420" fill="url(#glowBlue)"/>
+
+  <rect x="72" y="60" width="52" height="52" rx="14" fill="#2563eb"/>
+  <text class="sans" x="98" y="96" text-anchor="middle" fill="#ffffff" style="font-size:30px;font-weight:700">k</text>
+  <text class="sans" x="140" y="97" fill="#f8fafc" style="font-size:32px;font-weight:700">kprompt</text>
+  <text class="sans" x="1208" y="94" text-anchor="end" fill="#94a3b8" style="font-size:21px">Apache-2.0 &#183; Go</text>
+
+  <text class="sans" x="72" y="222" fill="#f8fafc" style="font-size:70px;font-weight:750;letter-spacing:-0.035em">Talk to Your Cluster.</text>
+  <text class="sans" x="72" y="278" fill="#cbd5e1" style="font-size:27px">AI Kubernetes CLI &#8212; natural language becomes a reviewable plan,</text>
+  <text class="sans" x="72" y="316" fill="#cbd5e1" style="font-size:27px">and nothing is applied until you approve it.</text>
+
+  <rect x="72" y="360" width="1136" height="182" rx="14" fill="#111c33" stroke="#334155" stroke-opacity="0.55"/>
+  <circle cx="98" cy="388" r="5.5" fill="#ff5555"/>
+  <circle cx="117" cy="388" r="5.5" fill="#f1fa8c"/>
+  <circle cx="136" cy="388" r="5.5" fill="#50fa7b"/>
+
+  <text class="mono" x="98" y="440" style="font-size:22px" xml:space="preserve"><tspan fill="#50fa7b">$</tspan><tspan fill="#f8fafc"> kprompt </tspan><tspan fill="#f1fa8c">"scale api to 10"</tspan><tspan fill="#94a3b8"> -n payments</tspan></text>
+  <text class="mono" x="98" y="476" style="font-size:22px" xml:space="preserve"><tspan fill="#bd93f9" style="font-weight:700">Risk:  </tspan><tspan fill="#f1fa8c"> medium</tspan><tspan fill="#94a3b8">   &#183;   blast radius: payments</tspan></text>
+  <text class="mono" x="98" y="512" style="font-size:22px" xml:space="preserve"><tspan fill="#f8fafc" style="font-weight:700">Apply this plan?</tspan><tspan fill="#f8fafc"> [y/N]: </tspan><tspan fill="#50fa7b">&#9608;</tspan></text>
+
+  <text class="sans" x="72" y="600" fill="#94a3b8" style="font-size:23px">github.com/kprompt/kprompt</text>
+  <text class="sans" x="1208" y="600" text-anchor="end" fill="#bfdbfe" style="font-size:23px">kprompt.ai</text>
+</svg>

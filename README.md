@@ -10,23 +10,7 @@
 
 > Talk to Your Cluster.
 
-```console
-$ kprompt "scale api to 10" -n payments
-Intent: scale
-Plan:   Scale Deployment/api in payments to 10 replicas
-Risk:   medium
-Actions:
-  1. scale Deployment/api -n payments → 10 replicas
-     Diff:
-       scale Deployment/api to 10 replicas
-Blast radius:
-  namespaces: payments
-  - scale Deployment/api -n payments
-      labels: app=api
-      scales: HorizontalPodAutoscaler/api-hpa
-Next: confirm interactively on a TTY, or re-run with --approve.
-Apply this plan? [y/N]:
-```
+![kprompt turns "scale api to 10" into a reviewable plan — intent, risk, actions, diff, and blast radius — then waits at "Apply this plan? [y/N]:"](./.github/assets/plan-demo.svg)
 
 Nothing touched the cluster. That is the whole point: every mutation becomes a **typed plan you review first** — actions, diff, risk, blast radius — and the prompts that should never compile, don't:
 
