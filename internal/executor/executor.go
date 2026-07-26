@@ -84,6 +84,10 @@ func (r *Runner) delete(ctx context.Context, a planner.Action) error {
 		return r.Client.CoreV1().Pods(ns).Delete(ctx, name, opts)
 	case "Job":
 		return r.Client.BatchV1().Jobs(ns).Delete(ctx, name, opts)
+	case "ConfigMap":
+		return r.Client.CoreV1().ConfigMaps(ns).Delete(ctx, name, opts)
+	case "Secret":
+		return r.Client.CoreV1().Secrets(ns).Delete(ctx, name, opts)
 	default:
 		return fmt.Errorf("delete of %s not implemented", a.Object.Kind)
 	}

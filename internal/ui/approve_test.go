@@ -46,6 +46,29 @@ func TestConfirmApplyEOF(t *testing.T) {
 	}
 }
 
+func TestConfirmPhraseExact(t *testing.T) {
+	var out bytes.Buffer
+	ok, err := ConfirmPhrase(strings.NewReader("DELETE-ORPHANS\n"), &out, "DELETE-ORPHANS")
+	if err != nil || !ok {
+		t.Fatalf("ok=%v err=%v out=%q", ok, err, out.String())
+	}
+	if !strings.Contains(out.String(), "DELETE-ORPHANS") {
+		t.Fatalf("missing phrase prompt: %q", out.String())
+	}
+}
+
+func TestConfirmPhraseMismatch(t *testing.T) {
+	for _, in := range []string{"y\n", "delete-orphans\n", "DELETE ORPHANS\n", "\n", ""} {
+		ok, err := ConfirmPhrase(strings.NewReader(in), ioDiscard{}, "DELETE-ORPHANS")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if ok {
+			t.Fatalf("expected reject for %q", in)
+		}
+	}
+}
+
 type ioDiscard struct{}
 
 func (ioDiscard) Write(p []byte) (int, error) { return len(p), nil }

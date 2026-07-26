@@ -1307,6 +1307,39 @@ func TestPipelineCleanupSuggestsDelete(t *testing.T) {
 	}
 }
 
+func TestPipelineCleanupOrphanDeleteWithConfirm(t *testing.T) {
+	ns := "payments"
+	client := fake.NewSimpleClientset(
+		&corev1.ConfigMap{ObjectMeta: metav1.ObjectMeta{Name: "orphan-config", Namespace: ns}},
+		&corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: "orphan-secret", Namespace: ns}},
+	)
+	var out bytes.Buffer
+	err := RunWith(context.Background(), config.Resolved{
+		Approve:   true,
+		Namespace: ns,
+		Prompt:    "cleanup payments and confirm orphans",
+	}, &out, Deps{
+		Provider:      llm.CleanupStub(ns, false),
+		Client:        client,
+		SkipOrgPolicy: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Contains(out.Bytes(), []byte("Suggested cleanup")) {
+		t.Fatalf("expected cleanup suggestion:\n%s", out.String())
+	}
+	if !bytes.Contains(out.Bytes(), []byte("confirm_orphans")) {
+		t.Fatalf("expected orphan plan summary:\n%s", out.String())
+	}
+	if _, err := client.CoreV1().ConfigMaps(ns).Get(context.Background(), "orphan-config", metav1.GetOptions{}); err == nil {
+		t.Fatal("expected ConfigMap deleted after approve")
+	}
+	if _, err := client.CoreV1().Secrets(ns).Get(context.Background(), "orphan-secret", metav1.GetOptions{}); err == nil {
+		t.Fatal("expected Secret deleted after approve")
+	}
+}
+
 func TestPipelineTimelineEmitsChronology(t *testing.T) {
 	ns := "payments"
 	now := metav1.Now()

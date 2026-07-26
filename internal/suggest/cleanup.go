@@ -10,15 +10,39 @@ import (
 	"github.com/kprompt/kprompt/internal/planner"
 )
 
-// FromCleanup turns cleanup Investigation findings into one aggregate,
-// approve-gated delete plan for completed Jobs and superseded ReplicaSets,
-// plus guidance for ConfigMap/Secret orphans (never auto-deleted — false
-// positives from unscanned CRD/GitOps refs are too common).
-func FromCleanup(_ context.Context, inv incident.Investigation) ([]Suggestion, error) {
+// orphanConfirmPhrases unlock ConfigMap/Secret orphan delete plans when present
+// (case-insensitive) in the original cleanup prompt.
+var orphanConfirmPhrases = []string{
+	"confirm orphans",
+	"confirm orphan",
+	"delete unused configmaps",
+	"delete unused secrets",
+	"delete orphans",
+	"and delete orphans",
+}
+
+// ConfirmsOrphans reports whether the prompt unlocks ConfigMap/Secret orphan deletes.
+func ConfirmsOrphans(prompt string) bool {
+	lower := strings.ToLower(prompt)
+	for _, p := range orphanConfirmPhrases {
+		if strings.Contains(lower, p) {
+			return true
+		}
+	}
+	return false
+}
+
+// FromCleanup turns cleanup Investigation findings into approve-gated delete
+// plans for completed Jobs and superseded ReplicaSets. ConfigMap/Secret orphans
+// stay guidance-only unless the prompt confirms orphans (stricter gate).
+func FromCleanup(_ context.Context, inv incident.Investigation, prompt string) ([]Suggestion, error) {
 	var actions []planner.Action
+	var orphanActions []planner.Action
 	seenDelete := map[string]bool{}
+	seenOrphan := map[string]bool{}
 	seenGuidance := map[string]bool{}
 	var guidance []Suggestion
+	confirmOrphans := ConfirmsOrphans(prompt)
 
 	for _, f := range inv.Findings {
 		ref := auditResource(f)
@@ -65,10 +89,33 @@ func FromCleanup(_ context.Context, inv incident.Investigation) ([]Suggestion, e
 				Diff: fmt.Sprintf("- ReplicaSet/%s -n %s (superseded, 0 replicas)", ref.Name, ref.Namespace),
 			})
 		case "Cleanup.UnusedConfigMap", "Cleanup.UnusedSecret":
-			addAuditGuidance(&guidance, seenGuidance, f.Code,
-				cleanupGuidanceTitle(f.Code),
-				fmt.Sprintf("describe %s/%s", strings.ToLower(ref.Kind), ref.Name),
-				cleanupGuidanceSummary(f.Code))
+			if !confirmOrphans {
+				addAuditGuidance(&guidance, seenGuidance, f.Code,
+					cleanupGuidanceTitle(f.Code),
+					fmt.Sprintf("describe %s/%s", strings.ToLower(ref.Kind), ref.Name),
+					cleanupGuidanceSummary(f.Code))
+				continue
+			}
+			key := ref.Kind + "|" + ref.Namespace + "|" + ref.Name
+			if seenOrphan[key] {
+				continue
+			}
+			seenOrphan[key] = true
+			apiVersion := "v1"
+			diffReason := "unused ConfigMap orphan"
+			if ref.Kind == "Secret" {
+				diffReason = "unused Secret orphan"
+			}
+			orphanActions = append(orphanActions, planner.Action{
+				Op: planner.OpDelete,
+				Object: planner.ObjectRef{
+					APIVersion: apiVersion,
+					Kind:       ref.Kind,
+					Name:       ref.Name,
+					Namespace:  ref.Namespace,
+				},
+				Diff: fmt.Sprintf("- %s/%s -n %s (%s)", ref.Kind, ref.Name, ref.Namespace, diffReason),
+			})
 		default:
 			addAuditGuidance(&guidance, seenGuidance, f.Code,
 				"Review cleanup candidate",
@@ -97,8 +144,49 @@ func FromCleanup(_ context.Context, inv incident.Investigation) ([]Suggestion, e
 			Summary: plan.Summary,
 		})
 	}
+	if len(orphanActions) > 0 {
+		plan := &planner.ExecutionPlan{
+			Intent: intent.Intent{
+				Kind:   intent.KindDelete,
+				Target: intent.Target{Kind: "ConfigMap", Namespace: inv.Namespace},
+				Params: map[string]any{
+					"reason":          "CleanupOrphans",
+					"confirm_orphans": true,
+				},
+			},
+			Actions:          orphanActions,
+			Summary:          fmt.Sprintf("Delete %d unused ConfigMap/Secret orphan(s) (confirm_orphans)", len(orphanActions)),
+			RequiresApproval: true,
+		}
+		out = append(out, Suggestion{
+			Code:    "Cleanup.DeleteOrphans",
+			Title:   "Delete unused ConfigMap/Secret orphans",
+			Prompt:  "cleanup confirm orphans",
+			Plan:    plan,
+			Summary: plan.Summary,
+		})
+	}
 	out = append(out, guidance...)
 	return out, nil
+}
+
+// IsCleanupOrphanPlan reports whether a plan is the confirm_orphans ConfigMap/Secret delete.
+func IsCleanupOrphanPlan(plan planner.ExecutionPlan) bool {
+	if plan.Intent.Kind != intent.KindDelete {
+		return false
+	}
+	v, ok := plan.Intent.Params["confirm_orphans"]
+	if !ok || v == nil {
+		return false
+	}
+	switch b := v.(type) {
+	case bool:
+		return b
+	case string:
+		return strings.EqualFold(b, "true")
+	default:
+		return false
+	}
 }
 
 func cleanupGuidanceTitle(code string) string {
@@ -115,9 +203,9 @@ func cleanupGuidanceTitle(code string) string {
 func cleanupGuidanceSummary(code string) string {
 	switch code {
 	case "Cleanup.UnusedConfigMap":
-		return "ConfigMaps are never auto-deleted — CRD/GitOps refs may be unscanned; confirm then delete manually"
+		return "ConfigMaps stay guidance-only unless you confirm orphans (e.g. \"cleanup … and confirm orphans\"); CRD/GitOps refs may be unscanned"
 	case "Cleanup.UnusedSecret":
-		return "Secrets are never auto-deleted — false positives are common; confirm then delete manually"
+		return "Secrets stay guidance-only unless you confirm orphans; false positives are common — confirm then delete"
 	default:
 		return "Review the finding before deleting"
 	}

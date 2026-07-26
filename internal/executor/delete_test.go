@@ -6,6 +6,7 @@ import (
 
 	appsv1 "k8s.io/api/apps/v1"
 	batchv1 "k8s.io/api/batch/v1"
+	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes/fake"
 
@@ -90,5 +91,27 @@ func TestDeleteJobAndReplicaSet(t *testing.T) {
 	}
 	if _, err := client.AppsV1().ReplicaSets("payments").Get(context.Background(), "api-old", metav1.GetOptions{}); err == nil {
 		t.Fatal("expected ReplicaSet deleted")
+	}
+}
+
+func TestDeleteConfigMapAndSecret(t *testing.T) {
+	client := fake.NewSimpleClientset(
+		&corev1.ConfigMap{ObjectMeta: metav1.ObjectMeta{Name: "orphan-config", Namespace: "payments"}},
+		&corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: "orphan-secret", Namespace: "payments"}},
+	)
+	err := (&Runner{Client: client}).Apply(context.Background(), planner.ExecutionPlan{
+		Actions: []planner.Action{
+			{Op: planner.OpDelete, Object: planner.ObjectRef{Kind: "ConfigMap", Name: "orphan-config", Namespace: "payments"}},
+			{Op: planner.OpDelete, Object: planner.ObjectRef{Kind: "Secret", Name: "orphan-secret", Namespace: "payments"}},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := client.CoreV1().ConfigMaps("payments").Get(context.Background(), "orphan-config", metav1.GetOptions{}); err == nil {
+		t.Fatal("expected ConfigMap deleted")
+	}
+	if _, err := client.CoreV1().Secrets("payments").Get(context.Background(), "orphan-secret", metav1.GetOptions{}); err == nil {
+		t.Fatal("expected Secret deleted")
 	}
 }

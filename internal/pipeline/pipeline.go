@@ -821,7 +821,7 @@ func RunWith(ctx context.Context, cfg config.Resolved, out io.Writer, deps Deps)
 			}
 			ui.PrintInvestigation(out, invDoc, cluster.ExplainReport{})
 
-			suggestions, err := suggest.FromCleanup(ctx, invDoc)
+			suggestions, err := suggest.FromCleanup(ctx, invDoc, cfg.Prompt)
 			if err != nil {
 				return cluster.Friendlier(fmt.Errorf("suggest: %w", err))
 			}
@@ -832,28 +832,33 @@ func RunWith(ctx context.Context, cfg config.Resolved, out io.Writer, deps Deps)
 				applied = true
 				return nil
 			}
-			patch := *actionable[0].Plan
-			patchRisk := safety.EvaluatePlanWithOrg(patch, orgPolicy(deps))
-			if patchRisk.Denied {
-				ui.PrintDenied(out, patchRisk.Message)
-				applied = true
-				return nil
-			}
-			fmt.Fprintln(out, "Suggested cleanup (requires approval):")
-			ui.PrintPlan(out, patch, patchRisk)
-			approved, err := resolveApproval(cfg.Approve, out, deps)
-			if err != nil {
-				return err
-			}
-			if !approved {
-				applied = true
-				return nil
-			}
 			runner := &executor.Runner{Client: client}
-			if err := runner.Apply(ctx, patch); err != nil {
-				return cluster.Friendlier(fmt.Errorf("apply suggested cleanup: %w", err))
+			for _, sug := range actionable {
+				patch := *sug.Plan
+				patchRisk := safety.EvaluatePlanWithOrg(patch, orgPolicy(deps))
+				if patchRisk.Denied {
+					ui.PrintDenied(out, patchRisk.Message)
+					continue
+				}
+				fmt.Fprintln(out, "Suggested cleanup (requires approval):")
+				ui.PrintPlan(out, patch, patchRisk)
+				var approved bool
+				if suggest.IsCleanupOrphanPlan(patch) {
+					approved, err = resolveOrphanApproval(cfg.Approve, out, deps)
+				} else {
+					approved, err = resolveApproval(cfg.Approve, out, deps)
+				}
+				if err != nil {
+					return err
+				}
+				if !approved {
+					continue
+				}
+				if err := runner.Apply(ctx, patch); err != nil {
+					return cluster.Friendlier(fmt.Errorf("apply suggested cleanup: %w", err))
+				}
+				ui.PrintApplied(out, patch)
 			}
-			ui.PrintApplied(out, patch)
 			applied = true
 			return nil
 		case intent.KindLogs:
@@ -1142,6 +1147,41 @@ func resolveApproval(flagApprove bool, out io.Writer, deps Deps) (bool, error) {
 		return false, nil
 	}
 	ok, err := ui.ConfirmApply(os.Stdin, out)
+	if err != nil {
+		return false, err
+	}
+	if !ok {
+		ui.PrintAborted(out)
+	}
+	return ok, nil
+}
+
+// resolveOrphanApproval gates ConfigMap/Secret orphan deletes. Interactive
+// sessions must type DELETE-ORPHANS; --approve is enough when the original
+// prompt already contained a confirm-orphans phrase (otherwise no orphan plan).
+func resolveOrphanApproval(flagApprove bool, out io.Writer, deps Deps) (bool, error) {
+	if flagApprove {
+		return true, nil
+	}
+	if deps.Confirm != nil {
+		ok, err := deps.Confirm(out)
+		if err != nil {
+			return false, err
+		}
+		if !ok {
+			ui.PrintAborted(out)
+		}
+		return ok, nil
+	}
+	isTTY := ui.StdinIsTerminal()
+	if deps.IsTerminal != nil {
+		isTTY = *deps.IsTerminal
+	}
+	if !isTTY {
+		ui.PrintNeedsApprove(out)
+		return false, nil
+	}
+	ok, err := ui.ConfirmPhrase(os.Stdin, out, "DELETE-ORPHANS")
 	if err != nil {
 		return false, err
 	}

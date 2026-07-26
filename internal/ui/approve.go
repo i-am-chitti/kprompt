@@ -46,6 +46,22 @@ func ConfirmApplyContext(in io.Reader, out io.Writer, contextName string) (bool,
 	}
 }
 
+// ConfirmPhrase prompts the user to type an exact confirmation phrase.
+// Returns true only when the trimmed input matches phrase exactly.
+func ConfirmPhrase(in io.Reader, out io.Writer, phrase string) (bool, error) {
+	t := themeFor(out)
+	fmt.Fprint(out, t.Bold(fmt.Sprintf("Type %s to confirm:", phrase))+" ")
+	if f, ok := out.(*os.File); ok {
+		_ = f.Sync()
+	}
+	reader := bufio.NewReader(in)
+	line, err := reader.ReadString('\n')
+	if err != nil && err != io.EOF {
+		return false, err
+	}
+	return strings.TrimSpace(line) == phrase, nil
+}
+
 // PrintNeedsApprove reminds non-interactive users to pass --approve.
 func PrintNeedsApprove(w io.Writer) {
 	t := themeFor(w)

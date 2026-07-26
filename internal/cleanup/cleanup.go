@@ -2,7 +2,8 @@
 //
 // The MVP reports orphaned ConfigMaps/Secrets, completed Jobs, and superseded
 // ReplicaSets as ADR-0014 Investigation findings. Approve-gated delete plans may
-// remove stale Jobs and ReplicaSets; ConfigMaps/Secrets stay guidance-only.
+// remove stale Jobs and ReplicaSets; ConfigMap/Secret orphans stay guidance-only
+// unless the prompt confirms orphans (stricter gate via suggest).
 package cleanup
 
 import (
@@ -86,7 +87,7 @@ func (a *Analyzer) Run(ctx context.Context, req Request) (incident.Investigation
 	} else {
 		out.Confidence = 0.8
 	}
-	out.SuggestedPlanHint = "Approve-gated delete covers stale Jobs / ReplicaSets only; ConfigMaps/Secrets stay guidance-only."
+	out.SuggestedPlanHint = "Approve-gated delete covers stale Jobs / ReplicaSets; ConfigMap/Secret orphans need a confirm-orphans phrase in the prompt (then DELETE-ORPHANS / --approve)."
 
 	sortInvestigation(&out)
 	if err := incident.ValidateInvestigation(out); err != nil {

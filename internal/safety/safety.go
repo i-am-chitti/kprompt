@@ -100,8 +100,17 @@ func EvaluatePlan(plan planner.ExecutionPlan) Result {
 		}
 		switch strings.ToLower(a.Object.Kind) {
 		case "pod", "deployment", "service", "job", "replicaset":
-			// Job / ReplicaSet deletes are allowed for cleanup remediations
-			// (named only; never ConfigMap/Secret — those stay guidance-only).
+			// Named Job / ReplicaSet deletes are allowed for cleanup remediations.
+		case "configmap", "secret":
+			// ConfigMap/Secret deletes require Intent.Params.confirm_orphans
+			// (stricter cleanup orphan gate — false positives are common).
+			if !paramTruthy(plan.Intent.Params, "confirm_orphans") {
+				return Result{
+					Risk:    RiskDenied,
+					Denied:  true,
+					Message: fmt.Sprintf("🛡️ Refusing delete of %s (allowed: Pod, Deployment, Service, Job, ReplicaSet; ConfigMap/Secret only with confirm_orphans)", a.Object.Kind),
+				}
+			}
 		case "":
 			return Result{
 				Risk:    RiskDenied,
@@ -112,7 +121,7 @@ func EvaluatePlan(plan planner.ExecutionPlan) Result {
 			return Result{
 				Risk:    RiskDenied,
 				Denied:  true,
-				Message: fmt.Sprintf("🛡️ Refusing delete of %s (allowed: Pod, Deployment, Service, Job, ReplicaSet)", a.Object.Kind),
+				Message: fmt.Sprintf("🛡️ Refusing delete of %s (allowed: Pod, Deployment, Service, Job, ReplicaSet; ConfigMap/Secret only with confirm_orphans)", a.Object.Kind),
 			}
 		}
 	}
@@ -165,6 +174,25 @@ func isUnscoped(name string) bool {
 	switch strings.ToLower(strings.TrimSpace(name)) {
 	case "*", "all", "everything", "--all", "any":
 		return true
+	default:
+		return false
+	}
+}
+
+// paramTruthy reports whether params[key] is bool true or string "true".
+func paramTruthy(params map[string]any, key string) bool {
+	if params == nil {
+		return false
+	}
+	v, ok := params[key]
+	if !ok || v == nil {
+		return false
+	}
+	switch b := v.(type) {
+	case bool:
+		return b
+	case string:
+		return strings.EqualFold(b, "true")
 	default:
 		return false
 	}
