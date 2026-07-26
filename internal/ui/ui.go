@@ -870,7 +870,14 @@ func PrintInvestigation(w io.Writer, inv incident.Investigation, rep cluster.Exp
 	if inv.Target != nil {
 		target = fmt.Sprintf("%s/%s", inv.Target.Kind, inv.Target.Name)
 	}
-	fmt.Fprintf(w, "%s %s\n", t.Heading("Investigation:"), t.Accent(target)+fmt.Sprintf(" -n %s", inv.Namespace))
+	heading := "Investigation:"
+	for _, f := range inv.Findings {
+		if strings.HasPrefix(f.Code, "Impact.") {
+			heading = "Impact:"
+			break
+		}
+	}
+	fmt.Fprintf(w, "%s %s\n", t.Heading(heading), t.Accent(target)+fmt.Sprintf(" -n %s", inv.Namespace))
 	fmt.Fprintf(w, "%s %s\n", t.Heading("Summary:"), inv.Summary)
 	if inv.RootCause != "" {
 		fmt.Fprintf(w, "%s %s\n", t.Heading("Root cause:"), inv.RootCause)

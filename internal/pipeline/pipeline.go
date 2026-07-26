@@ -18,6 +18,7 @@ import (
 	"github.com/kprompt/kprompt/internal/executor"
 	"github.com/kprompt/kprompt/internal/graph"
 	"github.com/kprompt/kprompt/internal/history"
+	"github.com/kprompt/kprompt/internal/impact"
 	"github.com/kprompt/kprompt/internal/intent"
 	"github.com/kprompt/kprompt/internal/investigate"
 	"github.com/kprompt/kprompt/internal/llm"
@@ -693,6 +694,21 @@ func RunWith(ctx context.Context, cfg config.Resolved, out io.Writer, deps Deps)
 			ui.PrintInvestigation(out, invDoc, cluster.ExplainReport{})
 			applied = true
 			return nil
+		case intent.KindImpact:
+			req, err := impactFromPlan(plan, cfg.Prompt)
+			if err != nil {
+				return err
+			}
+			invDoc, err := (&impact.Analyzer{Client: client}).Run(ctx, req)
+			if err != nil {
+				return cluster.Friendlier(fmt.Errorf("impact: %w", err))
+			}
+			doc = doc.WithInvestigationResult(invDoc)
+			if !jsonMode {
+				ui.PrintInvestigation(out, invDoc, cluster.ExplainReport{})
+			}
+			applied = true
+			return nil
 		case intent.KindLogs:
 			req, err := logsFromPlan(plan)
 			if err != nil {
@@ -993,7 +1009,7 @@ func isReadOnly(plan planner.ExecutionPlan) bool {
 		return false
 	}
 	switch plan.Intent.Kind {
-	case intent.KindGet, intent.KindExplain, intent.KindInvestigate, intent.KindWhy, intent.KindTimeline, intent.KindLogs, intent.KindDescribe, intent.KindPerformance, intent.KindTrace, intent.KindDashboard, intent.KindOptimize, intent.KindGraph, intent.KindIstio, intent.KindGitOps:
+	case intent.KindGet, intent.KindExplain, intent.KindInvestigate, intent.KindWhy, intent.KindTimeline, intent.KindImpact, intent.KindLogs, intent.KindDescribe, intent.KindPerformance, intent.KindTrace, intent.KindDashboard, intent.KindOptimize, intent.KindGraph, intent.KindIstio, intent.KindGitOps:
 		return true
 	default:
 		return false
@@ -1205,6 +1221,22 @@ func timelineFromPlan(plan planner.ExecutionPlan, prompt string) (timeline.Reque
 		}
 	}
 	return req, nil
+}
+
+func impactFromPlan(plan planner.ExecutionPlan, prompt string) (impact.Request, error) {
+	if len(plan.Actions) == 0 {
+		return impact.Request{}, fmt.Errorf("impact plan has no actions")
+	}
+	a := plan.Actions[0]
+	if a.Object.Name == "" {
+		return impact.Request{}, fmt.Errorf("impact requires a named target")
+	}
+	return impact.Request{
+		Name:      a.Object.Name,
+		Namespace: a.Object.Namespace,
+		Kind:      a.Object.Kind,
+		Prompt:    prompt,
+	}, nil
 }
 
 func logsFromPlan(plan planner.ExecutionPlan) (cluster.LogsRequest, error) {

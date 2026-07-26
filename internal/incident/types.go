@@ -1,6 +1,6 @@
 // Package incident defines the shared investigation / agent alert contracts (AG-002, S-001).
 //
-// CLI investigate/why/timeline and the in-cluster Observe agent both emit these shapes.
+// CLI investigate/why/timeline/impact and the in-cluster Observe agent both emit these shapes.
 // Notifiers (Slack, webhook) serialize AgentAlert — never free-form chat as the artifact of truth.
 // Optional suggested fixes remain PlanResult-shaped and require approval (ADR-0003); Observe Mode never mutates.
 package incident
@@ -119,7 +119,7 @@ type AgentAlert struct {
 	CreatedAt      time.Time     `json:"createdAt"`
 }
 
-// Investigation is the CLI-facing RCA document for investigate / why / timeline (S-001 · S-002).
+// Investigation is the CLI-facing intelligence document for investigate / why / timeline / impact.
 // Suggested fixes are not applied here — callers may attach a PlanResult separately under approval.
 type Investigation struct {
 	APIVersion     string        `json:"apiVersion"`
@@ -135,7 +135,7 @@ type Investigation struct {
 	Findings       []Finding     `json:"findings"`
 	Evidence       []EvidenceRef `json:"evidence,omitempty"`
 	Timeline       []EvidenceRef `json:"timeline,omitempty"` // ordered chronology (S-004)
-	Degraded       []string      `json:"degraded,omitempty"`  // e.g. "prometheus", "otel", "mesh"
+	Degraded       []string      `json:"degraded,omitempty"` // e.g. "prometheus", "otel", "mesh"
 	// SuggestedPlanHint describes a fix path; never auto-applied (use PlanResult + approve).
 	SuggestedPlanHint string `json:"suggestedPlanHint,omitempty"`
 }

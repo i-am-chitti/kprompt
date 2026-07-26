@@ -1171,6 +1171,47 @@ func TestPipelineTimelineEmitsChronology(t *testing.T) {
 	}
 }
 
+func TestPipelineImpactEmitsConsumers(t *testing.T) {
+	ns := "payments"
+	client := fake.NewSimpleClientset(
+		&corev1.Service{
+			ObjectMeta: metav1.ObjectMeta{Name: "redis", Namespace: ns},
+			Spec:       corev1.ServiceSpec{Selector: map[string]string{"app": "redis"}},
+		},
+		&appsv1.Deployment{
+			ObjectMeta: metav1.ObjectMeta{Name: "orders", Namespace: ns},
+			Spec: appsv1.DeploymentSpec{
+				Selector: &metav1.LabelSelector{MatchLabels: map[string]string{"app": "orders"}},
+				Template: corev1.PodTemplateSpec{
+					ObjectMeta: metav1.ObjectMeta{Labels: map[string]string{"app": "orders"}},
+					Spec: corev1.PodSpec{Containers: []corev1.Container{{
+						Name: "orders", Image: "example/orders",
+						Env: []corev1.EnvVar{{Name: "REDIS_URL", Value: "redis://redis:6379"}},
+					}}},
+				},
+			},
+		},
+	)
+	var out bytes.Buffer
+	var got output.PlanResult
+	err := RunWith(context.Background(), config.Resolved{
+		Namespace: ns,
+		Prompt:    "who consumes redis",
+		Output:    "json",
+	}, &out, Deps{
+		Provider: llm.ImpactStub("redis", ns, "Service"),
+		Client:   client,
+		OnResult: func(r output.PlanResult) { got = r },
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Contains(got.Result, []byte("Impact.Consumer")) ||
+		!bytes.Contains(got.Result, []byte("Deployment/orders consumes Service/redis")) {
+		t.Fatalf("expected impact consumer result: %s", string(got.Result))
+	}
+}
+
 func deployment(name, ns string, replicas int32) *appsv1.Deployment {
 	return &appsv1.Deployment{
 		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: ns},

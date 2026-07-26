@@ -206,6 +206,22 @@ func TestBuildTimeline(t *testing.T) {
 	}
 }
 
+func TestBuildImpact(t *testing.T) {
+	plan, err := Build(intent.Intent{
+		Kind:   intent.KindImpact,
+		Target: intent.Target{Name: "api", Namespace: "payments", Kind: "Service"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if plan.RequiresApproval || len(plan.Actions) != 1 {
+		t.Fatalf("plan=%+v", plan)
+	}
+	if got := plan.Actions[0].Object; got.Kind != "Service" || got.Name != "api" || got.Namespace != "payments" {
+		t.Fatalf("object=%+v", got)
+	}
+}
+
 func TestBuildRollback(t *testing.T) {
 	plan, err := Build(intent.Intent{
 		Kind:   intent.KindRollback,

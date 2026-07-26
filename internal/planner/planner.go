@@ -41,6 +41,8 @@ func Build(in intent.Intent) (ExecutionPlan, error) {
 		return buildWhy(in, ns)
 	case intent.KindTimeline:
 		return buildTimeline(in, ns)
+	case intent.KindImpact:
+		return buildImpact(in, ns)
 	case intent.KindLogs:
 		return buildLogs(in, ns)
 	case intent.KindDescribe:
@@ -279,6 +281,35 @@ func buildTimeline(in intent.Intent, ns string) (ExecutionPlan, error) {
 	}
 	in.Params["window"] = window
 	summary := fmt.Sprintf("Timeline for %s/%s in %s (Events→ReplicaSets→HPA, window=%s)", kind, name, ns, window)
+	return ExecutionPlan{
+		Intent: in,
+		Actions: []Action{{
+			Op: OpGet,
+			Object: ObjectRef{
+				Kind:      kind,
+				Name:      name,
+				Namespace: ns,
+			},
+			Diff: summary,
+		}},
+		Summary:          summary,
+		RequiresApproval: false,
+	}, nil
+}
+
+func buildImpact(in intent.Intent, ns string) (ExecutionPlan, error) {
+	name := strings.TrimSpace(in.Target.Name)
+	if name == "" {
+		return ExecutionPlan{}, fmt.Errorf("impact intent missing target.name")
+	}
+	kind := cluster.NormalizeKind(first(in.Target.Kind, "Service"))
+	if kind != "Service" && kind != "Deployment" {
+		kind = "Service"
+	}
+	summary := fmt.Sprintf(
+		"Impact for %s/%s in %s (static consumers→Services→Ingress/HPA/PDB)",
+		kind, name, ns,
+	)
 	return ExecutionPlan{
 		Intent: in,
 		Actions: []Action{{

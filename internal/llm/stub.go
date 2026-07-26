@@ -200,6 +200,23 @@ func TimelineStub(name, namespace, resourceKind, window string) *Stub {
 	return &Stub{Structured: payload}
 }
 
+// ImpactStub returns a Stub that classifies a reverse-dependency impact read (S-005).
+func ImpactStub(name, namespace, resourceKind string) *Stub {
+	if resourceKind == "" {
+		resourceKind = "Service"
+	}
+	payload, _ := json.Marshal(map[string]any{
+		"kind": "impact",
+		"target": map[string]any{
+			"name":      name,
+			"namespace": namespace,
+			"kind":      resourceKind,
+		},
+		"confidence": 1.0,
+	})
+	return &Stub{Structured: payload}
+}
+
 // PerformanceStub returns a Stub that classifies a metrics-backed diagnosis.
 func PerformanceStub(name, namespace, window string) *Stub {
 	params := map[string]any{}
