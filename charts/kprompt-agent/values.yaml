@@ -20,7 +20,8 @@ serviceAccount:
 rbac:
   create: true
 
-# Observe Mode only — Autopilot is out of scope for this chart.
+# Observe Mode by default — Autopilot apply is not enabled by this chart.
+# --autopilot-propose (below) is propose-only (ADR-0015); never silent apply.
 agent:
   analyze: true
   fetchLogs: true
@@ -30,8 +31,12 @@ agent:
   slack: false
   webhook: false
   # AG-015: discover deps into analyzer context (file or configmap backend).
-  memory: false
+  memory: true
   memoryBackend: file # file | configmap
+  # AG-016: learn signatures; boost confidence on seen-before (never mutates).
+  patterns: true
+  # AG-017 / ADR-0015: emit AutopilotProposal only — does not apply.
+  autopilotPropose: false
   minSeverity: medium
   minConfidence: "0.7"
   provider: openai

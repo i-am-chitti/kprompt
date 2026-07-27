@@ -22,7 +22,7 @@ func TestHeuristicCrashLoop(t *testing.T) {
 	if res.Severity != incident.SeverityHigh || res.Confidence < 0.7 {
 		t.Fatalf("%+v", res)
 	}
-	if !strings.Contains(res.RootCause, "CrashLoop") {
+	if !strings.Contains(res.RootCause, "CrashLoop") && !strings.Contains(res.RootCause, "crash") && !strings.Contains(res.RootCause, "Process exit") {
 		t.Fatalf("root: %s", res.RootCause)
 	}
 }
@@ -38,7 +38,7 @@ func TestHeuristicImagePullBackOffNotCrashLoop(t *testing.T) {
 		Message: `Back-off pulling image "ghcr.io/kprompt/does-not-exist:9.9.9": ImagePullBackOff`,
 	}}
 	res := Heuristic(ctxbuild.AgentContext{Incident: inc, Namespace: "payments"})
-	if res.RootCause != "Image pull failure" {
+	if res.RootCause != "Image name/tag or registry credentials invalid" {
 		t.Fatalf("want image pull, got %+v", res)
 	}
 	if res.Severity != incident.SeverityHigh || res.Confidence < 0.8 {
@@ -69,7 +69,7 @@ func TestHeuristicEarlyBackOffUsesPodWaitingState(t *testing.T) {
 			}},
 		},
 	})
-	if res.RootCause != "Image pull failure" {
+	if res.RootCause != "Image name/tag or registry credentials invalid" {
 		t.Fatalf("want image pull from pod state, got %+v", res)
 	}
 }

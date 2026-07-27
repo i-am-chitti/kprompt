@@ -1,7 +1,8 @@
-// Package incident defines the shared investigation / agent alert contracts (AG-002, S-001).
+// Package incident defines the shared investigation / agent alert contracts (AG-002, S-001, AG-022).
 //
 // CLI investigate/why/timeline/impact/audit and the in-cluster Observe agent both emit these shapes.
 // Notifiers (Slack, webhook) serialize AgentAlert — never free-form chat as the artifact of truth.
+// Namespace Agent adds InvestigationReport (schemaVersion 2) for causal RCA + Coordinator handoff (ADR-0016).
 // Optional suggested fixes remain PlanResult-shaped and require approval (ADR-0003); Observe Mode never mutates.
 package incident
 

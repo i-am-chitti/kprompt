@@ -2,7 +2,7 @@
 
 In-cluster, **namespace-scoped** agent that continuously watches Pods/Events (and optional workloads), correlates incidents, optionally analyzes with an LLM, and notifies Slack/webhooks.
 
-This is **Observe Mode only** — it never applies, patches, or deletes cluster resources ([ADR-0013](https://github.com/kprompt/kprompt-architecture/blob/main/decisions/ADR-0013-in-cluster-agent.md)). **Autopilot is not shipped** and needs a separate ADR before any mutate path exists.
+This is **Observe Mode** by default — it never applies, patches, or deletes cluster resources ([ADR-0013](https://github.com/kprompt/kprompt-architecture/blob/main/decisions/ADR-0013-in-cluster-agent.md)). Optional `--autopilot-propose` emits PlanResult-shaped proposals only ([ADR-0015](https://github.com/kprompt/kprompt-architecture/blob/main/decisions/ADR-0015-autopilot-mode.md)); **apply** stays gated. The Namespace Agent continuous-intelligence contract is [ADR-0016](https://github.com/kprompt/kprompt-architecture/blob/main/decisions/ADR-0016-namespace-agent.md).
 
 ## Positioning (honest)
 

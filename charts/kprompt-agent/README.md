@@ -8,7 +8,7 @@ Deploys a single Deployment that runs:
 kprompt agent run --namespace <ns> --in-cluster [--analyze] [--fetch-logs] [--health] …
 ```
 
-Never mutates the cluster (ADR-0013). **Observe Mode only** — Autopilot is not shipped.
+Never mutates the cluster (ADR-0013). Default mode is **Observe**. Optional `--autopilot-propose` is **propose-only** (ADR-0015) — never silent apply. Autopilot **apply** is not enabled by this chart.
 
 Honest positioning (vs K8sGPT / Kagent, RBAC, LLM cost): [docs/agent.md](../../docs/agent.md) · [kprompt.ai/docs/agent](https://kprompt.ai/docs/agent).
 
@@ -40,6 +40,9 @@ helm upgrade --install kprompt-agent ./charts/kprompt-agent \
 | `agent.analyze` | `true` | AG-008 analyzer |
 | `agent.fetchLogs` | `true` | AG-005 on-demand logs |
 | `agent.health` | `true` | AG-011 health score |
+| `agent.memory` | `true` | AG-015 namespace deps/facts |
+| `agent.patterns` | `true` | AG-016 seen-before confidence boost |
+| `agent.autopilotPropose` | `false` | ADR-0015 propose-only (never apply) |
 | `agent.slack` / `agent.webhook` | `false` | Enable notifiers |
 | `secret.name` | `kprompt-agent` | Env-from Secret |
 | `rbac.create` | `true` | Namespace Role (get/list/watch) |

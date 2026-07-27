@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/kprompt/kprompt/internal/agent/ctxbuild"
+	"github.com/kprompt/kprompt/internal/agent/detect"
 	"github.com/kprompt/kprompt/internal/agent/patterns"
 	"github.com/kprompt/kprompt/internal/incident"
 	"github.com/kprompt/kprompt/internal/llm"
@@ -22,11 +23,17 @@ import (
 
 // Result from a structured LLM (or heuristic) analysis.
 type Result struct {
-	Severity       string  `json:"severity"`
-	Confidence     float64 `json:"confidence"`
-	Summary        string  `json:"summary"`
-	RootCause      string  `json:"rootCause"`
-	Recommendation string  `json:"recommendation"`
+	Severity       string   `json:"severity"`
+	Confidence     float64  `json:"confidence"`
+	Summary        string   `json:"summary"`
+	RootCause      string   `json:"rootCause"`
+	Recommendation string   `json:"recommendation"`
+	// DetectorCode is set when the heuristic catalog matched (AG-026).
+	DetectorCode string `json:"detectorCode,omitempty"`
+	// CausalChain is symptom → … → probable root (AG-028 / ADR-0016).
+	CausalChain []string `json:"causalChain,omitempty"`
+	// Alternatives are non-primary hypotheses.
+	Alternatives []string `json:"alternatives,omitempty"`
 }
 
 var analysisSchema = json.RawMessage(`{
@@ -95,6 +102,8 @@ type AnalyzeOutcome struct {
 	Result      Result              `json:"result"`
 	SeenBefore  string              `json:"seenBefore,omitempty"` // AG-016 note
 	PatternHits int                 `json:"patternHits,omitempty"`
+	// Report is InvestigationReport v2 (AG-022 / AG-028 / AG-031). Optional for Observe V1 consumers.
+	Report incident.InvestigationReport `json:"report,omitempty"`
 }
 
 // Analyze runs structured analysis for an open/updated incident context.
@@ -189,6 +198,8 @@ func (a *Analyzer) Analyze(ctx context.Context, agentCtx ctxbuild.AgentContext, 
 	a.lastPass[inc.ID] = passed
 	a.mu.Unlock()
 
+	report := buildReport(inc, agentCtx, res, seenNote)
+
 	return AnalyzeOutcome{
 		Alert:       alert,
 		PassedGate:  passed,
@@ -196,6 +207,7 @@ func (a *Analyzer) Analyze(ctx context.Context, agentCtx ctxbuild.AgentContext, 
 		Result:      res,
 		SeenBefore:  seenNote,
 		PatternHits: hits,
+		Report:      report,
 	}, nil
 }
 
@@ -216,6 +228,7 @@ func (a *Analyzer) callLLM(ctx context.Context, agentCtx ctxbuild.AgentContext) 
 }
 
 // Heuristic builds a Result without an LLM (offline / fallback).
+// Uses the AG-026 detector catalog for causal-chain RCA when a detector matches.
 func Heuristic(agentCtx ctxbuild.AgentContext) Result {
 	inc := agentCtx.Incident
 	sev := inc.Severity
@@ -229,52 +242,29 @@ func Heuristic(agentCtx ctxbuild.AgentContext) Result {
 	root := "Insufficient automated signal for a precise root cause"
 	rec := "Inspect pod events and recent logs; verify dependent Services/Endpoints"
 	conf := 0.55
+	var chain []string
+	var alts []string
+	var code string
 
-	blob := strings.ToLower(strings.Join([]string{
-		summary,
-		joinEvidence(inc.Evidence),
-		joinEvidence(agentCtx.LogSnippets),
-		joinEvidence(agentCtx.RecentEvents),
-		podSignals(agentCtx.Pod),
-		deploymentSignals(agentCtx.Deployment),
-	}, " "))
-	switch {
-	case strings.Contains(blob, "oom"):
-		sev = incident.SeverityCritical
-		root = "Likely memory limit exceeded (OOMKilled)"
-		rec = "Raise memory limit/request or fix memory leak; check recent traffic/deploy"
-		conf = 0.85
-	// ImagePullBackOff Events often arrive as Reason=BackOff with a thin message;
-	// pod waiting state / "pulling image" must win before the CrashLoop branch.
-	case strings.Contains(blob, "imagepull"),
-		strings.Contains(blob, "errimage"),
-		strings.Contains(blob, "failed to pull"),
-		strings.Contains(blob, "pulling image"),
-		strings.Contains(blob, "manifest unknown"):
-		sev = incident.SeverityHigh
-		root = "Image pull failure"
-		rec = "Verify image name/tag and registry credentials (imagePullSecrets)"
-		conf = 0.85
-	case strings.Contains(blob, "crashloop"),
-		strings.Contains(blob, "backoff"):
-		sev = incident.SeverityHigh
-		root = "Container repeatedly crashing (CrashLoopBackOff)"
-		rec = "Check previous container logs and readiness/liveness probes; verify config/secret refs"
-		conf = 0.8
-	case strings.Contains(blob, "failedscheduling"), strings.Contains(blob, "pending"):
-		sev = incident.SeverityMedium
-		root = "Pod cannot be scheduled"
-		rec = "Check node resources, taints/tolerations, and PVC binding"
-		conf = 0.75
-	case strings.Contains(blob, "unhealthy"), strings.Contains(blob, "probe"):
-		sev = incident.SeverityMedium
-		root = "Probe failing / container marked unhealthy"
-		rec = "Review probe paths/timeouts and application readiness"
-		conf = 0.7
+	if hit, ok := detect.Catalog(agentCtx); ok {
+		code = hit.Code
+		sev = hit.Severity
+		conf = hit.Confidence
+		if strings.TrimSpace(hit.Summary) != "" {
+			summary = hit.Summary
+		}
+		root = hit.RootCause
+		rec = hit.Recommendation
+		chain = append([]string(nil), hit.CausalChain...)
+		alts = append([]string(nil), hit.Alternatives...)
 	}
+
 	if agentCtx.Deployment != nil && agentCtx.Deployment.ChangeCause != "" {
 		root = root + "; recent change-cause: " + agentCtx.Deployment.ChangeCause
 		conf = minFloat(conf+0.05, 0.95)
+		if len(chain) > 0 {
+			chain = append(chain, "Recent deployment change-cause recorded")
+		}
 	}
 	if len(agentCtx.Degraded) > 0 {
 		conf = maxFloat(conf-0.1, 0.3)
@@ -285,32 +275,91 @@ func Heuristic(agentCtx ctxbuild.AgentContext) Result {
 		Summary:        summary,
 		RootCause:      root,
 		Recommendation: rec,
+		DetectorCode:   code,
+		CausalChain:    chain,
+		Alternatives:   alts,
 	}
 }
 
-func podSignals(pod *ctxbuild.PodSnapshot) string {
-	if pod == nil {
-		return ""
+func buildReport(inc incident.Incident, agentCtx ctxbuild.AgentContext, res Result, seenNote string) incident.InvestigationReport {
+	rep := incident.ReportFromIncident(inc, time.Now().UTC())
+	rep.Summary = res.Summary
+	rep.Confidence = res.Confidence
+	rep.Severity = res.Severity
+	rep.Facts = buildFacts(inc, agentCtx)
+	rep.Reasoning = buildReasoning(res, seenNote)
+	rep.Unknowns = append([]string(nil), agentCtx.Degraded...)
+	for _, d := range agentCtx.Degraded {
+		rep.Degraded = append(rep.Degraded, d)
 	}
-	var b strings.Builder
-	b.WriteString(pod.Phase)
-	b.WriteByte(' ')
-	for _, c := range pod.Containers {
-		b.WriteString(c.State)
-		b.WriteByte(' ')
-		b.WriteString(c.LastTermination)
-		b.WriteByte(' ')
-		b.WriteString(c.Image)
-		b.WriteByte(' ')
+	if len(rep.Evidence) == 0 {
+		rep.Evidence = append([]incident.EvidenceRef(nil), agentCtx.RecentEvents...)
+		rep.Evidence = append(rep.Evidence, agentCtx.LogSnippets...)
 	}
-	return b.String()
+	rep.Timeline = append([]incident.EvidenceRef(nil), rep.Evidence...)
+
+	hyps := make([]incident.Hypothesis, 0, 1+len(res.Alternatives))
+	hyps = append(hyps, incident.Hypothesis{
+		Statement:   res.RootCause,
+		CausalChain: append([]string(nil), res.CausalChain...),
+		Confidence:  res.Confidence,
+		Primary:     true,
+	})
+	for _, alt := range res.Alternatives {
+		alt = strings.TrimSpace(alt)
+		if alt == "" {
+			continue
+		}
+		hyps = append(hyps, incident.Hypothesis{
+			Statement:  alt,
+			Confidence: maxFloat(res.Confidence-0.4, 0.15),
+		})
+	}
+	rep.Hypotheses = hyps
+	rep.RecommendedActions = []incident.RecommendedAction{{
+		Title:      res.Recommendation,
+		Why:        res.RootCause,
+		Confidence: res.Confidence,
+	}}
+	if seenNote != "" {
+		rep.Unknowns = append(rep.Unknowns, seenNote)
+	}
+	return rep
 }
 
-func deploymentSignals(dep *ctxbuild.DeploymentSnapshot) string {
-	if dep == nil {
-		return ""
+func buildFacts(inc incident.Incident, agentCtx ctxbuild.AgentContext) string {
+	var parts []string
+	if s := strings.TrimSpace(inc.Summary); s != "" {
+		parts = append(parts, s)
 	}
-	return dep.ChangeCause
+	if agentCtx.Pod != nil {
+		parts = append(parts, "pod phase="+agentCtx.Pod.Phase)
+	}
+	if agentCtx.Deployment != nil && agentCtx.Deployment.ChangeCause != "" {
+		parts = append(parts, "change-cause="+agentCtx.Deployment.ChangeCause)
+	}
+	nEv := len(inc.Evidence) + len(agentCtx.RecentEvents) + len(agentCtx.LogSnippets)
+	if nEv > 0 {
+		parts = append(parts, fmt.Sprintf("evidence refs=%d", nEv))
+	}
+	return strings.Join(parts, "; ")
+}
+
+func buildReasoning(res Result, seenNote string) string {
+	var parts []string
+	if code := strings.TrimSpace(res.DetectorCode); code != "" {
+		parts = append(parts, "detector="+code)
+	}
+	if len(res.CausalChain) > 0 {
+		parts = append(parts, "chain="+strings.Join(res.CausalChain, " → "))
+	}
+	if seenNote != "" {
+		parts = append(parts, seenNote)
+	}
+	if len(parts) == 0 {
+		return "Analysis based on available incident evidence only."
+	}
+	return strings.Join(parts, "; ")
 }
 
 func normalizeResult(res *Result, inc incident.Incident) {

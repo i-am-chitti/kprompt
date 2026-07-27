@@ -55,6 +55,12 @@ spec:
             - --memory-backend
             - {{ .Values.agent.memoryBackend | default "file" | quote }}
             {{- end }}
+            {{- if .Values.agent.patterns }}
+            - --patterns
+            {{- end }}
+            {{- if .Values.agent.autopilotPropose }}
+            - --autopilot-propose
+            {{- end }}
             {{- if .Values.agent.heuristic }}
             - --heuristic
             {{- end }}
