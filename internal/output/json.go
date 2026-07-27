@@ -7,6 +7,7 @@ import (
 	"github.com/kprompt/kprompt/internal/cluster"
 	"github.com/kprompt/kprompt/internal/graph"
 	"github.com/kprompt/kprompt/internal/incident"
+	"github.com/kprompt/kprompt/internal/learn"
 	"github.com/kprompt/kprompt/internal/optimize"
 	"github.com/kprompt/kprompt/internal/planner"
 	"github.com/kprompt/kprompt/internal/safety"
@@ -405,6 +406,13 @@ func (r PlanResult) WithOptimizeResult(report optimize.Report) PlanResult {
 		"sections":         report.Sections,
 	}
 	raw, _ := json.Marshal(payload)
+	r.Result = raw
+	return r
+}
+
+// WithLearnResult attaches a persisted cluster tool profile (S-009).
+func (r PlanResult) WithLearnResult(p learn.Profile) PlanResult {
+	raw, _ := json.Marshal(p)
 	r.Result = raw
 	return r
 }

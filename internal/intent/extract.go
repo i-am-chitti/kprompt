@@ -4,13 +4,14 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 
 	"github.com/kprompt/kprompt/internal/llm"
 )
 
 const systemPrompt = `You convert Kubernetes ops requests into a single Intent JSON object.
 Rules:
-- kind must be one of: deploy, install, scale, rollback, get, explain, investigate, why, timeline, impact, audit, cleanup, logs, describe, workflow, tekton, keda, istio, crossplane, gitops, performance, trace, dashboard, optimize, graph, delete, deny, unknown
+- kind must be one of: deploy, install, scale, rollback, get, explain, investigate, why, timeline, impact, audit, cleanup, learn, logs, describe, workflow, tekton, keda, istio, crossplane, gitops, performance, trace, dashboard, optimize, graph, delete, deny, unknown
 - For scale: set target.name, target.kind (usually Deployment), target.namespace if mentioned, params.replicas as a number. Plain replica scale (e.g. "scale api to 0") stays kind=scale — do not use keda unless the user mentions KEDA, ScaledObject, scale-to-zero with an event/queue trigger, or event-driven autoscaling
 - For rollback / undo rollout / revert: kind=rollback; set target.name to the Deployment; target.kind Deployment; target.namespace if mentioned; optional params.revision (number) to roll back to a specific revision (omit for previous revision)
 - For install (helm chart): kind=install; set target.name to the app or release name (e.g. redis); target.namespace if mentioned; optional params.release, params.chart, params.repo, params.repo_url, params.replicas
@@ -24,6 +25,7 @@ Rules:
 - For impact / who consumes / what depends on / blast radius of a live object: kind=impact; set target.name; target.kind Service or Deployment; target.namespace if mentioned. Prefer impact over get/graph/explain for “who consumes X”, “impact of service X”, or “what depends on deployment X”. Impact is read-only reverse dependencies — never emit mutate/delete for this kind
 - For audit / security scan / hygiene check (root containers, privileged, latest tags, missing limits/ImagePullPolicy): kind=audit; omit target.name; params.scope=cluster for whole-cluster; target.namespace when a namespace is named. Prefer audit over get/explain/optimize for “audit X” or “security scan”. Audit is read-only — never emit patch/delete for this kind
 - For cleanup / prune / find unused or stale resources (unused ConfigMaps/Secrets, completed Jobs, old ReplicaSets): kind=cleanup; omit target.name; params.scope=cluster for whole-cluster; target.namespace when a namespace is named. Prefer cleanup over get/delete for “cleanup X”, “prune X”, or “find unused …”. Cleanup intent is the scan only — never emit delete for this kind (optional approve-gated delete plans are produced later by suggest)
+- For learn / detect cluster tools / tool profile (Helm, Linkerd, Prometheus, Gateway API, cert-manager, Argo CD/Flux): kind=learn; omit target.name; target.kind Cluster. Prefer learn over get/tools for “learn cluster”, “detect tools”, or “tool profile”. Learn is read-only and persists a local profile — never mutate
 - For slow/performance/latency requests (e.g. "why is my api slow"): kind=performance; set target.name to the workload; target.kind Deployment; target.namespace if mentioned; optional params.window such as "15m" or "1h"
 - For cluster optimize / rightsizing / idle workload asks (e.g. "optimize my cluster"): kind=optimize; omit target.name; set params.scope=cluster for whole-cluster; set target.namespace only when a namespace is named; optional params.window (default 1h). Optimize is read-only — never emit scale/patch/delete for this kind
 - For service dependency graph asks (e.g. "show service dependency graph"): kind=graph; omit target.name; set params.scope=cluster unless a namespace is named; optional params.includeNetworkPolicy=true (default true). Graph is read-only
@@ -44,12 +46,26 @@ Rules:
 - Prefer Deployment as target.kind for named apps when unspecified
 - Only emit JSON matching the schema`
 
+// ExtractOptions optionally injects a learned cluster tool profile into the system prompt.
+type ExtractOptions struct {
+	ProfileHint string
+}
+
 // Extract uses an LLM provider to produce a structured Intent.
 // Call ApplyScope afterward to merge CLI overrides, phrase heuristics, and defaults.
 func Extract(ctx context.Context, provider llm.Provider, prompt string) (Intent, error) {
+	return ExtractWith(ctx, provider, prompt, ExtractOptions{})
+}
+
+// ExtractWith is Extract plus optional profile bias (S-009).
+func ExtractWith(ctx context.Context, provider llm.Provider, prompt string, opts ExtractOptions) (Intent, error) {
 	schema := json.RawMessage(SchemaJSON)
+	sys := systemPrompt
+	if hint := strings.TrimSpace(opts.ProfileHint); hint != "" {
+		sys = systemPrompt + "\n\n" + hint
+	}
 	raw, err := provider.CompleteStructured(ctx, llm.CompletionRequest{
-		System: systemPrompt,
+		System: sys,
 		User:   prompt,
 	}, schema)
 	if err != nil {

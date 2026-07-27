@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/kprompt/kprompt/internal/config"
+	"github.com/kprompt/kprompt/internal/learn"
 	"github.com/kprompt/kprompt/internal/llm"
 	"github.com/kprompt/kprompt/internal/team"
 	"github.com/kprompt/kprompt/internal/tools"
@@ -92,6 +93,7 @@ func Run(ctx context.Context, opts Options) (Report, error) {
 	checks = append(checks, checkTeam(ctx, me))
 	checks = append(checks, checkPolicyCache())
 	checks = append(checks, checkPulledSecrets())
+	checks = append(checks, checkLearnProfile(first(opts.Context, file.Context)))
 
 	rep := Report{Checks: checks, Checked: time.Now().UTC()}
 	rep.OK = true
@@ -286,6 +288,21 @@ func checkPulledSecrets() Check {
 	}
 	c.Status = Pass
 	c.Detail = fmt.Sprintf("%d provider key(s) cached (values not shown)", n)
+	return c
+}
+
+func checkLearnProfile(kubeCtx string) Check {
+	c := Check{ID: "learn", Name: "Cluster tool profile", Required: false}
+	p, ok := learn.LoadBestEffort(kubeCtx)
+	if !ok {
+		c.Status = Skip
+		c.Detail = "no learned profile"
+		c.Hint = "kprompt learn — detect Helm/Linkerd/Prom/Gateway API/cert-manager/GitOps and save ~/.kprompt/profiles"
+		return c
+	}
+	c.Status = Pass
+	c.Detail = p.Summary()
+	c.Hint = "Refresh: kprompt learn"
 	return c
 }
 

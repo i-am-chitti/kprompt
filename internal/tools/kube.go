@@ -6,10 +6,13 @@ import (
 
 	"github.com/kprompt/kprompt/internal/cluster"
 	"github.com/kprompt/kprompt/internal/tools/argo"
+	"github.com/kprompt/kprompt/internal/tools/certmanager"
 	"github.com/kprompt/kprompt/internal/tools/crossplane"
+	"github.com/kprompt/kprompt/internal/tools/gateway"
 	"github.com/kprompt/kprompt/internal/tools/gitops"
 	"github.com/kprompt/kprompt/internal/tools/istio"
 	"github.com/kprompt/kprompt/internal/tools/keda"
+	"github.com/kprompt/kprompt/internal/tools/linkerd"
 	"github.com/kprompt/kprompt/internal/tools/tekton"
 )
 
@@ -239,6 +242,99 @@ func RequireIstio(ctx context.Context, kubeCtx string, k kubeConnector) error {
 		return cluster.Friendlier(fmt.Errorf("kubernetes: %w", err))
 	}
 	return istio.Require(ctx, cl.Config)
+}
+
+func detectLinkerd(ctx context.Context, kubeCtx string, k kubeConnector) Result {
+	r := Result{
+		ID:           IDLinkerd,
+		Name:         "Linkerd",
+		Capabilities: []Capability{CapQuery},
+	}
+	cl, err := k.Connect(kubeCtx)
+	if err != nil {
+		r.Status = StatusUnavailable
+		r.Detail = err.Error()
+		r.Hint = MissingHint(IDKubernetes)
+		return r
+	}
+	av, err := linkerd.Detect(ctx, cl.Config)
+	if err != nil {
+		r.Status = StatusUnavailable
+		r.Detail = err.Error()
+		r.Hint = linkerd.InstallHint()
+		return r
+	}
+	if !av.Installed {
+		r.Status = StatusUnavailable
+		r.Detail = linkerd.DetailLabel(av)
+		r.Hint = linkerd.InstallHint()
+		return r
+	}
+	r.Status = StatusAvailable
+	r.Detail = linkerd.DetailLabel(av)
+	return r
+}
+
+func detectGatewayAPI(ctx context.Context, kubeCtx string, k kubeConnector) Result {
+	r := Result{
+		ID:           IDGatewayAPI,
+		Name:         "Gateway API",
+		Capabilities: []Capability{CapQuery},
+	}
+	cl, err := k.Connect(kubeCtx)
+	if err != nil {
+		r.Status = StatusUnavailable
+		r.Detail = err.Error()
+		r.Hint = MissingHint(IDKubernetes)
+		return r
+	}
+	av, err := gateway.Detect(ctx, cl.Config)
+	if err != nil {
+		r.Status = StatusUnavailable
+		r.Detail = err.Error()
+		r.Hint = gateway.InstallHint()
+		return r
+	}
+	if !av.Installed {
+		r.Status = StatusUnavailable
+		r.Detail = gateway.DetailLabel(av)
+		r.Hint = gateway.InstallHint()
+		return r
+	}
+	r.Status = StatusAvailable
+	r.Detail = gateway.DetailLabel(av)
+	return r
+}
+
+func detectCertManager(ctx context.Context, kubeCtx string, k kubeConnector) Result {
+	r := Result{
+		ID:           IDCertManager,
+		Name:         "cert-manager",
+		Capabilities: []Capability{CapQuery},
+	}
+	cl, err := k.Connect(kubeCtx)
+	if err != nil {
+		r.Status = StatusUnavailable
+		r.Detail = err.Error()
+		r.Hint = MissingHint(IDKubernetes)
+		return r
+	}
+	av, err := certmanager.Detect(ctx, cl.Config)
+	if err != nil {
+		r.Status = StatusUnavailable
+		r.Detail = err.Error()
+		r.Hint = certmanager.InstallHint()
+		return r
+	}
+	if !av.Installed {
+		r.Status = StatusUnavailable
+		r.Detail = certmanager.DetailLabel(av)
+		r.Hint = certmanager.InstallHint()
+		return r
+	}
+	r.Status = StatusAvailable
+	r.Detail = certmanager.DetailLabel(av)
+	return r
 }
 
 func detectCrossplane(ctx context.Context, settings Settings, kubeCtx string, k kubeConnector) Result {

@@ -171,6 +171,72 @@ func HasWorkflowCRD(ctx context.Context, cfg *rest.Config) (bool, error) {
 	return st.Found, nil
 }
 
+// GatewayCRDStatus reports Gateway API Gateway availability (S-009).
+func GatewayCRDStatus(ctx context.Context, cfg *rest.Config) (CRDStatus, error) {
+	_ = ctx
+	st := CRDStatus{Group: "gateway.networking.k8s.io", Kind: "Gateway"}
+	versions, found, err := servedKindVersions(cfg, st.Group, st.Kind)
+	if err != nil {
+		return st, err
+	}
+	st.Found = found
+	st.Versions = versions
+	return st, nil
+}
+
+// HasGatewayCRD reports whether the Gateway API Gateway kind is served.
+func HasGatewayCRD(ctx context.Context, cfg *rest.Config) (bool, error) {
+	st, err := GatewayCRDStatus(ctx, cfg)
+	if err != nil {
+		return false, err
+	}
+	return st.Found, nil
+}
+
+// CertificateCRDStatus reports cert-manager Certificate API availability (S-009).
+func CertificateCRDStatus(ctx context.Context, cfg *rest.Config) (CRDStatus, error) {
+	_ = ctx
+	st := CRDStatus{Group: "cert-manager.io", Kind: "Certificate"}
+	versions, found, err := servedKindVersions(cfg, st.Group, st.Kind)
+	if err != nil {
+		return st, err
+	}
+	st.Found = found
+	st.Versions = versions
+	return st, nil
+}
+
+// HasCertificateCRD reports whether the cert-manager Certificate API is served.
+func HasCertificateCRD(ctx context.Context, cfg *rest.Config) (bool, error) {
+	st, err := CertificateCRDStatus(ctx, cfg)
+	if err != nil {
+		return false, err
+	}
+	return st.Found, nil
+}
+
+// LinkerdServerCRDStatus reports Linkerd policy Server API availability (S-009).
+func LinkerdServerCRDStatus(ctx context.Context, cfg *rest.Config) (CRDStatus, error) {
+	_ = ctx
+	st := CRDStatus{Group: "policy.linkerd.io", Kind: "Server"}
+	versions, found, err := servedKindVersions(cfg, st.Group, st.Kind)
+	if err != nil {
+		return st, err
+	}
+	st.Found = found
+	st.Versions = versions
+	return st, nil
+}
+
+// HasLinkerdServerCRD reports whether the Linkerd Server API is served.
+func HasLinkerdServerCRD(ctx context.Context, cfg *rest.Config) (bool, error) {
+	st, err := LinkerdServerCRDStatus(ctx, cfg)
+	if err != nil {
+		return false, err
+	}
+	return st.Found, nil
+}
+
 func servedKindVersions(cfg *rest.Config, group, kind string) ([]string, bool, error) {
 	if cfg == nil {
 		return nil, false, fmt.Errorf("rest config is nil")

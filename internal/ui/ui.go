@@ -11,6 +11,7 @@ import (
 	"github.com/kprompt/kprompt/internal/cluster"
 	"github.com/kprompt/kprompt/internal/graph"
 	"github.com/kprompt/kprompt/internal/incident"
+	"github.com/kprompt/kprompt/internal/learn"
 	"github.com/kprompt/kprompt/internal/optimize"
 	"github.com/kprompt/kprompt/internal/output"
 	"github.com/kprompt/kprompt/internal/planner"
@@ -861,6 +862,19 @@ func PrintExplain(w io.Writer, rep cluster.ExplainReport) {
 		fmt.Fprintln(w, t.Heading(header))
 		fmt.Fprintln(w, t.Muted(strings.TrimRight(rep.LogTail, "\n")))
 	}
+}
+
+// PrintLearnProfile prints a persisted cluster tool profile (S-009).
+func PrintLearnProfile(w io.Writer, p learn.Profile) {
+	t := themeFor(w)
+	fmt.Fprintf(w, "%s %s\n", t.Heading("Learn:"), t.Accent(p.Summary()))
+	fmt.Fprintf(w, "%s %s\n", t.Muted("Saved:"), learn.MustPath(p.Context))
+	tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
+	fmt.Fprintln(tw, "TOOL\tSTATUS\tDETAIL")
+	for _, row := range p.Tools {
+		fmt.Fprintf(tw, "%s\t%s\t%s\n", row.Name, row.Status, strings.ReplaceAll(row.Detail, "\t", " "))
+	}
+	_ = tw.Flush()
 }
 
 // PrintInvestigation prints an ADR-0014 Investigation (S-002 multi-hop RCA).

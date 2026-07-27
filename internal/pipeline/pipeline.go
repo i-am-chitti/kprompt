@@ -23,6 +23,7 @@ import (
 	"github.com/kprompt/kprompt/internal/impact"
 	"github.com/kprompt/kprompt/internal/intent"
 	"github.com/kprompt/kprompt/internal/investigate"
+	"github.com/kprompt/kprompt/internal/learn"
 	"github.com/kprompt/kprompt/internal/llm"
 	"github.com/kprompt/kprompt/internal/optimize"
 	"github.com/kprompt/kprompt/internal/output"
@@ -129,7 +130,9 @@ func RunWith(ctx context.Context, cfg config.Resolved, out io.Writer, deps Deps)
 		return runRoute(ctx, cfg, out, deps, routeSteps)
 	}
 
-	in, err := intent.Extract(ctx, provider, cfg.Prompt)
+	in, err := intent.ExtractWith(ctx, provider, cfg.Prompt, intent.ExtractOptions{
+		ProfileHint: learnProfileHint(cfg.Context),
+	})
 	if err != nil {
 		return err
 	}
@@ -805,6 +808,20 @@ func RunWith(ctx context.Context, cfg config.Resolved, out io.Writer, deps Deps)
 			ui.PrintApplied(out, patch)
 			applied = true
 			return nil
+		case intent.KindLearn:
+			prof, err := learn.Run(ctx, learn.Options{
+				Context: cfg.Context,
+				File:    config.File{Context: cfg.Context, Tools: cfg.Tools},
+			})
+			if err != nil {
+				return cluster.Friendlier(fmt.Errorf("learn: %w", err))
+			}
+			doc = doc.WithLearnResult(prof)
+			if !jsonMode {
+				ui.PrintLearnProfile(out, prof)
+			}
+			applied = true
+			return nil
 		case intent.KindCleanup:
 			req, err := cleanupFromPlan(plan, cfg.Prompt)
 			if err != nil {
@@ -1196,11 +1213,19 @@ func isReadOnly(plan planner.ExecutionPlan) bool {
 		return false
 	}
 	switch plan.Intent.Kind {
-	case intent.KindGet, intent.KindExplain, intent.KindInvestigate, intent.KindWhy, intent.KindTimeline, intent.KindImpact, intent.KindAudit, intent.KindCleanup, intent.KindLogs, intent.KindDescribe, intent.KindPerformance, intent.KindTrace, intent.KindDashboard, intent.KindOptimize, intent.KindGraph, intent.KindIstio, intent.KindGitOps:
+	case intent.KindGet, intent.KindExplain, intent.KindInvestigate, intent.KindWhy, intent.KindTimeline, intent.KindImpact, intent.KindAudit, intent.KindCleanup, intent.KindLearn, intent.KindLogs, intent.KindDescribe, intent.KindPerformance, intent.KindTrace, intent.KindDashboard, intent.KindOptimize, intent.KindGraph, intent.KindIstio, intent.KindGitOps:
 		return true
 	default:
 		return false
 	}
+}
+
+func learnProfileHint(kubeCtx string) string {
+	p, ok := learn.LoadBestEffort(kubeCtx)
+	if !ok {
+		return ""
+	}
+	return p.PromptBias()
 }
 
 func resolveCfgContext(cfg *config.Resolved) {

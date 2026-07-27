@@ -133,7 +133,9 @@ func prepareRoute(
 		Risks:   make([]safety.Result, 0, len(steps)),
 	}
 	for index, prompt := range steps {
-		in, err := intent.Extract(ctx, provider, prompt)
+		in, err := intent.ExtractWith(ctx, provider, prompt, intent.ExtractOptions{
+			ProfileHint: learnProfileHint(cfg.Context),
+		})
 		if err != nil {
 			return routePreflight{}, fmt.Errorf("route step %d: %w", index+1, err)
 		}

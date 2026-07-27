@@ -2,10 +2,13 @@ package tools
 
 import (
 	"github.com/kprompt/kprompt/internal/tools/argo"
+	"github.com/kprompt/kprompt/internal/tools/certmanager"
 	"github.com/kprompt/kprompt/internal/tools/crossplane"
+	"github.com/kprompt/kprompt/internal/tools/gateway"
 	"github.com/kprompt/kprompt/internal/tools/gitops"
 	"github.com/kprompt/kprompt/internal/tools/istio"
 	"github.com/kprompt/kprompt/internal/tools/keda"
+	"github.com/kprompt/kprompt/internal/tools/linkerd"
 	"github.com/kprompt/kprompt/internal/tools/tekton"
 )
 
@@ -22,6 +25,12 @@ func MissingHint(id ID) string {
 		return keda.InstallHint()
 	case IDIstio:
 		return istio.InstallHint()
+	case IDLinkerd:
+		return linkerd.InstallHint()
+	case IDGatewayAPI:
+		return gateway.InstallHint()
+	case IDCertManager:
+		return certmanager.InstallHint()
 	case IDCrossplane:
 		return crossplane.InstallHint()
 	case IDGitOps:

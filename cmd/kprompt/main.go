@@ -108,6 +108,7 @@ func main() {
 	root.AddCommand(newAgentCmd())
 	root.AddCommand(newHistoryCmd())
 	root.AddCommand(newToolsCmd())
+	root.AddCommand(newLearnCmd())
 	root.AddCommand(newLoginCmd())
 	root.AddCommand(newLogoutCmd())
 	root.AddCommand(newWhoamiCmd())
