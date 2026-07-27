@@ -31,7 +31,7 @@ kprompt "list pods across staging and prod"
 kprompt --contexts staging,prod "optimize my cluster"
 ```
 
-Supported today: get/list, explain, logs, describe, optimize. Unreachable contexts degrade; others still return.
+Supported today: get/list, explain, investigate, why, timeline, impact, audit, cleanup, logs, describe, optimize. Unreachable contexts degrade; others still return.
 
 JSON kind: `MultiContextResult` with per-context `steps`, `cluster_context` on each step, and `fleetSummary` for optimize.
 

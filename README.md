@@ -164,7 +164,7 @@ export KPROMPT_GROQ_API_KEY=...               # --provider groq
 
 See [docs/providers.md](./docs/providers.md) for the full list.
 
-3. Optional config at `~/.kprompt/config.yaml` (no secrets):
+3. Optional config at `~/.kprompt/config.yaml` (no secrets). CLI history/Team files also live under `~/.kprompt/`; Observe local stores use `~/.config/kprompt/` — see [docs/agent.md](./docs/agent.md#where-files-live).
 
 ```bash
 kprompt config

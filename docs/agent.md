@@ -16,6 +16,22 @@ Explicit non-claims: no silent remediations, no ClusterRole-by-default on namesp
 
 **Modes table (Observe vs Namespace Agent vs Coordinator):** [namespace-agent.md](./namespace-agent.md) · **Ops runbook (cost/RBAC):** [agent-ops.md](./agent-ops.md).
 
+## Where files live
+
+CLI config and Observe local stores use **different** roots on purpose (no automatic migration):
+
+| Path | Purpose |
+|------|---------|
+| `~/.kprompt/config.yaml` | CLI providers, aliases, tool URLs |
+| `~/.kprompt/history.jsonl` | Prompt / plan history (no secrets) |
+| `~/.kprompt/` credentials / policy | Team login + pulled org policy |
+| `~/.config/kprompt/memory/` | Observe namespace memory (AG-015) |
+| `~/.config/kprompt/patterns/` | Observe pattern learning (AG-016) |
+| `~/.config/kprompt/incidents/` | Durable incidents (AG-032) |
+| `~/.config/kprompt/autopilot/` | Autopilot audit JSONL (AG-017) |
+
+In-cluster agents may use ConfigMaps (`kprompt-namespace-memory`, `kprompt-incident-state`, `kprompt-remediation-policy`) instead of the `~/.config/kprompt` paths.
+
 ## RBAC
 
 Default install is a **Role + RoleBinding in one namespace** (get/list/watch on pods, events, logs, deployments, …). Not a ClusterRole god-mode SA.

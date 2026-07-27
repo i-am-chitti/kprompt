@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"strconv"
+	"strings"
 
 	"github.com/spf13/cobra"
 
@@ -57,15 +58,30 @@ func newHistoryCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
+			root := cmd.Root()
+			if root.PersistentFlags().Changed("context") && root.PersistentFlags().Changed("contexts") {
+				return fmt.Errorf("use either --context or --contexts, not both")
+			}
 			cfg := config.Merge(file, provider, model, kubeCtx, namespace, approve, entry.Prompt)
 			cfg.Wait = waitFlag
 			cfg.Timeout = timeout
 			cfg.Output = outputFmt
-			root := cmd.Root()
+			cfg.ApproveEachContext = approveEachContext
 			cfg.NamespaceFromCLI = root.PersistentFlags().Changed("namespace")
-			cfg.ContextFromCLI = root.PersistentFlags().Changed("context")
+			cfg.ContextFromCLI = root.PersistentFlags().Changed("context") || root.PersistentFlags().Changed("contexts")
 			if root.PersistentFlags().Changed("theme") {
 				cfg.Theme = theme
+			}
+			if raw := strings.TrimSpace(kubeCtxs); raw != "" {
+				names := config.ParseContextsFlag(raw)
+				resolved, err := config.ResolveContextList(names, cfg.Aliases)
+				if err != nil {
+					return err
+				}
+				cfg.Contexts = resolved
+				if len(resolved) == 1 {
+					cfg.Context = resolved[0]
+				}
 			}
 			ui.SetTheme(cfg.Theme)
 			return pipeline.Run(cmd.Context(), cfg, cmd.OutOrStdout())

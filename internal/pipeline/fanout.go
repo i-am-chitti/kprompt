@@ -67,7 +67,7 @@ func runMultiContextReads(
 
 	if !supportsReadFanOut(plan.Intent.Kind) {
 		msg := fmt.Sprintf(
-			"multi-context fan-out supports get/list/explain/logs/describe/optimize only (got %s)",
+			"multi-context fan-out supports get/list/explain/investigate/why/timeline/impact/audit/cleanup/logs/describe/optimize only (got %s)",
 			plan.Intent.Kind,
 		)
 		return denyFanOut(out, deps, cfg, plan, jsonMode, msg)

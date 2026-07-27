@@ -13,6 +13,7 @@ import (
 	"k8s.io/client-go/kubernetes/fake"
 
 	"github.com/kprompt/kprompt/internal/config"
+	"github.com/kprompt/kprompt/internal/intent"
 	"github.com/kprompt/kprompt/internal/llm"
 	"github.com/kprompt/kprompt/internal/output"
 )
@@ -193,5 +194,21 @@ func TestMultiContextOptimizeFanOut(t *testing.T) {
 		if f.ClusterContext == "" {
 			t.Fatalf("finding missing cluster_context: %+v", f)
 		}
+	}
+}
+
+func TestSupportsReadFanOut(t *testing.T) {
+	ok := []intent.Kind{
+		intent.KindGet, intent.KindExplain, intent.KindInvestigate, intent.KindWhy,
+		intent.KindTimeline, intent.KindImpact, intent.KindAudit, intent.KindCleanup,
+		intent.KindLogs, intent.KindDescribe, intent.KindOptimize,
+	}
+	for _, k := range ok {
+		if !supportsReadFanOut(k) {
+			t.Fatalf("%s should support fan-out", k)
+		}
+	}
+	if supportsReadFanOut(intent.KindScale) {
+		t.Fatal("scale is mutate, not read fan-out")
 	}
 }
