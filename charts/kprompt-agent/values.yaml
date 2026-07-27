@@ -37,6 +37,8 @@ agent:
   patterns: true
   # AG-017 / ADR-0015: emit AutopilotProposal only — does not apply.
   autopilotPropose: false
+  # AG-032: persist incidents (file|configmap|"").
+  incidentsBackend: ""
   minSeverity: medium
   minConfidence: "0.7"
   provider: openai

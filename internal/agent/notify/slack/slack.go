@@ -107,6 +107,25 @@ func (c *Client) Notify(ctx context.Context, alert incident.AgentAlert, threadTS
 	return PostResult{}, fmt.Errorf("slack: set %s or %s+%s (from Secret/env)", EnvBotToken, EnvChannel, EnvWebhookURL)
 }
 
+// PostText posts a plain-text reply (AG-019 ask). Requires bot token mode.
+func (c *Client) PostText(ctx context.Context, text, threadTS string) (PostResult, error) {
+	if c == nil {
+		return PostResult{}, fmt.Errorf("slack: client is nil")
+	}
+	if !c.cfg.Threaded() {
+		return PostResult{}, fmt.Errorf("slack ask requires %s + %s (bot token mode)", EnvBotToken, EnvChannel)
+	}
+	return c.postBot(ctx, text, threadTS)
+}
+
+// Channel returns the configured Slack channel id/name.
+func (c *Client) Channel() string {
+	if c == nil {
+		return ""
+	}
+	return c.cfg.Channel
+}
+
 func (c *Client) postBot(ctx context.Context, text, threadTS string) (PostResult, error) {
 	body := map[string]any{
 		"channel": c.cfg.Channel,

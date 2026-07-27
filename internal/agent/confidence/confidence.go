@@ -17,7 +17,7 @@ func Adjust(base float64, agentCtx ctxbuild.AgentContext, detectorMatched bool, 
 	conf := clamp(base)
 	note := ""
 
-	evidenceN := len(agentCtx.Incident.Evidence) + len(agentCtx.RecentEvents) + len(agentCtx.LogSnippets) + len(agentCtx.Metrics)
+	evidenceN := len(agentCtx.Incident.Evidence) + len(agentCtx.RecentEvents) + len(agentCtx.LogSnippets) + len(agentCtx.Metrics) + len(agentCtx.Traces)
 	if !llmTrusted {
 		switch {
 		case evidenceN == 0:
@@ -38,6 +38,9 @@ func Adjust(base float64, agentCtx ctxbuild.AgentContext, detectorMatched bool, 
 	}
 
 	if len(agentCtx.Metrics) > 0 {
+		conf = min(conf+0.03, 0.98)
+	}
+	if len(agentCtx.Traces) > 0 {
 		conf = min(conf+0.03, 0.98)
 	}
 	if len(agentCtx.Degraded) > 0 {

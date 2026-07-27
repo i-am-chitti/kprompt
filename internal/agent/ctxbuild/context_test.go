@@ -15,6 +15,7 @@ import (
 
 	"github.com/kprompt/kprompt/internal/incident"
 	toolprometheus "github.com/kprompt/kprompt/internal/tools/prometheus"
+	toolotel "github.com/kprompt/kprompt/internal/tools/otel"
 )
 
 func TestBuildSkipLiveReshapesEvidence(t *testing.T) {
@@ -173,7 +174,7 @@ func TestEnrichMetricsDegradesWhenMissing(t *testing.T) {
 	b := &Builder{Client: client} // no Metrics
 	inc := incident.NewIncident("inc-m2", "payments", time.Now().UTC())
 	inc.PrimaryResource = &incident.ResourceRef{Kind: "Deployment", Name: "api", Namespace: "payments"}
-	got := b.Build(context.Background(), inc, Options{})
+	got := b.Build(context.Background(), inc, Options{SkipTraces: true})
 	found := false
 	for _, d := range got.Degraded {
 		if d == "prometheus" {
@@ -182,5 +183,58 @@ func TestEnrichMetricsDegradesWhenMissing(t *testing.T) {
 	}
 	if !found {
 		t.Fatalf("expected prometheus degraded, got %v", got.Degraded)
+	}
+}
+
+type stubTraces struct {
+	traces []toolotel.Trace
+	err    error
+}
+
+func (s stubTraces) SearchTraces(ctx context.Context, req toolotel.SearchRequest) ([]toolotel.Trace, error) {
+	if s.err != nil {
+		return nil, s.err
+	}
+	return s.traces, nil
+}
+
+func TestEnrichTracesSuccess(t *testing.T) {
+	client := fake.NewSimpleClientset()
+	tr := toolotel.Trace{
+		TraceID:   "abc123",
+		Duration:  250 * time.Millisecond,
+		StartTime: time.Now().UTC(),
+		Spans: []toolotel.Span{{
+			TraceID: "abc123", SpanID: "s1", Operation: "GET /charge",
+			Duration: 250 * time.Millisecond, Status: "ERROR",
+		}},
+	}
+	b := &Builder{
+		Client:  client,
+		Traces:  stubTraces{traces: []toolotel.Trace{tr}},
+		Metrics: stubMetrics{val: 1}, // avoid prometheus degrade noise
+	}
+	inc := incident.NewIncident("inc-t", "payments", time.Now().UTC())
+	inc.PrimaryResource = &incident.ResourceRef{Kind: "Deployment", Name: "payment-api", Namespace: "payments"}
+	got := b.Build(context.Background(), inc, Options{})
+	if len(got.Traces) == 0 {
+		t.Fatalf("expected traces, degraded=%v", got.Degraded)
+	}
+}
+
+func TestEnrichTracesDegradesWhenMissing(t *testing.T) {
+	client := fake.NewSimpleClientset()
+	b := &Builder{Client: client, Metrics: stubMetrics{val: 1}}
+	inc := incident.NewIncident("inc-t2", "payments", time.Now().UTC())
+	inc.PrimaryResource = &incident.ResourceRef{Kind: "Deployment", Name: "api", Namespace: "payments"}
+	got := b.Build(context.Background(), inc, Options{SkipMetrics: true})
+	found := false
+	for _, d := range got.Degraded {
+		if d == "otel" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("expected otel degraded, got %v", got.Degraded)
 	}
 }

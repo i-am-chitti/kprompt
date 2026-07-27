@@ -175,6 +175,12 @@ Secrets are never watched implicitly and only metadata (type + key count) is emi
 
 **Metrics (AG-024):** when `KPROMPT_PROMETHEUS_URL` (or config `tools.prometheus.url`) is set, context builder attaches CPU/memory/restart metric EvidenceRefs. Missing Prom → `degraded: prometheus` (never invents values).
 
+**Traces (AG-025):** when `KPROMPT_OTEL_ENDPOINT` (+ optional `KPROMPT_OTEL_BACKEND`) is set, context builder attaches compact trace EvidenceRefs. Missing OTel → `degraded: otel`.
+
+**Durable incidents (AG-032):** `--incidents-backend file|configmap` persists open incidents / Slack thread ts across restarts (`~/.config/kprompt/incidents` or ConfigMap `kprompt-incident-state`).
+
+**Slack ask (AG-019):** `--slack-ask` listens on `--slack-ask-addr` (default `:8080`) for Slack Events (`status` / `why` / `what broke`). Read-only — never mutates. Requires bot token mode + Events API URL (or port-forward).
+
 ## Pipeline flags
 
 | Flag | Task |

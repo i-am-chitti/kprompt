@@ -21,6 +21,7 @@ import (
 	"github.com/kprompt/kprompt/internal/agent/health"
 	agentlogs "github.com/kprompt/kprompt/internal/agent/logs"
 	"github.com/kprompt/kprompt/internal/agent/memory"
+	"github.com/kprompt/kprompt/internal/agent/notify/slack/ask"
 	agentslack "github.com/kprompt/kprompt/internal/agent/notify/slack"
 	agentwebhook "github.com/kprompt/kprompt/internal/agent/notify/webhook"
 	"github.com/kprompt/kprompt/internal/agent/operator"
@@ -135,6 +136,10 @@ func newAgentRunCmd() *cobra.Command {
 		patternsDir   string
 		autopilotProp bool
 		autopilotDir  string
+		incidentsBackend string // file | configmap | "" (off)
+		incidentsDir     string
+		slackAsk         bool
+		slackAskAddr     string
 	)
 	cmd := &cobra.Command{
 		Use:   "run",
@@ -158,6 +163,11 @@ Pipeline flags (read-only — never mutate workload objects):
   --memory         discover/load namespace deps+facts into analyzer context (AG-015)
   --patterns       learn incident signatures; boost confidence on “seen before” (AG-016)
   --autopilot-propose  emit PlanResult-shaped AutopilotProposal (ADR-0015; propose-only, never silent apply)
+  --slack-ask          listen for Slack Events ask (status/why/what broke) — read-only (AG-019)
+
+Durable incidents (AG-032; local / in-cluster only):
+  --incidents-backend file|configmap   persist open incidents across restarts
+  --incidents-dir     file backend directory (default: ~/.config/kprompt/incidents)
 
 Namespace memory (local / in-cluster only — never uploaded to api.kprompt.ai):
   --memory-backend file|configmap   (default: file; configmap uses kprompt-namespace-memory)
@@ -182,6 +192,12 @@ KpromptAgent status sync:
 			ns = strings.TrimSpace(ns)
 			if ns == "" {
 				return fmt.Errorf("--namespace is required")
+			}
+			if slackAsk {
+				notifySlack = true
+				incidents = true
+				trackHealth = true
+				doAnalyze = true
 			}
 			if notifySlack || notifyWebhook {
 				doAnalyze = true
@@ -280,6 +296,20 @@ KpromptAgent status sync:
 
 			if incidents {
 				builder = correlate.NewBuilder(correlate.Options{Namespace: ns})
+				if be := strings.TrimSpace(incidentsBackend); be != "" {
+					store, serr := openIncidentsStore(be, incidentsDir, ns, inCluster, clients)
+					if serr != nil {
+						return serr
+					}
+					builder.SetStore(store)
+					if snap, lerr := store.Load(ns); lerr == nil {
+						if rerr := builder.Restore(snap); rerr != nil {
+							fmt.Fprintf(cmd.ErrOrStderr(), "warning: restore incidents: %v\n", rerr)
+						} else {
+							fmt.Fprintf(cmd.ErrOrStderr(), "restored %d open incident(s) from %s store\n", len(builder.OpenIncidents()), be)
+						}
+					}
+				}
 			}
 			if fetchLogs {
 				fetcher = agentlogs.New(clients.Clientset)
@@ -291,6 +321,9 @@ KpromptAgent status sync:
 					settings := tools.LoadSettings(file)
 					if prom, perr := tools.NewPrometheusClient(settings); perr == nil {
 						ctxBuilder.Metrics = prom
+					}
+					if otel, oerr := tools.NewOTelClient(settings); oerr == nil {
+						ctxBuilder.Traces = otel
 					}
 				}
 			}
@@ -405,6 +438,7 @@ KpromptAgent status sync:
 								threads[outcome.Alert.IncidentID] = res.ThreadTS
 								if builder != nil {
 									_ = builder.SetNotifierThread(outcome.Alert.IncidentID, res.ThreadTS)
+									_ = builder.Persist()
 								}
 								ch.Incident.NotifierThread = res.ThreadTS
 							}
@@ -502,6 +536,9 @@ KpromptAgent status sync:
 								}
 							}
 						}
+						if err := builder.Persist(); err != nil {
+							fmt.Fprintf(cmd.ErrOrStderr(), "warning: persist incidents: %v\n", err)
+						}
 						emitChange(ch)
 					}
 					return
@@ -567,6 +604,38 @@ KpromptAgent status sync:
 			fmt.Fprintf(cmd.ErrOrStderr(), "kprompt agent watching namespace %q resources=%s (%s, read-only)…\n",
 				ns, strings.Join(resources, ","), mode)
 
+			if slackAsk && slackClient != nil && builder != nil {
+				askHandler := &ask.Handler{
+					OpenIncidents: builder.OpenIncidents,
+					Health: func(ctx context.Context) *health.Snapshot {
+						if healthTracker == nil {
+							return nil
+						}
+						snap := healthTracker.Evaluate(ctx, builder.OpenIncidents())
+						return &snap
+					},
+				}
+				if ctxBuilder != nil {
+					askHandler.Why = ask.WhyFromHeuristic(ctxBuilder)
+				}
+				addr := strings.TrimSpace(slackAskAddr)
+				if addr == "" {
+					addr = ":8080"
+				}
+				go func() {
+					if err := ask.ListenAndServe(runCtx, ask.ListenConfig{
+						Addr:   addr,
+						Client: slackClient,
+						Ask:    askHandler,
+						Logf: func(format string, args ...any) {
+							fmt.Fprintf(cmd.ErrOrStderr(), format+"\n", args...)
+						},
+					}); err != nil {
+						fmt.Fprintf(cmd.ErrOrStderr(), "slack ask listener: %v\n", err)
+					}
+				}()
+			}
+
 			if builder != nil {
 				go func() {
 					t := time.NewTicker(30 * time.Second)
@@ -579,6 +648,7 @@ KpromptAgent status sync:
 							for _, ch := range builder.Sweep() {
 								emitChange(ch)
 							}
+							_ = builder.Persist()
 							emitHealth()
 						}
 					}
@@ -614,7 +684,11 @@ KpromptAgent status sync:
 	cmd.Flags().BoolVar(&usePatterns, "patterns", false, "learn incident signatures; boost confidence on seen-before (AG-016; never mutates)")
 	cmd.Flags().StringVar(&patternsDir, "patterns-dir", "", "pattern store directory (default ~/.config/kprompt/patterns)")
 	cmd.Flags().BoolVar(&autopilotProp, "autopilot-propose", false, "emit AutopilotProposal for allowlisted actions (ADR-0015; propose-only, never silent apply)")
-	cmd.Flags().StringVar(&autopilotDir, "autopilot-audit-dir", "", "Autopilot audit JSONL directory (default ~/.config/kprompt/autopilot)")
+	cmd.Flags().StringVar(&autopilotDir, "autopilot-audit-dir", "", "autopilot audit directory (default ~/.config/kprompt/autopilot)")
+	cmd.Flags().StringVar(&incidentsBackend, "incidents-backend", "", "persist incidents across restarts: file|configmap (AG-032)")
+	cmd.Flags().StringVar(&incidentsDir, "incidents-dir", "", "file backend directory (default ~/.config/kprompt/incidents)")
+	cmd.Flags().BoolVar(&slackAsk, "slack-ask", false, "Slack Events ask listener for status/why/what broke (AG-019; read-only)")
+	cmd.Flags().StringVar(&slackAskAddr, "slack-ask-addr", ":8080", "listen address for --slack-ask Events API")
 	cmd.Flags().BoolVar(&heuristic, "heuristic", false, "with --analyze, skip LLM and use local heuristics only")
 	cmd.Flags().StringVar(&providerName, "provider", "", "LLM provider for --analyze (default from config)")
 	cmd.Flags().StringVar(&modelName, "model", "", "LLM model for --analyze (default from config)")
@@ -643,6 +717,24 @@ func openMemoryStore(backend, dir, ns string, inCluster bool, clients *cluster.C
 		return memory.FileStore{Dir: dir}, nil
 	default:
 		return nil, fmt.Errorf("memory: unknown backend %q (want file|configmap)", backend)
+	}
+}
+
+func openIncidentsStore(backend, dir, ns string, inCluster bool, clients *cluster.Clients) (correlate.Store, error) {
+	b := strings.ToLower(strings.TrimSpace(backend))
+	switch b {
+	case "configmap":
+		if clients == nil || clients.Clientset == nil {
+			return nil, fmt.Errorf("incidents: configmap backend requires kubernetes")
+		}
+		return correlate.ConfigMapStore{Client: clients.Clientset, Namespace: ns}, nil
+	case "file":
+		if dir == "" {
+			dir = correlate.DefaultIncidentsDir()
+		}
+		return correlate.FileStore{Dir: dir}, nil
+	default:
+		return nil, fmt.Errorf("incidents: unknown backend %q (want file|configmap)", backend)
 	}
 }
 

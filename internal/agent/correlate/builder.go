@@ -1,6 +1,6 @@
 // Package correlate groups watch events into Incidents (AG-006).
 //
-// Rules (in-memory; durable store is later):
+// Rules (in-memory by default; optional durable Store via AG-032):
 //
 //  1. Key: workload identity — Pod names strip ReplicaSet+Pod hash suffixes;
 //     Kubernetes Events use involvedObject (Pod names normalized the same way).
@@ -63,6 +63,7 @@ type Builder struct {
 	recent map[string]closedRef          // workload key → last closed (for reopen window)
 	dedupe map[string]time.Time          // fingerprint → last seen
 	seq    int
+	store  Store // optional AG-032 durable backend
 }
 
 type closedRef struct {
