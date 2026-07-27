@@ -10,7 +10,7 @@ kprompt agent run --namespace <ns> --in-cluster [--analyze] [--fetch-logs] [--he
 
 Never mutates the cluster (ADR-0013). Default mode is **Observe**. Optional `--autopilot-propose` is **propose-only** (ADR-0015) — never silent apply. Autopilot **apply** is not enabled by this chart.
 
-Honest positioning (vs K8sGPT / Kagent, RBAC, LLM cost): [docs/agent.md](../../docs/agent.md) · [kprompt.ai/docs/agent](https://kprompt.ai/docs/agent).
+Honest positioning (vs K8sGPT / Kagent, RBAC, LLM cost): [docs/agent.md](../../docs/agent.md) · [docs/namespace-agent.md](../../docs/namespace-agent.md) · [docs/agent-ops.md](../../docs/agent-ops.md) · [kprompt.ai/docs/agent](https://kprompt.ai/docs/agent).
 
 ## Install
 

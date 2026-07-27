@@ -12,7 +12,9 @@ This is **Observe Mode** by default — it never applies, patches, or deletes cl
 | **Kagent** | **In-cluster agent framework** (multi-agent CRDs / tools) | We ship one **kprompt-native Observe pipeline** (Incident / AgentAlert + PlanResult DNA), not a general multi-agent platform. Do not expect Kagent feature parity. |
 | **kprompt CLI** | Reactive intent compiler (plan → approve → apply) | The agent is **optional**. The laptop CLI still needs no daemon ([ADR-0001](https://github.com/kprompt/kprompt-architecture/blob/main/decisions/ADR-0001-go-cli.md)). |
 
-Explicit non-claims: no silent remediations, no ClusterRole-by-default, no “we host your fleet agent” SaaS, no Autopilot in V1.
+Explicit non-claims: no silent remediations, no ClusterRole-by-default, no “we host your fleet agent” SaaS, no Autopilot apply in V1.
+
+**Modes table (Observe vs Namespace Agent vs Coordinator):** [namespace-agent.md](./namespace-agent.md) · **Ops runbook (cost/RBAC):** [agent-ops.md](./agent-ops.md).
 
 ## RBAC
 
