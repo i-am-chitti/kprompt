@@ -274,6 +274,12 @@ Package layout matches the private architecture ADRs (`cmd/kprompt`, `internal/{
 | Compare | [vs kubectl-ai](https://kprompt.ai/blog/kprompt-vs-kubectl-ai) · [AI tools map](https://kprompt.ai/blog/kubernetes-ai-tools-comparison) · [kubectl vs K9s](https://kprompt.ai/blog/kubectl-vs-k9s) |
 | Product | [audit](./docs/audit.md) · [impact](./docs/impact.md) · [optimize my cluster](https://kprompt.ai/blog/optimize-my-cluster) · [PlanResult JSON](https://kprompt.ai/blog/planresult-json-deep-dive) · [AI SRE](https://kprompt.ai/blog/ai-sre-not-ai-kubectl) |
 
+## Contributors
+
+Thanks to everyone who has contributed to kprompt:
+
+[![Contributors](https://contrib.rocks/image?repo=kprompt/kprompt)](https://github.com/kprompt/kprompt/graphs/contributors)
+
 ## License
 
 [Apache-2.0](./LICENSE) © 2026 Muhtalip Dede
