@@ -16,6 +16,7 @@ import (
 	"github.com/kprompt/kprompt/internal/optimize"
 	"github.com/kprompt/kprompt/internal/output"
 	"github.com/kprompt/kprompt/internal/planner"
+	"github.com/kprompt/kprompt/internal/recipe"
 	"github.com/kprompt/kprompt/internal/safety"
 	"github.com/kprompt/kprompt/internal/suggest"
 	"github.com/kprompt/kprompt/internal/tools/argo"
@@ -205,6 +206,20 @@ func PrintRoute(w io.Writer, steps []string) {
 	fmt.Fprintf(w, "%s %d sequential steps\n", t.Heading("Route:"), len(steps))
 	for index, step := range steps {
 		fmt.Fprintf(w, "  %d. %s\n", index+1, step)
+	}
+}
+
+// PrintRecipe announces a matched curated workflow pack (S-013).
+func PrintRecipe(w io.Writer, r recipe.Recipe) {
+	t := themeFor(w)
+	fmt.Fprintf(w, "%s %s — %s\n", t.Heading("Recipe:"), t.Accent(r.ID), r.Title)
+	if r.Summary != "" {
+		fmt.Fprintf(w, "  %s\n", t.Muted(r.Summary))
+	}
+	if r.ReadOnly {
+		fmt.Fprintln(w, t.Muted("  Mode: read-only discovery (no cluster mutate from this pack)"))
+	} else {
+		fmt.Fprintln(w, t.Muted("  Mode: suggest/mutate steps stay approve-gated (never silent)"))
 	}
 }
 

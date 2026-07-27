@@ -30,6 +30,7 @@ import (
 	"github.com/kprompt/kprompt/internal/optimize"
 	"github.com/kprompt/kprompt/internal/output"
 	"github.com/kprompt/kprompt/internal/planner"
+	"github.com/kprompt/kprompt/internal/recipe"
 	"github.com/kprompt/kprompt/internal/safety"
 	"github.com/kprompt/kprompt/internal/suggest"
 	"github.com/kprompt/kprompt/internal/team"
@@ -62,6 +63,9 @@ type Deps struct {
 	IsTerminal    *bool                   // override ui.StdinIsTerminal when non-nil
 	OnResult      func(output.PlanResult) // optional per-plan completion observer
 	SkipOrgPolicy bool                    // tests: ignore Team org policy (Free CLI path)
+	// RouteSteps forces a multi-step route (recipe run / tests). When set, skips
+	// SplitRoutePrompt / recipe.TryRoute matching on cfg.Prompt.
+	RouteSteps []string
 }
 
 // Run executes the full prompt → plan → safety → optional apply flow.
@@ -119,7 +123,19 @@ func RunWith(ctx context.Context, cfg config.Resolved, out io.Writer, deps Deps)
 		}
 	}
 
-	routeSteps := intent.SplitRoutePrompt(cfg.Prompt)
+	routeSteps := append([]string(nil), deps.RouteSteps...)
+	var matchedRecipe recipe.Recipe
+	if len(routeSteps) == 0 {
+		if steps, r, ok, err := recipe.TryRoute(cfg.Prompt, cfg.Namespace, ""); ok {
+			if err != nil {
+				return err
+			}
+			routeSteps = steps
+			matchedRecipe = r
+		} else {
+			routeSteps = intent.SplitRoutePrompt(cfg.Prompt)
+		}
+	}
 	if len(routeSteps) > intent.MaxRouteSteps {
 		return fmt.Errorf(
 			"route has %d steps; maximum is %d",
@@ -129,6 +145,9 @@ func RunWith(ctx context.Context, cfg config.Resolved, out io.Writer, deps Deps)
 	}
 	if len(routeSteps) > 1 {
 		deps.Provider = provider
+		if matchedRecipe.ID != "" && !jsonMode {
+			ui.PrintRecipe(out, matchedRecipe)
+		}
 		return runRoute(ctx, cfg, out, deps, routeSteps)
 	}
 

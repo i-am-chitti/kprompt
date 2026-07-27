@@ -129,6 +129,7 @@ func main() {
 	root.AddCommand(newHistoryCmd())
 	root.AddCommand(newToolsCmd())
 	root.AddCommand(newLearnCmd())
+	root.AddCommand(newRecipeCmd())
 	root.AddCommand(newLoginCmd())
 	root.AddCommand(newLogoutCmd())
 	root.AddCommand(newWhoamiCmd())
