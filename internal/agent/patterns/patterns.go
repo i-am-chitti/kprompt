@@ -38,6 +38,9 @@ type Pattern struct {
 	Signature      string    `json:"signature"`
 	Namespace      string    `json:"namespace"`
 	Count          int       `json:"count"`
+	Confirmed      int       `json:"confirmed,omitempty"`      // AG-033: resolved outcomes
+	FalsePositives int       `json:"falsePositives,omitempty"` // AG-033: FP outcomes
+	Weight         float64   `json:"weight,omitempty"`         // AG-033: boost multiplier (default 1)
 	LastSummary    string    `json:"lastSummary,omitempty"`
 	LastRootCause  string    `json:"lastRootCause,omitempty"`
 	LastRec        string    `json:"lastRecommendation,omitempty"`
@@ -45,6 +48,14 @@ type Pattern struct {
 	LastSeenAt     time.Time `json:"lastSeenAt"`
 	ExampleReasons []string  `json:"exampleReasons,omitempty"`
 }
+
+// Outcome is a post-notify learning signal (AG-033).
+type Outcome string
+
+const (
+	OutcomeResolved      Outcome = "resolved"
+	OutcomeFalsePositive Outcome = "false_positive"
+)
 
 // Snapshot is the persisted document.
 type Snapshot struct {
@@ -173,27 +184,98 @@ func (l *Library) Record(namespace string, agentCtx ctxbuild.AgentContext, sever
 	return Pattern{}, nil
 }
 
+// RecordOutcome updates pattern weights from resolve / false-positive feedback (AG-033).
+// Does not increment Count (occurrence) — outcomes are separate from fire learning.
+func (l *Library) RecordOutcome(namespace string, agentCtx ctxbuild.AgentContext, outcome Outcome) (Pattern, error) {
+	if l == nil || l.store == nil {
+		return Pattern{}, fmt.Errorf("patterns: library unset")
+	}
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	snap, err := l.store.Load(namespace)
+	if err != nil {
+		return Pattern{}, err
+	}
+	sig := Signature(agentCtx)
+	idx := -1
+	for i, p := range snap.Patterns {
+		if p.Signature == sig {
+			idx = i
+			break
+		}
+	}
+	if idx < 0 {
+		return Pattern{}, fmt.Errorf("patterns: no pattern for signature")
+	}
+	p := snap.Patterns[idx]
+	if p.Weight <= 0 {
+		p.Weight = 1
+	}
+	switch outcome {
+	case OutcomeResolved:
+		p.Confirmed++
+		p.Weight = clamp01(p.Weight + 0.05)
+	case OutcomeFalsePositive:
+		p.FalsePositives++
+		p.Weight = clamp01(p.Weight - 0.15)
+		if p.Weight < 0.2 {
+			p.Weight = 0.2
+		}
+	default:
+		return Pattern{}, fmt.Errorf("patterns: unknown outcome %q", outcome)
+	}
+	p.LastSeenAt = time.Now().UTC()
+	snap.Patterns[idx] = p
+	snap.UpdatedAt = p.LastSeenAt
+	if err := l.store.Save(snap); err != nil {
+		return Pattern{}, err
+	}
+	return p, nil
+}
+
+// EffectiveBoost returns the confidence boost for a match after AG-033 weight.
+func EffectiveBoost(match Pattern) float64 {
+	if match.Count < MinPriorCount {
+		return 0
+	}
+	base := 0.10
+	if match.Count >= 5 {
+		base = MaxBoost
+	}
+	w := match.Weight
+	if w <= 0 {
+		w = 1
+	}
+	// Heavy FP history dampens boost.
+	if match.FalsePositives > match.Confirmed && match.FalsePositives >= 2 {
+		w = minFloat(w, 0.4)
+	}
+	boost := base * w
+	if boost > MaxBoost {
+		boost = MaxBoost
+	}
+	if boost < 0 {
+		return 0
+	}
+	return boost
+}
+
 // ApplyBoost raises confidence and annotates root cause with “seen before”.
 // Never changes recommendation into an apply/mutate action.
 func ApplyBoost(res SeverityConfidence, match Pattern) (SeverityConfidence, string) {
-	if match.Count < MinPriorCount {
+	boost := EffectiveBoost(match)
+	if boost <= 0 {
 		return res, ""
-	}
-	boost := MaxBoost
-	if match.Count >= 5 {
-		boost = MaxBoost
-	} else if match.Count >= 2 {
-		boost = 0.10
-	} else {
-		boost = 0.05
 	}
 	res.Confidence = clamp01(res.Confidence + boost)
 	note := fmt.Sprintf("Seen before (%d×): %s", match.Count, firstNonEmpty(match.LastRootCause, match.LastSummary))
+	if match.FalsePositives > 0 {
+		note += fmt.Sprintf(" [fp=%d confirmed=%d]", match.FalsePositives, match.Confirmed)
+	}
 	if strings.TrimSpace(res.RootCause) == "" || res.RootCause == "Unknown" {
 		res.RootCause = firstNonEmpty(match.LastRootCause, res.RootCause)
 	}
 	if match.LastRec != "" && !looksLikeMutate(match.LastRec) {
-		// Prefer prior safe guidance if current rec is generic.
 		if strings.Contains(strings.ToLower(res.Recommendation), "investigate") ||
 			strings.Contains(strings.ToLower(res.Recommendation), "inspect") {
 			res.Recommendation = match.LastRec
@@ -355,6 +437,13 @@ func firstNonEmpty(vals ...string) string {
 		}
 	}
 	return ""
+}
+
+func minFloat(a, b float64) float64 {
+	if a < b {
+		return a
+	}
+	return b
 }
 
 // Encode / Decode for file + ConfigMap payloads.

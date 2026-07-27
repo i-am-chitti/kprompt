@@ -179,7 +179,9 @@ Secrets are never watched implicitly and only metadata (type + key count) is emi
 
 **Durable incidents (AG-032):** `--incidents-backend file|configmap` persists open incidents / Slack thread ts across restarts (`~/.config/kprompt/incidents` or ConfigMap `kprompt-incident-state`).
 
-**Slack ask (AG-019):** `--slack-ask` listens on `--slack-ask-addr` (default `:8080`) for Slack Events (`status` / `why` / `what broke`). Read-only — never mutates. Requires bot token mode + Events API URL (or port-forward).
+**Slack ask (AG-019):** `--slack-ask` listens on `--slack-ask-addr` (default `:8080`) for Slack Events (`status` / `why` / `what broke` / `false positive`). Read-only for the cluster — never mutates. With `--patterns`, `false positive` dampens future “seen before” boosts (AG-033). Requires bot token mode + Events API URL (or port-forward).
+
+**Coordinator handoff (AG-036):** `--coordinator-url` POSTs a `CoordinatorHandoff` envelope when analysis Unknowns suggest a dependency outside the namespace ([ADR-0017](https://github.com/kprompt/kprompt-architecture/blob/main/decisions/ADR-0017-coordinator.md)). Opt-in; Coordinator mutate stays off.
 
 ## Pipeline flags
 
@@ -195,8 +197,10 @@ Secrets are never watched implicitly and only metadata (type + key count) is emi
 | `--health` | AG-011 score |
 | `--agent-cr` | AG-013 status sync |
 | `--memory` | AG-015 namespace facts |
-| `--patterns` | AG-016 seen-before |
+| `--patterns` | AG-016 seen-before + AG-033 outcome weights |
 | `--autopilot-propose` | AG-017 / ADR-0015 propose-only |
+| `--slack-ask` | AG-019 ask (+ FP learning with `--patterns`) |
+| `--coordinator-url` | AG-036 Coordinator handoff (opt-in) |
 
 ## Namespace memory (AG-015)
 
@@ -215,11 +219,13 @@ kprompt agent memory list -n payments
 kprompt agent memory list -n payments --memory-backend configmap
 ```
 
-Relevant facts are filtered into `AgentContext.memory` / `namespace_memory:` prompt blocks when the incident text mentions the dependency or infra failure patterns (timeout, connection refused, …).
+Relevant facts are filtered into `AgentContext.memory` / `namespace_memory (evidence, not proof):` prompt blocks when the incident text mentions the dependency or infra failure patterns (timeout, connection refused, …). Memory alone never proves root cause (AG-034) — confidence is capped without Events/logs/metrics/traces.
 
-## Pattern learning (AG-016)
+## Pattern learning (AG-016 · AG-033)
 
 Remembers incident signatures (reason + workload kind + bucket like crashloop/oom) under `~/.config/kprompt/patterns`. When a similar incident appears (≥2 priors), confidence is boosted and root cause is annotated with **Seen before (N×)** — still **Observe-only**; patterns never trigger apply/patch/delete.
+
+**Outcome learning (AG-033):** alert recovered → `Confirmed` weight up; Slack `false positive` → `FalsePositives` weight down (dampens future boost).
 
 ```bash
 kprompt agent run -n payments --analyze --heuristic --patterns

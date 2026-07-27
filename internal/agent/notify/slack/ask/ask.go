@@ -21,16 +21,19 @@ const (
 	IntentStatus    Intent = "status"
 	IntentWhy       Intent = "why"
 	IntentWhatBroke Intent = "what_broke"
+	IntentFalsePos  Intent = "false_positive"
 	IntentHelp      Intent = "help"
 	IntentUnknown   Intent = "unknown"
 )
 
-// Handler answers Slack asks from open incidents + health (read-only).
+// Handler answers Slack asks from open incidents + health (read-only for cluster mutate).
 type Handler struct {
 	OpenIncidents func() []incident.Incident
 	Health        func(ctx context.Context) *health.Snapshot
 	// Why builds a short RCA for an incident (optional — falls back to stored fields).
 	Why func(ctx context.Context, inc incident.Incident) (analyze.Result, error)
+	// MarkFalsePositive records AG-033 FP outcome (optional).
+	MarkFalsePositive func(ctx context.Context, inc incident.Incident) error
 }
 
 // ParseIntent maps free-form Slack text to a supported ask intent.
@@ -49,6 +52,8 @@ func ParseIntent(text string) Intent {
 	switch {
 	case t == "" || t == "help" || strings.HasPrefix(t, "help "):
 		return IntentHelp
+	case strings.Contains(t, "false positive") || t == "fp" || strings.HasPrefix(t, "fp "):
+		return IntentFalsePos
 	case strings.Contains(t, "what broke") || strings.Contains(t, "whatbroke") || t == "broke":
 		return IntentWhatBroke
 	case strings.HasPrefix(t, "why") || strings.Contains(t, " root cause"):
@@ -67,16 +72,38 @@ func (h *Handler) Answer(ctx context.Context, text string) string {
 	}
 	switch ParseIntent(text) {
 	case IntentHelp:
-		return "Ask me: `status`, `why`, or `what broke`. Read-only — I never mutate the cluster."
+		return "Ask me: `status`, `why`, `what broke`, or `false positive`. Read-only for the cluster — I never mutate."
 	case IntentStatus:
 		return h.answerStatus(ctx)
 	case IntentWhatBroke:
 		return h.answerWhatBroke()
 	case IntentWhy:
 		return h.answerWhy(ctx)
+	case IntentFalsePos:
+		return h.answerFalsePositive(ctx)
 	default:
-		return "I only answer `status`, `why`, and `what broke` (read-only). Try `help`."
+		return "I only answer `status`, `why`, `what broke`, and `false positive` (read-only). Try `help`."
 	}
+}
+
+func (h *Handler) answerFalsePositive(ctx context.Context) string {
+	incs := h.open()
+	if len(incs) == 0 {
+		return "No open incident to mark as false positive."
+	}
+	inc := incs[0]
+	for _, cand := range incs {
+		if severityRank(cand.Severity) > severityRank(inc.Severity) {
+			inc = cand
+		}
+	}
+	if h.MarkFalsePositive == nil {
+		return "False-positive learning is not enabled (need --patterns)."
+	}
+	if err := h.MarkFalsePositive(ctx, inc); err != nil {
+		return "Could not record false positive: " + err.Error()
+	}
+	return fmt.Sprintf("Recorded false positive for %s — future “seen before” boost will be dampened.", inc.ID)
 }
 
 func (h *Handler) answerStatus(ctx context.Context) string {

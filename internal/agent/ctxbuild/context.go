@@ -217,7 +217,7 @@ func (c AgentContext) PromptBlocks() []string {
 		}
 	}
 	if len(c.Memory) > 0 {
-		blocks = append(blocks, "namespace_memory:")
+		blocks = append(blocks, "namespace_memory (evidence, not proof):")
 		for _, f := range c.Memory {
 			blocks = append(blocks, fmt.Sprintf("  - %s %s=%s (%s)", f.Kind, f.Key, f.Value, f.Source))
 		}

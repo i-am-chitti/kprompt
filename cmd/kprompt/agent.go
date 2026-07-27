@@ -18,17 +18,19 @@ import (
 	"github.com/kprompt/kprompt/internal/agent/correlate"
 	"github.com/kprompt/kprompt/internal/agent/crdstatus"
 	"github.com/kprompt/kprompt/internal/agent/ctxbuild"
+	"github.com/kprompt/kprompt/internal/agent/handoff"
 	"github.com/kprompt/kprompt/internal/agent/health"
 	agentlogs "github.com/kprompt/kprompt/internal/agent/logs"
 	"github.com/kprompt/kprompt/internal/agent/memory"
-	"github.com/kprompt/kprompt/internal/agent/notify/slack/ask"
 	agentslack "github.com/kprompt/kprompt/internal/agent/notify/slack"
+	"github.com/kprompt/kprompt/internal/agent/notify/slack/ask"
 	agentwebhook "github.com/kprompt/kprompt/internal/agent/notify/webhook"
 	"github.com/kprompt/kprompt/internal/agent/operator"
 	"github.com/kprompt/kprompt/internal/agent/patterns"
 	agentwatch "github.com/kprompt/kprompt/internal/agent/watch"
 	"github.com/kprompt/kprompt/internal/cluster"
 	"github.com/kprompt/kprompt/internal/config"
+	"github.com/kprompt/kprompt/internal/incident"
 	"github.com/kprompt/kprompt/internal/llm"
 	"github.com/kprompt/kprompt/internal/tools"
 )
@@ -107,39 +109,40 @@ namespace to equal the watch namespace (spec.namespace empty or same).`,
 
 func newAgentRunCmd() *cobra.Command {
 	var (
-		ns            string
-		kubeCtx       string
-		inCluster     bool
-		emitJSON      bool
-		emitInitial   bool
-		incidents     bool
-		fetchLogs     bool
-		buildContext  bool
-		doAnalyze     bool
-		heuristic     bool
-		notifySlack   bool
-		notifyWebhook bool
-		webhookURL    string
-		trackHealth   bool
-		providerName  string
-		modelName     string
-		minSeverity   string
-		minConfidence float64
-		duration      time.Duration
-		agentCR       string
-		agentCRNS     string
-		watchList     []string
-		useMemory     bool
-		memoryBackend string // file | configmap
-		memoryDir     string
-		usePatterns   bool
-		patternsDir   string
-		autopilotProp bool
-		autopilotDir  string
+		ns               string
+		kubeCtx          string
+		inCluster        bool
+		emitJSON         bool
+		emitInitial      bool
+		incidents        bool
+		fetchLogs        bool
+		buildContext     bool
+		doAnalyze        bool
+		heuristic        bool
+		notifySlack      bool
+		notifyWebhook    bool
+		webhookURL       string
+		trackHealth      bool
+		providerName     string
+		modelName        string
+		minSeverity      string
+		minConfidence    float64
+		duration         time.Duration
+		agentCR          string
+		agentCRNS        string
+		watchList        []string
+		useMemory        bool
+		memoryBackend    string // file | configmap
+		memoryDir        string
+		usePatterns      bool
+		patternsDir      string
+		autopilotProp    bool
+		autopilotDir     string
 		incidentsBackend string // file | configmap | "" (off)
 		incidentsDir     string
 		slackAsk         bool
 		slackAskAddr     string
+		coordinatorURL   string
 	)
 	cmd := &cobra.Command{
 		Use:   "run",
@@ -163,7 +166,8 @@ Pipeline flags (read-only — never mutate workload objects):
   --memory         discover/load namespace deps+facts into analyzer context (AG-015)
   --patterns       learn incident signatures; boost confidence on “seen before” (AG-016)
   --autopilot-propose  emit PlanResult-shaped AutopilotProposal (ADR-0015; propose-only, never silent apply)
-  --slack-ask          listen for Slack Events ask (status/why/what broke) — read-only (AG-019)
+  --slack-ask          listen for Slack Events ask (status/why/what broke/false positive) — read-only (AG-019)
+  --coordinator-url    POST CoordinatorHandoff when cross-ns suspicion (AG-036; opt-in)
 
 Durable incidents (AG-032; local / in-cluster only):
   --incidents-backend file|configmap   persist open incidents across restarts
@@ -249,7 +253,12 @@ KpromptAgent status sync:
 			var nsMemory *memory.Memory
 			var memoryFacts []memory.Fact
 			var apEngine *autopilot.Engine
+			var handoffClient handoff.Client
 			threads := map[string]string{}
+
+			if u := strings.TrimSpace(coordinatorURL); u != "" {
+				handoffClient = &handoff.HTTPClient{URL: u}
+			}
 
 			if useMemory {
 				store, serr := openMemoryStore(memoryBackend, memoryDir, ns, inCluster, clients)
@@ -469,6 +478,16 @@ KpromptAgent status sync:
 								}
 							}
 						}
+						if handoffClient != nil && !outcome.Skipped {
+							if suspect, reason, ok := handoff.NeedsHandoff(ns, outcome.Report); ok {
+								env := handoff.New(ns, suspect, reason, outcome.Report)
+								if herr := handoffClient.Handoff(cmd.Context(), env); herr != nil {
+									fmt.Fprintf(cmd.ErrOrStderr(), "coordinator handoff: %v\n", herr)
+								} else if !emitJSON {
+									fmt.Fprintf(out, "handoff from=%s reason=%q\n", ns, reason)
+								}
+							}
+						}
 						if emitJSON {
 							_ = json.NewEncoder(out).Encode(outcome)
 							emitHealth()
@@ -618,6 +637,13 @@ KpromptAgent status sync:
 				if ctxBuilder != nil {
 					askHandler.Why = ask.WhyFromHeuristic(ctxBuilder)
 				}
+				if analyzer != nil && analyzer.Patterns != nil && ctxBuilder != nil {
+					askHandler.MarkFalsePositive = func(ctx context.Context, inc incident.Incident) error {
+						agentCtx := ctxBuilder.Build(ctx, inc, ctxbuild.Options{Memory: currentMemoryFacts()})
+						_, err := analyzer.Patterns.RecordOutcome(ns, agentCtx, patterns.OutcomeFalsePositive)
+						return err
+					}
+				}
 				addr := strings.TrimSpace(slackAskAddr)
 				if addr == "" {
 					addr = ":8080"
@@ -687,8 +713,9 @@ KpromptAgent status sync:
 	cmd.Flags().StringVar(&autopilotDir, "autopilot-audit-dir", "", "autopilot audit directory (default ~/.config/kprompt/autopilot)")
 	cmd.Flags().StringVar(&incidentsBackend, "incidents-backend", "", "persist incidents across restarts: file|configmap (AG-032)")
 	cmd.Flags().StringVar(&incidentsDir, "incidents-dir", "", "file backend directory (default ~/.config/kprompt/incidents)")
-	cmd.Flags().BoolVar(&slackAsk, "slack-ask", false, "Slack Events ask listener for status/why/what broke (AG-019; read-only)")
+	cmd.Flags().BoolVar(&slackAsk, "slack-ask", false, "Slack Events ask listener for status/why/what broke/false positive (AG-019; read-only)")
 	cmd.Flags().StringVar(&slackAskAddr, "slack-ask-addr", ":8080", "listen address for --slack-ask Events API")
+	cmd.Flags().StringVar(&coordinatorURL, "coordinator-url", "", "POST CoordinatorHandoff when cross-ns suspicion (AG-036; opt-in)")
 	cmd.Flags().BoolVar(&heuristic, "heuristic", false, "with --analyze, skip LLM and use local heuristics only")
 	cmd.Flags().StringVar(&providerName, "provider", "", "LLM provider for --analyze (default from config)")
 	cmd.Flags().StringVar(&modelName, "model", "", "LLM model for --analyze (default from config)")

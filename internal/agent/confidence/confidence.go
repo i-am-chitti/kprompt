@@ -43,6 +43,11 @@ func Adjust(base float64, agentCtx ctxbuild.AgentContext, detectorMatched bool, 
 	if len(agentCtx.Traces) > 0 {
 		conf = min(conf+0.03, 0.98)
 	}
+	// AG-034: memory is evidence-not-proof — never raise confidence from memory alone.
+	if len(agentCtx.Memory) > 0 && evidenceN == 0 {
+		conf = min(conf, 0.35)
+		note = firstNonEmpty(note, "memory is not proof")
+	}
 	if len(agentCtx.Degraded) > 0 {
 		conf = max(conf-0.08*float64(minInt(len(agentCtx.Degraded), 3)), 0.2)
 	}

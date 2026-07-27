@@ -55,6 +55,38 @@ func TestNoMutateRecommendation(t *testing.T) {
 	}
 }
 
+func TestRecordOutcomeResolvedAndFP(t *testing.T) {
+	lib := New(NewMemStore())
+	ctx := sampleCtx("BackOff")
+	if _, err := lib.Record("payments", ctx, "high", "CrashLoop", "migration timeout", "check migrate job"); err != nil {
+		t.Fatal(err)
+	}
+	p, err := lib.RecordOutcome("payments", ctx, OutcomeResolved)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if p.Confirmed != 1 {
+		t.Fatalf("resolved: %+v", p)
+	}
+	p, err = lib.RecordOutcome("payments", ctx, OutcomeFalsePositive)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if p.FalsePositives != 1 || p.Weight >= 1 {
+		t.Fatalf("fp: %+v", p)
+	}
+	boost := EffectiveBoost(Pattern{Count: 5, Weight: p.Weight, FalsePositives: 2, Confirmed: 0})
+	if boost >= MaxBoost {
+		t.Fatalf("FP should dampen boost, got %v", boost)
+	}
+}
+
+func TestEffectiveBoostZeroBelowMinPrior(t *testing.T) {
+	if EffectiveBoost(Pattern{Count: 1, Weight: 1}) != 0 {
+		t.Fatal("expected zero boost under MinPriorCount")
+	}
+}
+
 func TestFileStore(t *testing.T) {
 	dir := t.TempDir()
 	lib := New(FileStore{Dir: dir})

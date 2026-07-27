@@ -1,9 +1,11 @@
 package confidence
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/kprompt/kprompt/internal/agent/ctxbuild"
+	"github.com/kprompt/kprompt/internal/agent/memory"
 	"github.com/kprompt/kprompt/internal/incident"
 )
 
@@ -40,6 +42,22 @@ func TestAdjustDegradedPenalty(t *testing.T) {
 	got, _ := Adjust(0.9, ctx, true, false)
 	if got >= 0.9 {
 		t.Fatalf("expected penalty, got %v", got)
+	}
+}
+
+func TestAdjustMemoryAloneIsNotProof(t *testing.T) {
+	ctx := ctxbuild.AgentContext{
+		Incident: incident.Incident{ID: "x", Namespace: "ns"},
+		Memory: []memory.Fact{{
+			Kind: memory.KindDependency, Key: "redis", Value: "cache", Source: "manual",
+		}},
+	}
+	got, note := Adjust(0.9, ctx, false, false)
+	if got > 0.35 {
+		t.Fatalf("memory-only must cap confidence, got %v", got)
+	}
+	if !strings.Contains(note, "memory is not proof") && !strings.Contains(note, "not enough evidence") {
+		t.Fatalf("expected memory/not-enough note, got %q", note)
 	}
 }
 

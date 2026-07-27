@@ -53,7 +53,8 @@ const systemPrompt = `You are kprompt Observe Mode, an AI SRE assistant for Kube
 Given structured incident context, produce a concise root-cause analysis.
 Rules:
 - Use only evidence in the context; do not invent cluster facts.
-- If signals are weak, lower confidence.
+- namespace_memory facts are priors/hints only — never sole proof of root cause; require Events/logs/metrics/traces.
+- If signals are weak, lower confidence and say you do not have enough evidence.
 - recommendation must be safe guidance (check/verify); never claim you mutated the cluster.
 - severity must be one of: info, low, medium, high, critical.
 - Respond with JSON only matching the schema.`
@@ -201,9 +202,15 @@ func (a *Analyzer) Analyze(ctx context.Context, agentCtx ctxbuild.AgentContext, 
 	}
 
 	// Learn after analysis (Observe-only — never applies a mutate from the pattern).
-	if a.Patterns != nil && alertStatus != incident.AlertRecovered {
-		if _, rerr := a.Patterns.Record(agentCtx.Namespace, agentCtx, res.Severity, res.Summary, recordRoot, recordRec); rerr != nil {
-			// Non-fatal: learning must not break the watch loop.
+	if a.Patterns != nil {
+		if alertStatus == incident.AlertRecovered {
+			if _, rerr := a.Patterns.RecordOutcome(agentCtx.Namespace, agentCtx, patterns.OutcomeResolved); rerr != nil {
+				// Non-fatal: no prior pattern yet is fine.
+			}
+		} else {
+			if _, rerr := a.Patterns.Record(agentCtx.Namespace, agentCtx, res.Severity, res.Summary, recordRoot, recordRec); rerr != nil {
+				// Non-fatal: learning must not break the watch loop.
+			}
 		}
 	}
 

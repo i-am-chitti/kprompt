@@ -29,12 +29,12 @@ type Hypothesis struct {
 // RecommendedAction is a ranked remediation proposal.
 // Mutate-relevant actions stay PlanResult-shaped at apply time (ADR-0003 / ADR-0015).
 type RecommendedAction struct {
-	Title           string  `json:"title"`
-	Why             string  `json:"why,omitempty"`
-	Risk            string  `json:"risk,omitempty"`
-	ExpectedImpact  string  `json:"expectedImpact,omitempty"`
-	Rollback        string  `json:"rollback,omitempty"`
-	Confidence      float64 `json:"confidence,omitempty"` // 0..1
+	Title          string  `json:"title"`
+	Why            string  `json:"why,omitempty"`
+	Risk           string  `json:"risk,omitempty"`
+	ExpectedImpact string  `json:"expectedImpact,omitempty"`
+	Rollback       string  `json:"rollback,omitempty"`
+	Confidence     float64 `json:"confidence,omitempty"` // 0..1
 	// ActionID is an optional Autopilot allowlist id (e.g. rollbackFailedRollout).
 	ActionID string `json:"actionId,omitempty"`
 	// PlanHint is a short PlanResult-shaped hint; never auto-applied.
@@ -45,13 +45,13 @@ type RecommendedAction struct {
 // Slack, webhook, and Coordinator handoff share this shape (ADR-0016 §7).
 // It extends ADR-0014 without breaking Observe V1 Incident/AgentAlert consumers.
 type InvestigationReport struct {
-	APIVersion     string `json:"apiVersion"`
-	Kind           string `json:"kind"`
-	SchemaVersion  string `json:"schemaVersion"`
-	ID             string `json:"id,omitempty"`
-	IncidentID     string `json:"incidentId,omitempty"`
-	Namespace      string `json:"namespace"`
-	ClusterContext string `json:"cluster_context,omitempty"`
+	APIVersion     string    `json:"apiVersion"`
+	Kind           string    `json:"kind"`
+	SchemaVersion  string    `json:"schemaVersion"`
+	ID             string    `json:"id,omitempty"`
+	IncidentID     string    `json:"incidentId,omitempty"`
+	Namespace      string    `json:"namespace"`
+	ClusterContext string    `json:"cluster_context,omitempty"`
 	CreatedAt      time.Time `json:"createdAt"`
 
 	// Facts — concise observed state (not interpretation).
@@ -136,6 +136,14 @@ func (r InvestigationReport) PrimaryHypothesis() *Hypothesis {
 		return &r.Hypotheses[0]
 	}
 	return nil
+}
+
+// RootCauseHint returns the primary hypothesis statement, or empty.
+func (r InvestigationReport) RootCauseHint() string {
+	if h := r.PrimaryHypothesis(); h != nil {
+		return strings.TrimSpace(h.Statement)
+	}
+	return ""
 }
 
 // ValidateInvestigationReport checks Namespace Agent report shape before notify / handoff.
