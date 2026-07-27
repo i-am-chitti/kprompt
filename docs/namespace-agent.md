@@ -10,7 +10,7 @@ Contracts: [ADR-0013](https://github.com/kprompt/kprompt-architecture/blob/main/
 |---------|------------|-------|---------|----------|
 | **Observe Mode** | Always-on watch → correlate → gate → notify | One namespace (Role) | **Never** (default) | `Incident` / `AgentAlert` |
 | **Namespace Agent** | Observe + multi-signal RCA + memory/patterns + InvestigationReport v2 | One namespace | Propose-only opt-in; apply gated | `InvestigationReport` (schema v2) |
-| **Coordinator** | Thin fan-in for **cross-namespace** verification | Cluster handoff API | **Default off** | `CoordinatorHandoff` → merged reports |
+| **Coordinator** | Thin fan-in for **cross-namespace** verification | Cluster handoff API | **Default off** | `CoordinatorHandoff` → `CoordinatorReply` |
 | **kprompt CLI** | Laptop intent → plan → approve → apply | kubeconfig context(s) | Only after approval | `PlanResult` |
 
 **Namespace Agent is not a new binary.** It is the Observe agent runtime evolving under ADR-0016 (detectors, confidence, memory-not-proof, GitOps evidence, priority, handoff client). Same Helm chart: [`charts/kprompt-agent`](../charts/kprompt-agent).
@@ -35,7 +35,7 @@ Contracts: [ADR-0013](https://github.com/kprompt/kprompt-architecture/blob/main/
 | Causal RCA, confidence, unknowns | Namespace Agent |
 | Slack `status` / `why` / `false positive` | Namespace Agent (`--slack-ask`) |
 | Guess another namespace’s root cause | **Nobody** — hand off |
-| Route / verify cross-ns suspicion | Coordinator (service still gated — AG-037+) |
+| Route / verify cross-ns suspicion | Coordinator (`kprompt agent coordinator` / Helm chart) |
 | Apply / patch / delete workloads | Autopilot **policyAuto** only (AG-042+), never silent |
 
 ## Non-claims (do not market these)
@@ -59,7 +59,7 @@ Contracts: [ADR-0013](https://github.com/kprompt/kprompt-architecture/blob/main/
 | Memory / patterns | `--memory` / `--patterns` | NA learn |
 | Prom / OTel / GitOps evidence | env / `--gitops-evidence` | NA signals |
 | Priority objectives | automatic (AG-030) | NA reason |
-| Coordinator handoff | `--coordinator-url` | NA → Coord client |
+| Coordinator handoff | `--coordinator-url` + `agent coordinator` | NA → Coord |
 | Autopilot propose | `--autopilot-propose` | Propose-only |
 | Autopilot apply | **not shipped** | Gated AG-042 |
 

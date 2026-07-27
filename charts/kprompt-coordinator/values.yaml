@@ -1,0 +1,30 @@
+image:
+  repository: ghcr.io/kprompt/kprompt
+  tag: ""
+  pullPolicy: IfNotPresent
+
+nameOverride: ""
+fullnameOverride: ""
+
+serviceAccount:
+  create: true
+  name: ""
+
+rbac:
+  # AG-039: default is SA-only — no ClusterRole (no cluster-wide pod/Secret reads).
+  clusterRole:
+    create: false
+
+service:
+  type: ClusterIP
+  port: 9090
+
+resources:
+  requests:
+    cpu: 10m
+    memory: 32Mi
+  limits:
+    cpu: 200m
+    memory: 128Mi
+
+replicaCount: 1

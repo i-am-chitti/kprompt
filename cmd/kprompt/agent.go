@@ -15,6 +15,7 @@ import (
 
 	"github.com/kprompt/kprompt/internal/agent/analyze"
 	"github.com/kprompt/kprompt/internal/agent/autopilot"
+	"github.com/kprompt/kprompt/internal/agent/coordinator"
 	"github.com/kprompt/kprompt/internal/agent/correlate"
 	"github.com/kprompt/kprompt/internal/agent/crdstatus"
 	"github.com/kprompt/kprompt/internal/agent/ctxbuild"
@@ -43,7 +44,51 @@ func newAgentCmd() *cobra.Command {
 	}
 	cmd.AddCommand(newAgentRunCmd())
 	cmd.AddCommand(newAgentOperatorCmd())
+	cmd.AddCommand(newAgentCoordinatorCmd())
 	cmd.AddCommand(newAgentMemoryCmd())
+	return cmd
+}
+
+func newAgentCoordinatorCmd() *cobra.Command {
+	var addr string
+	cmd := &cobra.Command{
+		Use:   "coordinator",
+		Short: "Thin Coordinator HTTP fan-in (AG-037; no mutate)",
+		Long: `Listen for Namespace Agent CoordinatorHandoff POSTs, merge InvestigationReports,
+and reply with CoordinatorReply.
+
+Never applies/patches/deletes workloads (ADR-0017). Optional probe hooks are
+read-only; the default probe is a no-op (records routing notes + unknowns).
+
+Endpoints:
+  GET  /healthz
+  POST /v1/handoff   — accept handoff.Envelope → CoordinatorReply
+  GET  /v1/recent    — in-memory recent handoffs (debug)
+
+Pair with: kprompt agent run … --coordinator-url http://<addr>/v1/handoff`,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			runCtx, stop := signal.NotifyContext(cmd.Context(), os.Interrupt, syscall.SIGTERM)
+			defer stop()
+			svc := coordinator.New()
+			h := &coordinator.Handler{
+				Service: svc,
+				Logf: func(format string, a ...any) {
+					fmt.Fprintf(cmd.ErrOrStderr(), format+"\n", a...)
+				},
+			}
+			listen := strings.TrimSpace(addr)
+			if listen == "" {
+				listen = ":9090"
+			}
+			fmt.Fprintf(cmd.ErrOrStderr(), "kprompt agent coordinator listening on %s (mutate=off)…\n", listen)
+			err := coordinator.ListenAndServe(runCtx, listen, h)
+			if err == context.Canceled || err == context.DeadlineExceeded {
+				return nil
+			}
+			return err
+		},
+	}
+	cmd.Flags().StringVar(&addr, "addr", ":9090", "listen address for Coordinator HTTP API")
 	return cmd
 }
 

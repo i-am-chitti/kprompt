@@ -77,6 +77,26 @@ All of the above stay **local / in-cluster** — not uploaded to `api.kprompt.ai
 - Treat InvestigationReport / Slack text as sensitive (may include log snippets).
 - Autopilot propose audit files may name workloads — protect laptop paths in shared demos.
 
+## Coordinator (AG-037…AG-039)
+
+```bash
+# Laptop / kind
+kprompt agent coordinator --addr :9090
+
+# In-cluster
+helm upgrade --install kprompt-coordinator ./charts/kprompt-coordinator \
+  -n kprompt-system --create-namespace
+```
+
+| Check | Expect |
+|-------|--------|
+| `GET /healthz` | `ok` |
+| `POST /v1/handoff` | `CoordinatorReply` JSON, `mutateAttempted: false` |
+| RBAC | SA only by default — **no** ClusterRole unless `rbac.clusterRole.create=true` (namespaces get/list only) |
+| Ns agents | Stay Role-scoped; point `--coordinator-url` at the Service `/v1/handoff` |
+
+Handoff errors on the ns agent: URL wrong, report validation failed, or Coordinator down — Observe loop continues.
+
 ## Escalation path
 
 1. Namespace Agent report + Slack thread  

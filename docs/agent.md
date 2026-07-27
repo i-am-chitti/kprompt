@@ -187,7 +187,7 @@ Secrets are never watched implicitly and only metadata (type + key count) is emi
 
 **Slack ask (AG-019):** `--slack-ask` listens on `--slack-ask-addr` (default `:8080`) for Slack Events (`status` / `why` / `what broke` / `false positive`). Read-only for the cluster — never mutates. With `--patterns`, `false positive` dampens future “seen before” boosts (AG-033). Requires bot token mode + Events API URL (or port-forward).
 
-**Coordinator handoff (AG-036):** `--coordinator-url` POSTs a `CoordinatorHandoff` envelope when analysis Unknowns suggest a dependency outside the namespace ([ADR-0017](https://github.com/kprompt/kprompt-architecture/blob/main/decisions/ADR-0017-coordinator.md)). Opt-in; Coordinator mutate stays off.
+**Coordinator handoff (AG-036 · AG-037):** Ns agents POST with `--coordinator-url`. Run the thin fan-in with `kprompt agent coordinator --addr :9090` (or Helm [`charts/kprompt-coordinator`](../charts/kprompt-coordinator)). Returns `CoordinatorReply` with merged InvestigationReport; **mutate stays off** ([ADR-0017](https://github.com/kprompt/kprompt-architecture/blob/main/decisions/ADR-0017-coordinator.md)).
 
 ## Pipeline flags
 
