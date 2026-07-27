@@ -289,6 +289,30 @@ func TestBuildLearn(t *testing.T) {
 	}
 }
 
+func TestBuildDrift(t *testing.T) {
+	plan, err := Build(intent.Intent{
+		Kind:   intent.KindDrift,
+		Target: intent.Target{Namespace: "flux-system", Kind: "Namespace"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if plan.RequiresApproval || len(plan.Actions) != 1 || plan.Actions[0].Op != OpDrift {
+		t.Fatalf("plan=%+v", plan)
+	}
+	clusterPlan, err := Build(intent.Intent{
+		Kind:   intent.KindDrift,
+		Target: intent.Target{Kind: "Cluster"},
+		Params: map[string]any{"scope": "cluster"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if clusterPlan.Actions[0].Object.Namespace != "" {
+		t.Fatalf("cluster scope should clear namespace: %+v", clusterPlan.Actions[0].Object)
+	}
+}
+
 func TestBuildRollback(t *testing.T) {
 	plan, err := Build(intent.Intent{
 		Kind:   intent.KindRollback,

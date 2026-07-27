@@ -45,3 +45,19 @@ func TestDetailLabel(t *testing.T) {
 		t.Fatalf("%s", got)
 	}
 }
+
+func TestResourceDriftsFromApp(t *testing.T) {
+	obj := &unstructured.Unstructured{Object: map[string]any{
+		"metadata": map[string]any{"name": "shop", "namespace": "argocd"},
+		"status": map[string]any{
+			"resources": []any{
+				map[string]any{"group": "apps", "version": "v1", "kind": "Deployment", "name": "api", "namespace": "shop", "status": "OutOfSync"},
+				map[string]any{"group": "apps", "version": "v1", "kind": "Deployment", "name": "ok", "namespace": "shop", "status": "Synced"},
+			},
+		},
+	}}
+	got := resourceDriftsFromApp(obj)
+	if len(got) != 1 || got[0].Name != "api" || got[0].APIVersion != "apps/v1" {
+		t.Fatalf("%+v", got)
+	}
+}

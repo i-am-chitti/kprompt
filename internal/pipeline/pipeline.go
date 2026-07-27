@@ -17,6 +17,7 @@ import (
 	"github.com/kprompt/kprompt/internal/cleanup"
 	"github.com/kprompt/kprompt/internal/cluster"
 	"github.com/kprompt/kprompt/internal/config"
+	"github.com/kprompt/kprompt/internal/drift"
 	"github.com/kprompt/kprompt/internal/executor"
 	"github.com/kprompt/kprompt/internal/graph"
 	"github.com/kprompt/kprompt/internal/history"
@@ -156,6 +157,10 @@ func RunWith(ctx context.Context, cfg config.Resolved, out io.Writer, deps Deps)
 		ForceNamespace:   cfg.NamespaceFromCLI,
 	})
 	in = intent.ApplyCleanupScope(in, cfg.Prompt, intent.ScopePrefs{
+		DefaultNamespace: cfg.Namespace,
+		ForceNamespace:   cfg.NamespaceFromCLI,
+	})
+	in = intent.ApplyDriftScope(in, cfg.Prompt, intent.ScopePrefs{
 		DefaultNamespace: cfg.Namespace,
 		ForceNamespace:   cfg.NamespaceFromCLI,
 	})
@@ -822,6 +827,64 @@ func RunWith(ctx context.Context, cfg config.Resolved, out io.Writer, deps Deps)
 			}
 			applied = true
 			return nil
+		case intent.KindDrift:
+			cfgREST, err := restConfigForArgo(cfg.Context, restCfg)
+			if err != nil {
+				return err
+			}
+			req, err := driftFromPlan(plan, cfg.Prompt)
+			if err != nil {
+				return err
+			}
+			invDoc, err := (&drift.Analyzer{Config: cfgREST}).Run(ctx, req)
+			if err != nil {
+				return cluster.Friendlier(fmt.Errorf("drift: %w", err))
+			}
+			doc = doc.WithInvestigationResult(invDoc)
+			if jsonMode {
+				applied = true
+				return nil
+			}
+			ui.PrintInvestigation(out, invDoc, cluster.ExplainReport{})
+
+			suggestions, err := suggest.FromDrift(invDoc)
+			if err != nil {
+				return cluster.Friendlier(fmt.Errorf("suggest: %w", err))
+			}
+			ui.PrintSuggestions(out, suggestions)
+
+			actionable := suggest.ActionablePlans(suggestions)
+			if len(actionable) == 0 {
+				applied = true
+				return nil
+			}
+			for _, sug := range actionable {
+				patch := *sug.Plan
+				patchRisk := safety.EvaluatePlanWithOrg(patch, orgPolicy(deps))
+				if patchRisk.Denied {
+					ui.PrintDenied(out, patchRisk.Message)
+					continue
+				}
+				fmt.Fprintln(out, "Suggested GitOps sync (requires approval):")
+				ui.PrintPlan(out, patch, patchRisk)
+				approved, err := resolveApproval(cfg.Approve, out, deps)
+				if err != nil {
+					return err
+				}
+				if !approved {
+					continue
+				}
+				if !executor.IsGitOpsSyncPlan(patch) {
+					return fmt.Errorf("drift suggest: expected gitops sync plan")
+				}
+				st, err := executor.ApplyGitOpsSync(ctx, cfgREST, patch)
+				if err != nil {
+					return cluster.Friendlier(fmt.Errorf("apply suggested sync: %w", err))
+				}
+				ui.PrintGitOpsSyncApplied(out, patch, st)
+			}
+			applied = true
+			return nil
 		case intent.KindCleanup:
 			req, err := cleanupFromPlan(plan, cfg.Prompt)
 			if err != nil {
@@ -1213,7 +1276,7 @@ func isReadOnly(plan planner.ExecutionPlan) bool {
 		return false
 	}
 	switch plan.Intent.Kind {
-	case intent.KindGet, intent.KindExplain, intent.KindInvestigate, intent.KindWhy, intent.KindTimeline, intent.KindImpact, intent.KindAudit, intent.KindCleanup, intent.KindLearn, intent.KindLogs, intent.KindDescribe, intent.KindPerformance, intent.KindTrace, intent.KindDashboard, intent.KindOptimize, intent.KindGraph, intent.KindIstio, intent.KindGitOps:
+	case intent.KindGet, intent.KindExplain, intent.KindInvestigate, intent.KindWhy, intent.KindTimeline, intent.KindImpact, intent.KindAudit, intent.KindCleanup, intent.KindLearn, intent.KindDrift, intent.KindLogs, intent.KindDescribe, intent.KindPerformance, intent.KindTrace, intent.KindDashboard, intent.KindOptimize, intent.KindGraph, intent.KindIstio, intent.KindGitOps:
 		return true
 	default:
 		return false
@@ -1469,6 +1532,20 @@ func cleanupFromPlan(plan planner.ExecutionPlan, prompt string) (cleanup.Request
 	a := plan.Actions[0]
 	return cleanup.Request{
 		Namespace: a.Object.Namespace,
+		Prompt:    prompt,
+	}, nil
+}
+
+func driftFromPlan(plan planner.ExecutionPlan, prompt string) (drift.Request, error) {
+	if len(plan.Actions) == 0 {
+		return drift.Request{}, fmt.Errorf("drift plan has no actions")
+	}
+	a := plan.Actions[0]
+	engine, _ := plan.Intent.StringParam("engine")
+	return drift.Request{
+		Namespace: a.Object.Namespace,
+		Name:      a.Object.Name,
+		Engine:    engine,
 		Prompt:    prompt,
 	}, nil
 }

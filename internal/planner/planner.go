@@ -75,6 +75,8 @@ func Build(in intent.Intent) (ExecutionPlan, error) {
 		return buildCleanup(in)
 	case intent.KindLearn:
 		return buildLearn(in)
+	case intent.KindDrift:
+		return buildDrift(in)
 	case intent.KindDelete:
 		return buildDelete(in, ns)
 	case intent.KindDeny:

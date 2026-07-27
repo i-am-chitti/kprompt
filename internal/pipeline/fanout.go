@@ -26,7 +26,7 @@ func fanOutContexts(cfg config.Resolved) []string {
 
 func supportsReadFanOut(kind intent.Kind) bool {
 	switch kind {
-	case intent.KindGet, intent.KindExplain, intent.KindInvestigate, intent.KindWhy, intent.KindTimeline, intent.KindImpact, intent.KindAudit, intent.KindCleanup, intent.KindLearn, intent.KindLogs, intent.KindDescribe, intent.KindOptimize:
+	case intent.KindGet, intent.KindExplain, intent.KindInvestigate, intent.KindWhy, intent.KindTimeline, intent.KindImpact, intent.KindAudit, intent.KindCleanup, intent.KindLearn, intent.KindDrift, intent.KindLogs, intent.KindDescribe, intent.KindOptimize:
 		return true
 	default:
 		return false
@@ -67,7 +67,7 @@ func runMultiContextReads(
 
 	if !supportsReadFanOut(plan.Intent.Kind) {
 		msg := fmt.Sprintf(
-			"multi-context fan-out supports get/list/explain/investigate/why/timeline/impact/audit/cleanup/learn/logs/describe/optimize only (got %s)",
+			"multi-context fan-out supports get/list/explain/investigate/why/timeline/impact/audit/cleanup/learn/drift/logs/describe/optimize only (got %s)",
 			plan.Intent.Kind,
 		)
 		return denyFanOut(out, deps, cfg, plan, jsonMode, msg)
