@@ -3,12 +3,14 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"os"
 
 	"github.com/spf13/cobra"
 
 	"github.com/kprompt/kprompt/internal/config"
 	"github.com/kprompt/kprompt/internal/setup"
 	"github.com/kprompt/kprompt/internal/tools"
+	"github.com/kprompt/kprompt/internal/ui"
 )
 
 func newSetupCmd() *cobra.Command {
@@ -22,19 +24,21 @@ func newSetupCmd() *cobra.Command {
 
 	cmd := &cobra.Command{
 		Use:   "setup",
-		Short: "Detect gaps and print a bootstrap plan (dry-run)",
-		Long: `Builds an install/configure plan from tools.Detect (ADR-0018 · T-062).
+		Short: "Detect gaps; dry-run plan or approve host CLI installs",
+		Long: `Builds a bootstrap plan from tools.Detect (ADR-0018).
 
-Default is dry-run: prints host / cluster / config steps for the selected profile.
-Never installs silently. Host apply = T-063 · cluster apply = T-064.
+Default is dry-run. With --approve (or interactive confirm), installs missing
+host CLIs where safe (T-063: Helm via brew / get-helm-3). Cluster operators
+and URL config are still plan-only (T-064).
 
 Profiles:
   minimal   Helm CLI only
   platform  Helm + Argo Workflows + Prometheus (default)
   full      platform + Grafana + OpenTelemetry URL config
 
+` + setup.OSMatrixDoc() + `
   kprompt setup
-  kprompt setup --profile minimal
+  kprompt setup --profile minimal --approve
   kprompt setup --dry-run --json
   kprompt setup --profile platform --context kind-dev`,
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -73,18 +77,53 @@ Profiles:
 				}
 			}
 
-			if approve {
-				return fmt.Errorf("setup --approve apply is not implemented yet (host T-063 / cluster T-064); plan printed above is dry-run only — nothing was installed")
+			hostSteps := setup.HostNeeded(plan)
+			if len(hostSteps) == 0 {
+				if approve {
+					fmt.Fprintln(cmd.OutOrStdout(), "\nNo host CLIs to install (skip or already on PATH). Cluster/config steps stay plan-only (T-064).")
+				}
+				return nil
 			}
-			_ = dryRun // default true; flag kept for UX honesty / future apply gate
+
+			// Dry-run only unless approve or interactive confirm.
+			wantApply := approve
+			if !wantApply {
+				if dryRun && !ui.StdinIsTerminal() {
+					fmt.Fprintln(cmd.OutOrStdout(), "\nHost installs available — re-run with --approve, or in a TTY to confirm.")
+					return nil
+				}
+				if !ui.StdinIsTerminal() {
+					ui.PrintNeedsApprove(cmd.OutOrStdout())
+					return nil
+				}
+				ok, err := ui.ConfirmHostInstall(os.Stdin, cmd.OutOrStdout())
+				if err != nil {
+					return err
+				}
+				if !ok {
+					ui.PrintAborted(cmd.OutOrStdout())
+					return nil
+				}
+				wantApply = true
+			}
+			if !wantApply {
+				return nil
+			}
+
+			rep, err := setup.ApplyHost(cmd.Context(), plan, setup.DefaultRunner{}, cmd.OutOrStdout())
+			setup.FormatApply(cmd.OutOrStdout(), rep)
+			if err != nil {
+				return err
+			}
+			fmt.Fprintln(cmd.OutOrStdout(), "Cluster/config steps were not applied (T-064 / manual config). Re-check: kprompt tools")
 			return nil
 		},
 	}
 
 	cmd.Flags().StringVar(&kubeCtx, "context", "", "kubeconfig context for cluster / CRD checks")
 	cmd.Flags().StringVar(&profile, "profile", setup.ProfilePlatform, "setup profile: minimal|platform|full")
-	cmd.Flags().BoolVar(&dryRun, "dry-run", true, "print plan only (default; mutations require later T-063/T-064)")
-	cmd.Flags().BoolVar(&approve, "approve", false, "reserved for apply (T-063/T-064) — errors in T-062")
+	cmd.Flags().BoolVar(&dryRun, "dry-run", true, "print plan only (default); host apply needs --approve or TTY confirm")
+	cmd.Flags().BoolVar(&approve, "approve", false, "install missing host CLIs from the plan (T-063; never silent)")
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "emit JSON plan")
 	return cmd
 }

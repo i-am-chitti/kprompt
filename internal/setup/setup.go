@@ -1,7 +1,7 @@
-// Package setup builds dry-run bootstrap plans from tools.Detect (T-062 · ADR-0018).
+// Package setup builds bootstrap plans from tools.Detect and optionally
+// installs missing host CLIs (ADR-0018 · T-062 plan · T-063 host apply).
 //
-// Detect + plan only in this task — host/cluster apply lands in T-063 / T-064.
-// Never mutates the cluster or host silently.
+// Cluster operator apply is T-064. Never mutates the cluster or host silently.
 package setup
 
 import (
@@ -93,8 +93,8 @@ func BuildPlan(reg *tools.Registry, opts Options) (Plan, error) {
 		DryRun:  true, // T-062 never applies
 		Steps:   make([]Step, 0, 8),
 		Notes: []string{
-			"Dry-run only — no host or cluster mutations (ADR-0018 · T-062).",
-			"Host install apply: T-063 · Cluster operator apply: T-064 · Profiles/flags: T-065.",
+			"Plan from tools.Detect (ADR-0018). Default is dry-run.",
+			"Host CLI apply: kprompt setup --approve (T-063 · Helm). Cluster operators: T-064.",
 			"Re-check with: kprompt tools · kprompt doctor",
 		},
 	}
@@ -307,7 +307,7 @@ func FormatText(w io.Writer, plan Plan) error {
 		}
 	}
 	if plan.Needed > 0 {
-		fmt.Fprintln(w, "\nNo mutations performed. When apply ships: review this plan, then use --approve (T-063/T-064).")
+		fmt.Fprintln(w, "\nNo mutations performed yet. Host CLIs: --approve or TTY confirm (T-063). Cluster: T-064.")
 	}
 	return nil
 }
