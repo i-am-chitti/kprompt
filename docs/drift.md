@@ -35,8 +35,9 @@ kprompt "check drift" --output json | jq '.result'
 For each `Drift.OutOfSync` app, suggest may offer a single-app Flux reconcile or
 Argo CD sync plan. That is live reconcile toward Git — **not** a PR.
 
-Opening or updating a Git PR instead of cluster mutate is **T-072** (not shipped).
-Drift documents that path as guidance only.
+Opening or updating a GitHub PR instead of cluster mutate is **`--gitops`**
+([docs/gitops-pr.md](./gitops-pr.md) · T-072). Drift documents that path as
+guidance when you want Git review before reconcile.
 
 ## Honest limits
 

@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/kprompt/kprompt/internal/cluster"
+	"github.com/kprompt/kprompt/internal/gitopspr"
 	"github.com/kprompt/kprompt/internal/graph"
 	"github.com/kprompt/kprompt/internal/incident"
 	"github.com/kprompt/kprompt/internal/learn"
@@ -119,6 +120,40 @@ func PrintPlan(w io.Writer, plan planner.ExecutionPlan, risk safety.Result) {
 	if plan.RequiresApproval {
 		fmt.Fprintln(w, t.Muted("Next: confirm interactively on a TTY, or re-run with --approve."))
 	}
+}
+
+// PrintGitOpsPRTarget announces that this mutate will open a PR (T-072), not cluster apply.
+func PrintGitOpsPRTarget(w io.Writer, target gitopspr.Target) {
+	t := themeFor(w)
+	fmt.Fprintf(w, "%s %s\n", t.Heading("Apply target:"), t.Accent("Git PR (not cluster)"))
+	repo := strings.TrimSpace(target.Repo)
+	if repo == "" {
+		repo = "(unset — set gitops.repo / --gitops-repo / KPROMPT_GITOPS_REPO)"
+	}
+	fmt.Fprintf(w, "  repo:  %s\n", t.Accent(repo))
+	path := strings.TrimSpace(target.Path)
+	if path == "" {
+		path = "kprompt"
+	}
+	fmt.Fprintf(w, "  path:  %s/\n", path)
+	base := strings.TrimSpace(target.BaseBranch)
+	if base == "" {
+		base = "main"
+	}
+	fmt.Fprintf(w, "  base:  %s\n", base)
+}
+
+// PrintGitOpsPROpened prints a successful PR open (T-072).
+func PrintGitOpsPROpened(w io.Writer, res gitopspr.Result) {
+	t := themeFor(w)
+	fmt.Fprintf(w, "%s %s\n", t.Heading("✓ PR opened:"), t.Accent(res.URL))
+	if res.Branch != "" {
+		fmt.Fprintf(w, "  branch: %s → %s\n", res.Branch, res.BaseBranch)
+	}
+	for _, f := range res.Files {
+		fmt.Fprintf(w, "  file:   %s\n", f.Path)
+	}
+	fmt.Fprintln(w, t.Muted("Cluster was not mutated. Merge the PR and let Flux/Argo CD reconcile."))
 }
 
 // PrintBlastRadius prints the T-069 review-aid impact summary.

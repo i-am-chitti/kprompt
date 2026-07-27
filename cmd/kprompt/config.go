@@ -25,7 +25,7 @@ func newConfigCmd() *cobra.Command {
 
 	cmd.AddCommand(&cobra.Command{
 		Use:   "set <key> <value>",
-		Short: "Set a config value (provider|model|base_url|context|namespace|require_alias_match|tools.*)",
+		Short: "Set a config value (provider|model|base_url|context|namespace|require_alias_match|tools.*|gitops.*)",
 		Args:  cobra.ExactArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			f, err := config.SetField(args[0], args[1])
@@ -116,6 +116,17 @@ func displaySet(key string, f config.File) string {
 		return f.Namespace
 	case "require_alias_match", "require-alias-match":
 		return fmt.Sprintf("%v", f.RequireAliasMatch)
+	case "gitops.mode":
+		if f.GitOps.Mode == "" {
+			return "apply"
+		}
+		return f.GitOps.Mode
+	case "gitops.repo":
+		return f.GitOps.Repo
+	case "gitops.path":
+		return f.GitOps.Path
+	case "gitops.base_branch", "gitops.base-branch":
+		return f.GitOps.BaseBranch
 	default:
 		return ""
 	}

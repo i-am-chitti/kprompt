@@ -5,6 +5,7 @@ import (
 	"io"
 
 	"github.com/kprompt/kprompt/internal/cluster"
+	"github.com/kprompt/kprompt/internal/gitopspr"
 	"github.com/kprompt/kprompt/internal/graph"
 	"github.com/kprompt/kprompt/internal/incident"
 	"github.com/kprompt/kprompt/internal/learn"
@@ -413,6 +414,30 @@ func (r PlanResult) WithOptimizeResult(report optimize.Report) PlanResult {
 // WithLearnResult attaches a persisted cluster tool profile (S-009).
 func (r PlanResult) WithLearnResult(p learn.Profile) PlanResult {
 	raw, _ := json.Marshal(p)
+	r.Result = raw
+	return r
+}
+
+// WithGitOpsPRResult attaches a GitHub PR opened instead of cluster apply (T-072).
+func (r PlanResult) WithGitOpsPRResult(res gitopspr.Result) PlanResult {
+	payload := map[string]any{
+		"type":        res.Type,
+		"url":         res.URL,
+		"repo":        res.Repo,
+		"baseBranch":  res.BaseBranch,
+		"branch":      res.Branch,
+		"title":       res.Title,
+		"message":     res.Message,
+		"applyTarget": "gitops-pr",
+	}
+	if len(res.Files) > 0 {
+		files := make([]map[string]string, 0, len(res.Files))
+		for _, f := range res.Files {
+			files = append(files, map[string]string{"path": f.Path})
+		}
+		payload["files"] = files
+	}
+	raw, _ := json.Marshal(payload)
 	r.Result = raw
 	return r
 }

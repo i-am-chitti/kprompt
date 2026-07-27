@@ -28,6 +28,10 @@ var (
 	namespace          string
 	outputFmt          string
 	theme              string
+	gitopsPR           bool
+	gitopsRepo         string
+	gitopsPath         string
+	gitopsBaseBranch   string
 )
 
 func main() {
@@ -59,6 +63,18 @@ func main() {
 			cfg.ContextFromCLI = cmd.Flags().Changed("context") || cmd.Flags().Changed("contexts")
 			if cmd.Flags().Changed("theme") {
 				cfg.Theme = theme
+			}
+			if gitopsPR || cmd.Flags().Changed("gitops") {
+				cfg.GitOpsPR = gitopsPR
+			}
+			if cmd.Flags().Changed("gitops-repo") {
+				cfg.GitOpsRepo = gitopsRepo
+			}
+			if cmd.Flags().Changed("gitops-path") {
+				cfg.GitOpsPath = gitopsPath
+			}
+			if cmd.Flags().Changed("gitops-base-branch") {
+				cfg.GitOpsBaseBranch = gitopsBaseBranch
 			}
 			if raw := strings.TrimSpace(kubeCtxs); raw != "" {
 				names := config.ParseContextsFlag(raw)
@@ -93,6 +109,10 @@ func main() {
 	root.PersistentFlags().StringVarP(&namespace, "namespace", "n", "", "default namespace")
 	root.PersistentFlags().StringVarP(&outputFmt, "output", "o", "text", "output format: text|json")
 	root.PersistentFlags().StringVar(&theme, "theme", "", "color theme: auto|dracula|nord|gruvbox|mono|none")
+	root.PersistentFlags().BoolVar(&gitopsPR, "gitops", false, "open/update a GitHub PR instead of applying to the cluster (T-072; requires gitops.repo)")
+	root.PersistentFlags().StringVar(&gitopsRepo, "gitops-repo", "", "GitHub owner/name for --gitops (or config gitops.repo / KPROMPT_GITOPS_REPO)")
+	root.PersistentFlags().StringVar(&gitopsPath, "gitops-path", "", "path prefix inside the repo for PR files (default kprompt)")
+	root.PersistentFlags().StringVar(&gitopsBaseBranch, "gitops-base-branch", "", "PR base branch (default main)")
 
 	root.AddCommand(&cobra.Command{
 		Use:   "version",

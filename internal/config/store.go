@@ -82,8 +82,21 @@ func SetField(key, value string) (File, error) {
 		default:
 			return File{}, fmt.Errorf("tools.otel.backend must be auto, jaeger, or tempo")
 		}
+	case "gitops.mode":
+		switch strings.ToLower(v) {
+		case "", "apply", "pr":
+			f.GitOps.Mode = strings.ToLower(v)
+		default:
+			return File{}, fmt.Errorf("gitops.mode must be apply or pr")
+		}
+	case "gitops.repo":
+		f.GitOps.Repo = v
+	case "gitops.path":
+		f.GitOps.Path = v
+	case "gitops.base_branch", "gitops.base-branch":
+		f.GitOps.BaseBranch = v
 	default:
-		return File{}, fmt.Errorf("unknown config key %q (allowed: provider, model, base_url, context, namespace, theme, require_alias_match, tools.prometheus.url, tools.grafana.url, tools.otel.endpoint, tools.otel.backend)", key)
+		return File{}, fmt.Errorf("unknown config key %q (allowed: provider, model, base_url, context, namespace, theme, require_alias_match, tools.prometheus.url, tools.grafana.url, tools.otel.endpoint, tools.otel.backend, gitops.mode, gitops.repo, gitops.path, gitops.base_branch)", key)
 	}
 	if err := SaveFile(f); err != nil {
 		return File{}, err
@@ -102,6 +115,10 @@ type View struct {
 	Theme             string
 	Aliases           []string
 	RequireAliasMatch bool
+	GitOpsMode        string
+	GitOpsRepo        string
+	GitOpsPath        string
+	GitOpsBaseBranch  string
 	APIKey            string // "set" | "unset" | "optional" — never the secret
 	EnvHints          []string
 }
@@ -127,6 +144,10 @@ func BuildView() (View, error) {
 		Theme:             themeOrAuto(r.Theme),
 		Aliases:           AliasLines(f.Aliases),
 		RequireAliasMatch: f.RequireAliasMatch,
+		GitOpsMode:        f.GitOps.Mode,
+		GitOpsRepo:        f.GitOps.Repo,
+		GitOpsPath:        f.GitOps.Path,
+		GitOpsBaseBranch:  f.GitOps.BaseBranch,
 	}
 	preset, ok := llm.LookupPreset(r.Provider)
 	if ok {
@@ -175,6 +196,10 @@ func FormatView(v View) string {
 	fmt.Fprintf(&b, "theme:       %s\n", v.Theme)
 	fmt.Fprintf(&b, "context:     %s\n", v.Context)
 	fmt.Fprintf(&b, "require_alias_match: %v\n", v.RequireAliasMatch)
+	fmt.Fprintf(&b, "gitops.mode: %s\n", emptyDash(firstNonEmptyView(v.GitOpsMode, "apply")))
+	fmt.Fprintf(&b, "gitops.repo: %s\n", emptyDash(v.GitOpsRepo))
+	fmt.Fprintf(&b, "gitops.path: %s\n", emptyDash(v.GitOpsPath))
+	fmt.Fprintf(&b, "gitops.base_branch: %s\n", emptyDash(firstNonEmptyView(v.GitOpsBaseBranch, "main")))
 	if len(v.Aliases) == 0 {
 		fmt.Fprintf(&b, "aliases:     (none — kprompt config alias set <name> <kube-context>)\n")
 	} else {
@@ -197,4 +222,13 @@ func emptyDash(s string) string {
 		return "-"
 	}
 	return s
+}
+
+func firstNonEmptyView(vals ...string) string {
+	for _, v := range vals {
+		if strings.TrimSpace(v) != "" {
+			return strings.TrimSpace(v)
+		}
+	}
+	return ""
 }

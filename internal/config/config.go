@@ -28,6 +28,15 @@ type File struct {
 	Aliases           map[string]string `yaml:"aliases,omitempty"`
 	RequireAliasMatch bool              `yaml:"require_alias_match,omitempty"`
 	Tools             ToolsFile         `yaml:"tools,omitempty"`
+	GitOps            GitOpsFile        `yaml:"gitops,omitempty"`
+}
+
+// GitOpsFile configures T-072 PR-mode apply (distinct from tools.gitops enable/disable).
+type GitOpsFile struct {
+	Mode       string `yaml:"mode,omitempty"`        // apply (default) | pr
+	Repo       string `yaml:"repo,omitempty"`        // owner/name
+	Path       string `yaml:"path,omitempty"`        // path prefix in the repo
+	BaseBranch string `yaml:"base_branch,omitempty"` // default main
 }
 
 // ToolsFile holds integration endpoints and opt-outs (no secrets).
@@ -77,11 +86,20 @@ type Resolved struct {
 	Namespace string
 	Theme     string
 	Tools     ToolsFile
+	GitOps    GitOpsFile
 	Approve   bool
 	Wait      bool
 	Timeout   time.Duration // used with Wait; 0 means default (5m)
 	Output    string        // "", "text", or "json"
 	Prompt    string
+	// GitOpsPR forces PR mode for this run (CLI --gitops), overriding file/env mode.
+	GitOpsPR bool
+	// GitOpsRepo overrides gitops.repo for this run.
+	GitOpsRepo string
+	// GitOpsPath overrides gitops.path for this run.
+	GitOpsPath string
+	// GitOpsBaseBranch overrides gitops.base_branch for this run.
+	GitOpsBaseBranch string
 
 	// Aliases maps short names (prod) → kubeconfig context names.
 	Aliases map[string]string
@@ -104,6 +122,24 @@ type Resolved struct {
 // JSONOutput reports whether machine-readable JSON should be emitted.
 func (r Resolved) JSONOutput() bool {
 	return strings.EqualFold(strings.TrimSpace(r.Output), "json")
+}
+
+// EffectiveGitOps returns PR-mode settings with CLI overrides applied.
+func (r Resolved) EffectiveGitOps() GitOpsFile {
+	g := r.GitOps
+	if r.GitOpsPR {
+		g.Mode = "pr"
+	}
+	if v := strings.TrimSpace(r.GitOpsRepo); v != "" {
+		g.Repo = v
+	}
+	if v := strings.TrimSpace(r.GitOpsPath); v != "" {
+		g.Path = v
+	}
+	if v := strings.TrimSpace(r.GitOpsBaseBranch); v != "" {
+		g.BaseBranch = v
+	}
+	return g
 }
 
 // LoadFile reads ~/.kprompt/config.yaml if present.
@@ -186,6 +222,7 @@ func Merge(file File, provider, model, context, namespace string, approve bool, 
 		Namespace:         first(namespace, file.Namespace, "default"),
 		Theme:             strings.ToLower(strings.TrimSpace(file.Theme)),
 		Tools:             file.Tools,
+		GitOps:            file.GitOps,
 		Aliases:           file.Aliases,
 		RequireAliasMatch: file.RequireAliasMatch,
 		Approve:           approve,

@@ -19,6 +19,7 @@ import (
 	"github.com/kprompt/kprompt/internal/config"
 	"github.com/kprompt/kprompt/internal/drift"
 	"github.com/kprompt/kprompt/internal/executor"
+	"github.com/kprompt/kprompt/internal/gitopspr"
 	"github.com/kprompt/kprompt/internal/graph"
 	"github.com/kprompt/kprompt/internal/history"
 	"github.com/kprompt/kprompt/internal/impact"
@@ -273,7 +274,18 @@ func RunWith(ctx context.Context, cfg config.Resolved, out io.Writer, deps Deps)
 	}
 
 	doc := output.FromPlan(cfg.Prompt, cfg.Context, plan, risk, false)
+	gitopsSettings := gitopspr.LoadSettings(config.File{GitOps: cfg.EffectiveGitOps()})
+	if cfg.GitOpsPR {
+		gitopsSettings.Mode = gitopspr.ModePR
+	}
 	if !jsonMode && !cfg.FanOutChild {
+		if gitopsSettings.Enabled() && plan.RequiresApproval {
+			ui.PrintGitOpsPRTarget(out, gitopspr.Target{
+				Repo:       gitopsSettings.Repo,
+				Path:       gitopsSettings.Path,
+				BaseBranch: gitopsSettings.BaseBranch,
+			})
+		}
 		ui.PrintPlan(out, plan, risk)
 	}
 
@@ -1020,7 +1032,7 @@ func RunWith(ctx context.Context, cfg config.Resolved, out io.Writer, deps Deps)
 		}
 	}
 
-	approved, err := resolveApproval(cfg.Approve, human, deps)
+	approved, err := resolveApprovalMode(cfg.Approve, human, deps, gitopsSettings.Enabled())
 	if err != nil {
 		return err
 	}
@@ -1029,6 +1041,26 @@ func RunWith(ctx context.Context, cfg config.Resolved, out io.Writer, deps Deps)
 		return nil
 	}
 	decision = "approved"
+
+	if gitopsSettings.Enabled() {
+		if !plan.RequiresApproval {
+			return fmt.Errorf("gitops PR mode only applies to mutating plans")
+		}
+		res, err := gitopspr.OpenFromPlan(ctx, plan, gitopspr.Options{
+			Settings: gitopsSettings,
+			Prompt:   cfg.Prompt,
+		})
+		if err != nil {
+			return cluster.Friendlier(fmt.Errorf("gitops pr: %w", err))
+		}
+		doc = doc.WithGitOpsPRResult(res)
+		if !jsonMode {
+			ui.PrintGitOpsPROpened(human, res)
+		}
+		applied = true
+		decision = "pr_opened"
+		return nil
+	}
 
 	runner := &executor.Runner{Client: client}
 	if executor.IsArgoWorkflowPlan(plan) {
@@ -1205,6 +1237,10 @@ func deploymentWaitTargets(plan planner.ExecutionPlan) []planner.ObjectRef {
 }
 
 func resolveApproval(flagApprove bool, out io.Writer, deps Deps) (bool, error) {
+	return resolveApprovalMode(flagApprove, out, deps, false)
+}
+
+func resolveApprovalMode(flagApprove bool, out io.Writer, deps Deps, prMode bool) (bool, error) {
 	if flagApprove {
 		return true, nil
 	}
@@ -1223,10 +1259,20 @@ func resolveApproval(flagApprove bool, out io.Writer, deps Deps) (bool, error) {
 		isTTY = *deps.IsTerminal
 	}
 	if !isTTY {
-		ui.PrintNeedsApprove(out)
+		if prMode {
+			ui.PrintNeedsApprovePR(out)
+		} else {
+			ui.PrintNeedsApprove(out)
+		}
 		return false, nil
 	}
-	ok, err := ui.ConfirmApply(os.Stdin, out)
+	var ok bool
+	var err error
+	if prMode {
+		ok, err = ui.ConfirmOpenPR(os.Stdin, out)
+	} else {
+		ok, err = ui.ConfirmApply(os.Stdin, out)
+	}
 	if err != nil {
 		return false, err
 	}

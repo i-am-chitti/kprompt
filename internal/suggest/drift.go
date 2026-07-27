@@ -55,7 +55,7 @@ func FromDrift(inv incident.Investigation) ([]Suggestion, error) {
 			addDriftGuidance(&out, seenGuide, f.Code,
 				"Install GitOps to enable drift",
 				"learn cluster tools",
-				"Install Flux or Argo CD, then re-run drift. Optional GitOps PR apply mode is T-072 (not shipped)")
+				"Install Flux or Argo CD, then re-run drift. Optional: kprompt --gitops opens a PR (T-072) once gitops.repo is set")
 		}
 	}
 
@@ -63,7 +63,7 @@ func FromDrift(inv incident.Investigation) ([]Suggestion, error) {
 		addDriftGuidance(&out, seenGuide, "Drift.PRMode",
 			"Prefer a Git PR instead of live sync?",
 			"gitops pr mode",
-			"Live sync reconciles toward Git desired state. Opening/updating a PR instead of cluster mutate is T-072 (not shipped yet)")
+			"Live sync reconciles toward Git desired state. Prefer --gitops to open a PR instead of cluster mutate (T-072)")
 	}
 	return out, nil
 }

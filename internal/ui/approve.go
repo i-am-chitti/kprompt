@@ -21,6 +21,27 @@ func ConfirmApply(in io.Reader, out io.Writer) (bool, error) {
 	return ConfirmApplyContext(in, out, "")
 }
 
+// ConfirmOpenPR prompts opening a GitHub PR instead of cluster apply (T-072).
+func ConfirmOpenPR(in io.Reader, out io.Writer) (bool, error) {
+	t := themeFor(out)
+	fmt.Fprint(out, t.Bold("Open this plan as a GitHub PR?")+" [y/N]: ")
+	if f, ok := out.(*os.File); ok {
+		_ = f.Sync()
+	}
+	reader := bufio.NewReader(in)
+	line, err := reader.ReadString('\n')
+	if err != nil && err != io.EOF {
+		return false, err
+	}
+	answer := strings.TrimSpace(strings.ToLower(line))
+	switch answer {
+	case "y", "yes":
+		return true, nil
+	default:
+		return false, nil
+	}
+}
+
 // ConfirmApplyContext prompts apply for a specific kube context (multi-mutate fan-out).
 func ConfirmApplyContext(in io.Reader, out io.Writer, contextName string) (bool, error) {
 	t := themeFor(out)
@@ -66,6 +87,12 @@ func ConfirmPhrase(in io.Reader, out io.Writer, phrase string) (bool, error) {
 func PrintNeedsApprove(w io.Writer) {
 	t := themeFor(w)
 	fmt.Fprintln(w, t.Warn("Mutation requires approval. Re-run with --approve, or run in a TTY to confirm interactively."))
+}
+
+// PrintNeedsApprovePR reminds non-interactive users to pass --approve for PR mode.
+func PrintNeedsApprovePR(w io.Writer) {
+	t := themeFor(w)
+	fmt.Fprintln(w, t.Warn("Opening a GitOps PR requires approval. Re-run with --approve, or run in a TTY to confirm interactively."))
 }
 
 // PrintNeedsApproveEachContext explains why plain --approve is refused for multi-context mutate.
