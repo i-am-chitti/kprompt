@@ -43,7 +43,9 @@ helm upgrade --install kprompt-agent ./charts/kprompt-agent \
 | `agent.memory` | `true` | AG-015 namespace deps/facts |
 | `agent.patterns` | `true` | AG-016 seen-before confidence boost |
 | `agent.gitopsEvidence` | `false` | AG-035 Argo/Flux EvidenceRefs (+ Role rules) |
-| `agent.autopilotPropose` | `false` | ADR-0015 propose-only (never apply) |
+| `agent.autopilotPropose` | `false` | ADR-0015 propose-only (never apply by itself) |
+| `agent.autopilotApply` | `false` | AG-042 in-loop apply (needs policyAuto) |
+| `agent.remediationPolicy` | `false` | AG-040 create proposeOnly ConfigMap |
 | `agent.slack` / `agent.webhook` | `false` | Enable notifiers |
 | `secret.name` | `kprompt-agent` | Env-from Secret |
 | `rbac.create` | `true` | Namespace Role (get/list/watch) |

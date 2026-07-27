@@ -240,15 +240,31 @@ kprompt agent run -n payments --analyze --heuristic --patterns
 
 **Not shipped:** silent Autopilot apply. See [ADR-0015](https://github.com/kprompt/kprompt-architecture/blob/main/decisions/ADR-0015-autopilot-mode.md) — MVP is **propose-only**.
 
-## Autopilot (AG-017 · ADR-0015)
+## Autopilot (AG-017 · AG-040…AG-044 · ADR-0015)
 
-Opt-in, allowlist-only. Default remains Observe.
+Opt-in. Default remains Observe / **proposeOnly**.
 
 ```bash
+# Propose allowlisted actions (rollback / restart / scale / evict)
 kprompt agent run -n payments --analyze --heuristic --autopilot-propose
+
+# Optional RemediationPolicy JSON (AG-040); else ConfigMap kprompt-remediation-policy or defaults
+kprompt agent run -n payments --analyze --heuristic --autopilot-propose \
+  --autopilot-policy ./policy.json
+
+# Human approve bridge (AG-043) — requires --approve + policyAuto
+kprompt agent autopilot apply-proposal --file proposal.json --approve --policy ./policy-auto.json
 ```
 
-- MVP allowlist: `rollbackFailedRollout` only
-- Emits `AutopilotProposal` (PlanResult-shaped) + local audit JSONL (`~/.config/kprompt/autopilot`)
-- **Never silent apply** in this MVP; `Applied` stays false. Policy/human gate required before any future apply executor
-- Hard-deny outside allowlist (same spirit as ADR-0003)
+| Action ID | Trigger (heuristic) |
+|-----------|---------------------|
+| `rollbackFailedRollout` | ProgressDeadline / failed rollout |
+| `restartDeployment` | CrashLoop / OOM / ImagePull |
+| `evictPod` | Node pressure / eviction signals |
+| `scaleDeployment` | Explicit scale language in RCA |
+
+**Deny pack (AG-044):** wipe/delete namespace/cluster, Secret values, fabricated evidence — never allowlistable.
+
+**Apply (AG-042):** only when RemediationPolicy `mode=policyAuto` **and** `apply=true`, plus `--autopilot-apply` (in-loop) or `apply-proposal --approve`. Helm defaults keep both false.
+
+**Not shipped:** silent LLM-said-so apply.

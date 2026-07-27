@@ -45,7 +45,85 @@ func newAgentCmd() *cobra.Command {
 	cmd.AddCommand(newAgentRunCmd())
 	cmd.AddCommand(newAgentOperatorCmd())
 	cmd.AddCommand(newAgentCoordinatorCmd())
+	cmd.AddCommand(newAgentAutopilotCmd())
 	cmd.AddCommand(newAgentMemoryCmd())
+	return cmd
+}
+
+func newAgentAutopilotCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "autopilot",
+		Short: "Autopilot proposal apply bridge (AG-043; gated)",
+		Long:  "Human approve bridge for AutopilotProposal JSON. Apply requires --approve plus RemediationPolicy mode=policyAuto apply=true.",
+	}
+	cmd.AddCommand(newAgentAutopilotApplyCmd())
+	return cmd
+}
+
+func newAgentAutopilotApplyCmd() *cobra.Command {
+	var (
+		file       string
+		policyFile string
+		kubeCtx    string
+		inCluster  bool
+		approve    bool
+	)
+	cmd := &cobra.Command{
+		Use:   "apply-proposal",
+		Short: "Apply an AutopilotProposal JSON under policyAuto (AG-042 · AG-043)",
+		Long: `Load a saved AutopilotProposal, re-check RemediationPolicy + Safety, and mutate only when:
+  --approve is set AND policy mode=policyAuto AND policy.apply=true.
+
+Propose-only policies always deny. Never invents allowlist entries.`,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if !approve {
+				return fmt.Errorf("refusing apply without --approve (ADR-0015 / ADR-0003)")
+			}
+			path := strings.TrimSpace(file)
+			if path == "" {
+				return fmt.Errorf("--file is required")
+			}
+			raw, err := os.ReadFile(path)
+			if err != nil {
+				return err
+			}
+			var prop autopilot.Proposal
+			if err := json.Unmarshal(raw, &prop); err != nil {
+				return fmt.Errorf("proposal JSON: %w", err)
+			}
+			var clients *cluster.Clients
+			if inCluster {
+				clients, err = cluster.ConnectInCluster()
+			} else {
+				clients, err = cluster.Connect(kubeCtx)
+			}
+			if err != nil {
+				return err
+			}
+			pol, src, err := autopilot.LoadPolicy(cmd.Context(), policyFile, prop.Namespace, clients.Clientset)
+			if err != nil {
+				return err
+			}
+			fmt.Fprintf(cmd.ErrOrStderr(), "remediation policy source=%s mode=%s apply=%v\n", src, pol.Mode, pol.Apply)
+			eng := &autopilot.Engine{
+				Policy: pol,
+				Audit:  autopilot.FileAudit{Dir: autopilot.DefaultAuditDir()},
+			}
+			out, err := eng.ApplyProposal(cmd.Context(), clients.Clientset, prop)
+			if out != nil {
+				enc := json.NewEncoder(cmd.OutOrStdout())
+				enc.SetIndent("", "  ")
+				_ = enc.Encode(out)
+			}
+			return err
+		},
+	}
+	cmd.Flags().StringVar(&file, "file", "", "path to AutopilotProposal JSON")
+	cmd.Flags().StringVar(&policyFile, "policy", "", "RemediationPolicy JSON (default: ConfigMap or built-in proposeOnly)")
+	cmd.Flags().StringVar(&kubeCtx, "context", "", "kubeconfig context")
+	cmd.Flags().BoolVar(&inCluster, "in-cluster", false, "use InClusterConfig")
+	cmd.Flags().BoolVar(&approve, "approve", false, "required explicit approval to mutate")
+	_ = cmd.MarkFlagRequired("file")
 	return cmd
 }
 
@@ -183,6 +261,8 @@ func newAgentRunCmd() *cobra.Command {
 		patternsDir      string
 		autopilotProp    bool
 		autopilotDir     string
+		autopilotPolicy  string
+		autopilotApply   bool
 		incidentsBackend string // file | configmap | "" (off)
 		incidentsDir     string
 		slackAsk         bool
@@ -211,7 +291,9 @@ Pipeline flags (read-only — never mutate workload objects):
   --agent-cr       patch KpromptAgent.status (AG-013; health + lastAlert)
   --memory         discover/load namespace deps+facts into analyzer context (AG-015)
   --patterns       learn incident signatures; boost confidence on “seen before” (AG-016)
-  --autopilot-propose  emit PlanResult-shaped AutopilotProposal (ADR-0015; propose-only, never silent apply)
+  --autopilot-propose  emit PlanResult-shaped AutopilotProposal (ADR-0015; propose-only by default)
+  --autopilot-policy   RemediationPolicy JSON file (AG-040); else ConfigMap / defaults
+  --autopilot-apply    with policyAuto+apply=true, apply approved proposals in-loop (AG-042; off by default)
   --slack-ask          listen for Slack Events ask (status/why/what broke/false positive) — read-only (AG-019)
   --coordinator-url    POST CoordinatorHandoff when cross-ns suspicion (AG-036; opt-in)
   --gitops-evidence    attach Argo/Flux sync + deploy history as EvidenceRefs (AG-035; opt-in)
@@ -330,8 +412,16 @@ KpromptAgent status sync:
 				if dir == "" {
 					dir = autopilot.DefaultAuditDir()
 				}
+				pol, src, perr := autopilot.LoadPolicy(cmd.Context(), autopilotPolicy, ns, clients.Clientset)
+				if perr != nil {
+					return fmt.Errorf("autopilot policy: %w", perr)
+				}
+				fmt.Fprintf(cmd.ErrOrStderr(), "autopilot policy source=%s mode=%s apply=%v\n", src, pol.Mode, pol.Apply)
+				if autopilotApply && !pol.PolicyAuto() {
+					fmt.Fprintf(cmd.ErrOrStderr(), "warning: --autopilot-apply ignored unless RemediationPolicy mode=policyAuto apply=true\n")
+				}
 				apEngine = &autopilot.Engine{
-					Policy: autopilot.DefaultPolicy(),
+					Policy: pol,
 					Audit:  autopilot.FileAudit{Dir: dir},
 				}
 			}
@@ -525,6 +615,16 @@ KpromptAgent status sync:
 							if perr != nil {
 								fmt.Fprintf(cmd.ErrOrStderr(), "autopilot propose error: %v\n", perr)
 							} else if prop != nil {
+								if autopilotApply && apEngine.Policy.PolicyAuto() &&
+									(prop.Decision == autopilot.DecisionProposed || prop.Decision == autopilot.DecisionApproved) {
+									applied, aerr := apEngine.ApplyProposal(cmd.Context(), clients.Clientset, *prop)
+									if aerr != nil {
+										fmt.Fprintf(cmd.ErrOrStderr(), "autopilot apply error: %v\n", aerr)
+									}
+									if applied != nil {
+										prop = applied
+									}
+								}
 								if emitJSON {
 									_ = json.NewEncoder(out).Encode(prop)
 								} else {
@@ -764,8 +864,10 @@ KpromptAgent status sync:
 	cmd.Flags().StringVar(&memoryDir, "memory-dir", "", "file backend directory (default ~/.config/kprompt/memory)")
 	cmd.Flags().BoolVar(&usePatterns, "patterns", false, "learn incident signatures; boost confidence on seen-before (AG-016; never mutates)")
 	cmd.Flags().StringVar(&patternsDir, "patterns-dir", "", "pattern store directory (default ~/.config/kprompt/patterns)")
-	cmd.Flags().BoolVar(&autopilotProp, "autopilot-propose", false, "emit AutopilotProposal for allowlisted actions (ADR-0015; propose-only, never silent apply)")
+	cmd.Flags().BoolVar(&autopilotProp, "autopilot-propose", false, "emit AutopilotProposal for allowlisted actions (ADR-0015; propose-only by default)")
 	cmd.Flags().StringVar(&autopilotDir, "autopilot-audit-dir", "", "autopilot audit directory (default ~/.config/kprompt/autopilot)")
+	cmd.Flags().StringVar(&autopilotPolicy, "autopilot-policy", "", "RemediationPolicy JSON file (AG-040)")
+	cmd.Flags().BoolVar(&autopilotApply, "autopilot-apply", false, "apply proposals when policy mode=policyAuto apply=true (AG-042; off by default)")
 	cmd.Flags().StringVar(&incidentsBackend, "incidents-backend", "", "persist incidents across restarts: file|configmap (AG-032)")
 	cmd.Flags().StringVar(&incidentsDir, "incidents-dir", "", "file backend directory (default ~/.config/kprompt/incidents)")
 	cmd.Flags().BoolVar(&slackAsk, "slack-ask", false, "Slack Events ask listener for status/why/what broke/false positive (AG-019; read-only)")

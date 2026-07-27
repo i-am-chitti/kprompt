@@ -55,6 +55,22 @@ rules:
     resources: ["kustomizations"]
     verbs: ["get", "list", "watch"]
   {{- end }}
+  {{- if .Values.agent.remediationPolicy }}
+  # RemediationPolicy ConfigMap (AG-040) — read policy.json.
+  - apiGroups: [""]
+    resources: ["configmaps"]
+    resourceNames: ["kprompt-remediation-policy"]
+    verbs: ["get", "list", "watch"]
+  {{- end }}
+  {{- if .Values.agent.autopilotApply }}
+  # Autopilot apply verbs (AG-042) — only when explicitly enabled; still namespace Role.
+  - apiGroups: ["apps"]
+    resources: ["deployments"]
+    verbs: ["get", "list", "watch", "update", "patch"]
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["get", "list", "watch", "delete"]
+  {{- end }}
   {{- if .Values.agentCR.name }}
   # Status-only write on the opted-in KpromptAgent (AG-013). No workload mutate.
   - apiGroups: ["kprompt.ai"]

@@ -1,8 +1,7 @@
-// Package autopilot implements policy-gated Autopilot proposals (AG-017 · ADR-0015).
+// Package autopilot implements policy-gated Autopilot proposals and apply (AG-017 · AG-040…AG-044 · ADR-0015).
 //
-// MVP is propose-only by default: PlanResult-shaped proposals + audit.
-// Apply requires policy allowlist + Apply=true + confidence floor.
-// Actions outside the allowlist are hard-denied. Never expands the allowlist via LLM.
+// Default is proposeOnly: PlanResult-shaped proposals + audit, never silent mutate.
+// policyAuto apply requires Policy.Apply + ModePolicyAuto + allowlist + confidence + Safety.
 package autopilot
 
 import (
@@ -21,11 +20,14 @@ import (
 const (
 	APIVersion    = "kprompt.io/v1"
 	KindProposal  = "AutopilotProposal"
+	KindPolicy    = "RemediationPolicy"
 	SchemaVersion = "1"
 
-	// MVP allowlist (ADR-0015).
+	// Allowlisted action IDs (AG-041). LLM cannot expand this list.
 	ActionRollbackFailedRollout = "rollbackFailedRollout"
-	ActionRestartDeployment     = "restartDeployment" // deny in MVP apply; may propose later
+	ActionRestartDeployment     = "restartDeployment"
+	ActionScaleDeployment       = "scaleDeployment"
+	ActionEvictPod              = "evictPod"
 
 	DecisionProposed = "proposed"
 	DecisionApproved = "approved"
@@ -33,40 +35,100 @@ const (
 	DecisionApplied  = "applied"
 	DecisionFailed   = "failed"
 
+	ModeProposeOnly = "proposeOnly"
+	ModePolicyAuto  = "policyAuto"
+
 	DefaultMinConfidence = 0.85
+
+	// ConfigMapName is the optional in-cluster RemediationPolicy store (AG-040).
+	ConfigMapName = "kprompt-remediation-policy"
+	ConfigMapKey  = "policy.json"
 )
 
-// MVPAllowlist is the only action IDs Autopilot may ever propose/apply in V1.
-var MVPAllowlist = []string{ActionRollbackFailedRollout}
+// MVPAllowlist is the only action IDs Autopilot may propose/apply (ADR-0015 · AG-041).
+var MVPAllowlist = []string{
+	ActionRollbackFailedRollout,
+	ActionRestartDeployment,
+	ActionScaleDeployment,
+	ActionEvictPod,
+}
 
-// Policy is the per-namespace Autopilot gate (ADR-0015 §4).
+// Policy is the per-namespace Autopilot gate (ADR-0015 §4 · AG-040).
 type Policy struct {
+	APIVersion    string `json:"apiVersion,omitempty"`
+	Kind          string `json:"kind,omitempty"`
+	SchemaVersion string `json:"schemaVersion,omitempty"`
+	Namespace     string `json:"namespace,omitempty"`
 	// Allow lists action IDs permitted in this namespace (subset of MVPAllowlist).
 	Allow []string `json:"allow"`
-	// Apply enables policyAuto. Default false = proposeOnly.
+	// Apply enables mutate when Mode is policyAuto. Default false.
 	Apply bool `json:"apply"`
+	// Mode is proposeOnly (default) or policyAuto.
+	Mode string `json:"mode,omitempty"`
 	// MinConfidence required before propose/apply (default 0.85).
 	MinConfidence float64 `json:"minConfidence"`
 }
 
-// Proposal is a PlanResult-shaped Autopilot artifact (auditable; Applied false unless gated).
+// Normalize fills defaults and clamps Mode.
+func (p *Policy) Normalize() {
+	if p == nil {
+		return
+	}
+	if p.APIVersion == "" {
+		p.APIVersion = APIVersion
+	}
+	if p.Kind == "" {
+		p.Kind = KindPolicy
+	}
+	if p.SchemaVersion == "" {
+		p.SchemaVersion = SchemaVersion
+	}
+	if p.MinConfidence <= 0 {
+		p.MinConfidence = DefaultMinConfidence
+	}
+	mode := strings.ToLower(strings.TrimSpace(p.Mode))
+	switch mode {
+	case "policyauto", "policy-auto", "auto":
+		p.Mode = ModePolicyAuto
+	default:
+		p.Mode = ModeProposeOnly
+	}
+	// Propose-only cannot silently apply even if Apply was set by mistake.
+	if p.Mode != ModePolicyAuto {
+		p.Apply = false
+	}
+}
+
+// PolicyAuto reports whether gated in-cluster apply is enabled.
+func (p Policy) PolicyAuto() bool {
+	p.Normalize()
+	return p.Mode == ModePolicyAuto && p.Apply
+}
+
+// Proposal is a PlanResult-shaped Autopilot artifact (auditable).
 type Proposal struct {
-	APIVersion    string    `json:"apiVersion"`
-	Kind          string    `json:"kind"`
-	SchemaVersion string    `json:"schemaVersion"`
-	ID            string    `json:"id"`
-	Namespace     string    `json:"namespace"`
-	ActionID      string    `json:"actionId"`
-	Decision      string    `json:"decision"` // proposed|approved|denied|applied|failed
-	Reason        string    `json:"reason,omitempty"`
-	Confidence    float64   `json:"confidence"`
-	IncidentID    string    `json:"incidentId,omitempty"`
-	TargetKind    string    `json:"targetKind,omitempty"`
-	TargetName    string    `json:"targetName,omitempty"`
-	Plan          PlanBody  `json:"plan"`
-	Risk          string    `json:"risk"` // low|medium|high|denied
-	Applied       bool      `json:"applied"`
-	CreatedAt     time.Time `json:"createdAt"`
+	APIVersion    string   `json:"apiVersion"`
+	Kind          string   `json:"kind"`
+	SchemaVersion string   `json:"schemaVersion"`
+	ID            string   `json:"id"`
+	Namespace     string   `json:"namespace"`
+	ActionID      string   `json:"actionId"`
+	Decision      string   `json:"decision"` // proposed|approved|denied|applied|failed
+	Reason        string   `json:"reason,omitempty"`
+	Confidence    float64  `json:"confidence"`
+	IncidentID    string   `json:"incidentId,omitempty"`
+	TargetKind    string   `json:"targetKind,omitempty"`
+	TargetName    string   `json:"targetName,omitempty"`
+	Plan          PlanBody `json:"plan"`
+	Risk          string   `json:"risk"` // low|medium|high|denied
+	// AG-041 explainability fields (RecommendedAction-shaped).
+	Why              string    `json:"why,omitempty"`
+	ExpectedImpact   string    `json:"expectedImpact,omitempty"`
+	Rollback         string    `json:"rollback,omitempty"`
+	ActionConfidence float64   `json:"actionConfidence,omitempty"`
+	Replicas         *int32    `json:"replicas,omitempty"` // scaleDeployment
+	Applied          bool      `json:"applied"`
+	CreatedAt        time.Time `json:"createdAt"`
 }
 
 // PlanBody mirrors a minimal PlanResult.plan payload.
@@ -81,7 +143,7 @@ type AuditEntry struct {
 	Proposal Proposal  `json:"proposal"`
 }
 
-// Engine evaluates policy and emits proposals (MVP: no cluster mutate in Propose).
+// Engine evaluates policy and emits proposals; ApplyProposal mutates only under policyAuto.
 type Engine struct {
 	Policy Policy
 	Audit  AuditStore
@@ -89,7 +151,7 @@ type Engine struct {
 	mu sync.Mutex
 }
 
-// AuditStore persists proposals. FileAudit is the default local store.
+// AuditStore persists proposals.
 type AuditStore interface {
 	Append(entry AuditEntry) error
 }
@@ -133,70 +195,76 @@ func (a *MemAudit) Append(entry AuditEntry) error {
 	return nil
 }
 
-// DefaultPolicy returns propose-only with rollback allowed.
+// DefaultPolicy returns propose-only with the expanded allowlist available.
 func DefaultPolicy() Policy {
-	return Policy{
-		Allow:         []string{ActionRollbackFailedRollout},
+	p := Policy{
+		Allow:         append([]string(nil), MVPAllowlist...),
 		Apply:         false,
+		Mode:          ModeProposeOnly,
 		MinConfidence: DefaultMinConfidence,
 	}
+	p.Normalize()
+	return p
 }
 
-// EvaluateAction returns denied if action is outside global MVP allowlist or policy Allow.
+// EvaluateAction returns denied if hard-deny, outside MVP allowlist, or outside policy Allow.
 func EvaluateAction(policy Policy, actionID string) (decision string, reason string) {
 	actionID = strings.TrimSpace(actionID)
+	if denied, why := HardDenyAction(actionID); denied {
+		return DecisionDenied, why
+	}
 	if !inList(MVPAllowlist, actionID) {
-		return DecisionDenied, "hard-deny: action not in Autopilot MVP allowlist (ADR-0015)"
+		return DecisionDenied, "hard-deny: action not in Autopilot allowlist (ADR-0015 / AG-041)"
 	}
 	if !inList(policy.Allow, actionID) {
-		return DecisionDenied, "hard-deny: action not in namespace policy allowlist"
+		return DecisionDenied, "hard-deny: action not in namespace RemediationPolicy allowlist"
 	}
 	return DecisionApproved, ""
 }
 
-// ProposeFromContext builds a proposal when context looks like a failed rollout.
-// Never sets Applied=true; call ApplyGate separately (still no-op mutate in MVP binary path).
+// ProposeFromContext builds a proposal when context matches an allowlisted detector.
+// Never sets Applied=true here — apply is ApplyProposal only.
 func (e *Engine) ProposeFromContext(agentCtx ctxbuild.AgentContext, confidence float64) (*Proposal, error) {
 	if e == nil {
 		return nil, fmt.Errorf("autopilot: engine is nil")
 	}
 	pol := e.Policy
-	if pol.MinConfidence <= 0 {
-		pol.MinConfidence = DefaultMinConfidence
-	}
-	action, targetKind, targetName, ok := detectAction(agentCtx)
+	pol.Normalize()
+	action, targetKind, targetName, replicas, ok := detectAction(agentCtx)
 	if !ok {
 		return nil, nil
 	}
 	decision, reason := EvaluateAction(pol, action)
 	if decision == DecisionDenied {
-		p := baseProposal(agentCtx, action, targetKind, targetName, confidence)
+		p := baseProposal(agentCtx, action, targetKind, targetName, confidence, replicas)
 		p.Decision = DecisionDenied
 		p.Reason = reason
 		p.Risk = "denied"
 		p.Plan = PlanBody{Summary: "Denied Autopilot action", Steps: []string{reason}}
+		enrichExplain(&p, action, agentCtx.Namespace, targetName)
 		_ = e.audit(p)
 		return &p, nil
 	}
 	if confidence < pol.MinConfidence {
-		p := baseProposal(agentCtx, action, targetKind, targetName, confidence)
+		p := baseProposal(agentCtx, action, targetKind, targetName, confidence, replicas)
 		p.Decision = DecisionDenied
 		p.Reason = fmt.Sprintf("confidence %.2f below floor %.2f", confidence, pol.MinConfidence)
 		p.Risk = "denied"
 		p.Plan = PlanBody{Summary: "Confidence gate failed", Steps: []string{p.Reason}}
+		enrichExplain(&p, action, agentCtx.Namespace, targetName)
 		_ = e.audit(p)
 		return &p, nil
 	}
 
-	p := baseProposal(agentCtx, action, targetKind, targetName, confidence)
+	p := baseProposal(agentCtx, action, targetKind, targetName, confidence, replicas)
+	p.Plan = planFor(action, agentCtx.Namespace, targetName, replicas)
+	enrichExplain(&p, action, agentCtx.Namespace, targetName)
 	p.Decision = DecisionProposed
-	p.Risk = "medium"
-	p.Plan = planFor(action, agentCtx.Namespace, targetName)
-	p.Reason = "proposeOnly (ADR-0015 MVP default); set policy.apply=true for policyAuto later"
-	if pol.Apply {
-		// MVP still does not mutate the cluster in-process — emit approved proposal for an external applier.
+	p.Risk = riskFor(action)
+	p.Reason = "proposeOnly (ADR-0015 default); human apply via CLI or policyAuto"
+	if pol.PolicyAuto() {
 		p.Decision = DecisionApproved
-		p.Reason = "policyAuto approved proposal; apply executor not enabled in this MVP binary (PlanResult gate preserved)"
+		p.Reason = "policyAuto: approved under RemediationPolicy; apply requires ApplyProposal / --approve bridge"
 		p.Applied = false
 	}
 	_ = e.audit(p)
@@ -212,81 +280,23 @@ func (e *Engine) audit(p Proposal) error {
 	return e.Audit.Append(AuditEntry{At: time.Now().UTC(), Proposal: p})
 }
 
-func detectAction(agentCtx ctxbuild.AgentContext) (action, kind, name string, ok bool) {
-	blob := strings.ToLower(agentCtx.Incident.Summary + " " + agentCtx.Incident.RootCause)
-	for _, e := range agentCtx.Incident.Evidence {
-		blob += " " + strings.ToLower(e.Reason+" "+e.Message)
-	}
-	name = ""
-	kind = "Deployment"
-	if agentCtx.Deployment != nil {
-		name = agentCtx.Deployment.Name
-	}
-	if agentCtx.Target != nil && agentCtx.Target.Name != "" {
-		if agentCtx.Target.Kind == "" || strings.EqualFold(agentCtx.Target.Kind, "Deployment") || strings.EqualFold(agentCtx.Target.Kind, "Pod") {
-			if name == "" {
-				name = agentCtx.Target.Name
-			}
-		}
-		if agentCtx.Target.Kind != "" {
-			kind = agentCtx.Target.Kind
-		}
-	}
-	if name == "" && agentCtx.Incident.PrimaryResource != nil {
-		name = agentCtx.Incident.PrimaryResource.Name
-		if agentCtx.Incident.PrimaryResource.Kind != "" {
-			kind = agentCtx.Incident.PrimaryResource.Kind
-		}
-	}
-	failedRollout := strings.Contains(blob, "progressdeadline") ||
-		strings.Contains(blob, "rollout") && (strings.Contains(blob, "failed") || strings.Contains(blob, "timed out") || strings.Contains(blob, "timeout")) ||
-		(agentCtx.Deployment != nil && agentCtx.Deployment.ReadyReplicas < agentCtx.Deployment.DesiredReplicas && agentCtx.Deployment.DesiredReplicas > 0 &&
-			(strings.Contains(blob, "failed") || strings.Contains(blob, "crashloop") || strings.Contains(blob, "imagepull")))
-	if failedRollout && name != "" {
-		return ActionRollbackFailedRollout, "Deployment", trimPodToDeploy(name), true
-	}
-	return "", "", "", false
-}
-
-func trimPodToDeploy(name string) string {
-	// best-effort: api-7d9f-xk → api when looks like replica pod; else keep
-	parts := strings.Split(name, "-")
-	if len(parts) >= 3 {
-		return strings.Join(parts[:len(parts)-2], "-")
-	}
-	return name
-}
-
-func planFor(action, ns, name string) PlanBody {
-	switch action {
-	case ActionRollbackFailedRollout:
-		return PlanBody{
-			Summary: fmt.Sprintf("Rollback Deployment/%s in %s after failed rollout", name, ns),
-			Steps: []string{
-				fmt.Sprintf("kubectl -n %s rollout undo deployment/%s", ns, name),
-				fmt.Sprintf("kubectl -n %s rollout status deployment/%s", ns, name),
-			},
-		}
-	default:
-		return PlanBody{Summary: "unknown", Steps: nil}
-	}
-}
-
-func baseProposal(agentCtx ctxbuild.AgentContext, action, kind, name string, confidence float64) Proposal {
+func baseProposal(agentCtx ctxbuild.AgentContext, action, kind, name string, confidence float64, replicas *int32) Proposal {
 	id := fmt.Sprintf("ap-%s-%d", action, time.Now().UTC().UnixNano())
 	return Proposal{
-		APIVersion:    APIVersion,
-		Kind:          KindProposal,
-		SchemaVersion: SchemaVersion,
-		ID:            id,
-		Namespace:     agentCtx.Namespace,
-		ActionID:      action,
-		Confidence:    confidence,
-		IncidentID:    agentCtx.Incident.ID,
-		TargetKind:    kind,
-		TargetName:    name,
-		Applied:       false,
-		CreatedAt:     time.Now().UTC(),
+		APIVersion:       APIVersion,
+		Kind:             KindProposal,
+		SchemaVersion:    SchemaVersion,
+		ID:               id,
+		Namespace:        agentCtx.Namespace,
+		ActionID:         action,
+		Confidence:       confidence,
+		ActionConfidence: confidence,
+		IncidentID:       agentCtx.Incident.ID,
+		TargetKind:       kind,
+		TargetName:       name,
+		Replicas:         replicas,
+		Applied:          false,
+		CreatedAt:        time.Now().UTC(),
 	}
 }
 

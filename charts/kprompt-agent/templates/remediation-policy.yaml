@@ -1,0 +1,26 @@
+{{- if .Values.agent.remediationPolicy -}}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: kprompt-remediation-policy
+  namespace: {{ include "kprompt-agent.watchNamespace" . }}
+  labels:
+    {{- include "kprompt-agent.labels" . | nindent 4 }}
+    app.kubernetes.io/component: remediation-policy
+data:
+  policy.json: |
+    {
+      "apiVersion": "kprompt.io/v1",
+      "kind": "RemediationPolicy",
+      "schemaVersion": "1",
+      "allow": [
+        "rollbackFailedRollout",
+        "restartDeployment",
+        "scaleDeployment",
+        "evictPod"
+      ],
+      "mode": "proposeOnly",
+      "apply": false,
+      "minConfidence": 0.85
+    }
+{{- end }}

@@ -64,6 +64,9 @@ spec:
             {{- if .Values.agent.autopilotPropose }}
             - --autopilot-propose
             {{- end }}
+            {{- if .Values.agent.autopilotApply }}
+            - --autopilot-apply
+            {{- end }}
             {{- if .Values.agent.incidentsBackend }}
             - --incidents-backend
             - {{ .Values.agent.incidentsBackend | quote }}

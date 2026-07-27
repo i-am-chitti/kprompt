@@ -61,7 +61,7 @@ Contracts: [ADR-0013](https://github.com/kprompt/kprompt-architecture/blob/main/
 | Priority objectives | automatic (AG-030) | NA reason |
 | Coordinator handoff | `--coordinator-url` + `agent coordinator` | NA → Coord |
 | Autopilot propose | `--autopilot-propose` | Propose-only |
-| Autopilot apply | **not shipped** | Gated AG-042 |
+| Autopilot apply | `--autopilot-apply` / `apply-proposal --approve` | **policyAuto only** |
 
 ## Related docs
 

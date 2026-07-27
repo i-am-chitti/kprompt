@@ -37,6 +37,10 @@ agent:
   patterns: true
   # AG-017 / ADR-0015: emit AutopilotProposal only — does not apply.
   autopilotPropose: false
+  # AG-042: in-loop apply (still requires RemediationPolicy mode=policyAuto apply=true).
+  autopilotApply: false
+  # AG-040: mount/load kprompt-remediation-policy ConfigMap.
+  remediationPolicy: false
   # AG-032: persist incidents (file|configmap|"").
   incidentsBackend: ""
   # AG-035: Argo/Flux EvidenceRefs (opt-in; adds Role rules for Applications/Kustomizations).
