@@ -25,13 +25,14 @@ const (
 
 // IdleWorkload is one underutilized workload signal (T-054).
 type IdleWorkload struct {
-	Kind                 string   `json:"kind"`
-	Namespace            string   `json:"namespace"`
-	Name                 string   `json:"name"`
-	CPUOfRequestPct      *float64 `json:"cpuOfRequestPct,omitempty"`
-	MemoryOfRequestPct   *float64 `json:"memoryOfRequestPct,omitempty"`
-	Idle                 bool     `json:"idle"`
-	Message              string   `json:"message,omitempty"`
+	Kind               string   `json:"kind"`
+	Namespace          string   `json:"namespace"`
+	Name               string   `json:"name"`
+	CPUOfRequestPct    *float64 `json:"cpuOfRequestPct,omitempty"`
+	MemoryOfRequestPct *float64 `json:"memoryOfRequestPct,omitempty"`
+	Idle               bool     `json:"idle"`
+	Message            string   `json:"message,omitempty"`
+	CostNote           string   `json:"costNote,omitempty"` // T-073 estimate; never a bill
 }
 
 // IdleResult is Prometheus-backed idle detection over inventoried workloads.

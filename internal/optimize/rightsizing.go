@@ -39,6 +39,7 @@ type RightsizingDelta struct {
 	Suggested string `json:"suggested"`
 	Direction string `json:"direction"` // lower | raise
 	Message   string `json:"message"`
+	CostNote  string `json:"costNote,omitempty"` // T-073 estimate on lower requests
 }
 
 // RightsizingResult holds rightsizing suggestions from usage vs inventory.

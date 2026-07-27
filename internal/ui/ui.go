@@ -513,12 +513,18 @@ func PrintOptimizeReport(w io.Writer, report optimize.Report) {
 		fmt.Fprintln(w, t.Heading("Idle:"))
 		for _, idle := range report.Idle {
 			fmt.Fprintf(w, "  - %s\n", idle.Message)
+			if idle.CostNote != "" && !strings.Contains(idle.Message, idle.CostNote) {
+				fmt.Fprintf(w, "    %s\n", t.Muted(idle.CostNote))
+			}
 		}
 	}
 	if len(report.Rightsizing) > 0 {
 		fmt.Fprintln(w, t.Heading("Rightsizing:"))
 		for _, d := range report.Rightsizing {
 			fmt.Fprintf(w, "  - %s\n", d.Message)
+			if d.CostNote != "" && !strings.Contains(d.Message, d.CostNote) {
+				fmt.Fprintf(w, "    %s\n", t.Muted(d.CostNote))
+			}
 		}
 	}
 	if len(report.HPA) > 0 {
