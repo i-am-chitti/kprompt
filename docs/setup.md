@@ -5,8 +5,8 @@ Detect gaps via `tools.Detect` and print a bootstrap plan
 
 ```bash
 kprompt setup
-kprompt setup --profile minimal
-kprompt setup --profile minimal --approve   # install missing Helm (T-063)
+kprompt setup --profile minimal --approve          # host Helm
+kprompt setup --profile platform --approve         # Helm + Argo + Prom stack
 kprompt setup --dry-run --json
 kprompt setup --context kind-dev
 ```
@@ -15,34 +15,41 @@ kprompt setup --context kind-dev
 
 | Component | Lane | When needed | Apply |
 |-----------|------|-------------|-------|
-| Helm | host | `helm` not on PATH | T-063 (`--approve` / TTY confirm) |
-| Argo Workflows | cluster | Workflow CRD missing | plan-only (T-064) |
-| Prometheus | config | URL unset | plan-only / `config set` |
+| Helm | host | `helm` not on PATH | T-063 |
+| Argo Workflows | cluster | Workflow CRD missing | T-064 (`kubectl apply` → ns `argo`) |
+| Prometheus | cluster | URL unset / unavailable | T-064 (`helm install` kube-prometheus-stack → ns `monitoring`) |
+| Grafana / OTel | config | URL unset (`full` profile) | manual `config set` |
 
-`minimal` = Helm only · `full` = platform + Grafana + OTel URL steps.
+## Namespace defaults (T-064)
+
+| Operator | Namespace | Notes |
+|----------|-----------|-------|
+| Argo Workflows | `argo` | Manifests pinned to release `v3.6.2` |
+| kube-prometheus-stack | `monitoring` | Release name `kprompt-prom` |
+
+After Prometheus install, set:
+
+```bash
+kprompt config set tools.prometheus.url http://kprompt-prom-kube-prometheus-stack-prometheus.monitoring.svc:9090
+```
 
 ## Host install OS matrix (T-063)
 
 | OS | Method |
 |----|--------|
-| macOS (darwin) | Homebrew: `brew install helm` (brew must be on PATH) |
-| Linux | `brew install helm` if brew exists; else official [get-helm-3](https://helm.sh/docs/intro/install/) script (`curl` required) |
+| macOS (darwin) | Homebrew: `brew install helm` |
+| Linux | brew if present, else official get-helm-3 (`curl` required) |
 | Other | Unsupported — install manually |
-
-- **Skip** if `helm` already on PATH.
-- Never silent: needs `--approve` or interactive `y`.
-- Only Helm is wired for host apply in T-063.
 
 ## Safety
 
 - **Default is dry-run** (plan only).
-- `--approve` applies **host** steps only; cluster/config stay printed, not installed.
-- Cluster-lane proposals are **blocked** if Kubernetes is unreachable.
-- Prefer configuring an existing Prometheus URL over installing a stack.
+- Apply needs `--approve` or interactive confirm.
+- Cluster path: **plan → safety.EvaluatePlan → apply** (install-only).
+- **Wipe-class denied:** `helm uninstall --all`, namespace delete, etc.
+- Config-lane steps (Grafana/OTel) are never auto-written.
 
 ## Related
 
-- Inventory: `kprompt tools`
-- Health: `kprompt doctor`
-- Learn profile: `kprompt learn`
-- Remaining: T-064 (cluster) · T-065 (profiles) · T-066 (website honesty)
+- `kprompt tools` · `kprompt doctor` · `kprompt learn`
+- Remaining: T-065 (profile flags polish) · T-066 (website honesty)

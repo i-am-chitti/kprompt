@@ -34,7 +34,7 @@ func TestBuildPlanPlatformNeeded(t *testing.T) {
 	if byID["argo-workflows"].Lane != LaneCluster || byID["argo-workflows"].Status != StatusNeeded {
 		t.Fatalf("argo=%+v", byID["argo-workflows"])
 	}
-	if byID["prometheus"].Lane != LaneConfig || byID["prometheus"].Status != StatusNeeded {
+	if byID["prometheus"].Lane != LaneCluster || byID["prometheus"].Status != StatusNeeded {
 		t.Fatalf("prom=%+v", byID["prometheus"])
 	}
 	if len(byID["helm"].Commands) == 0 || !strings.Contains(byID["helm"].Commands[1], "brew") {

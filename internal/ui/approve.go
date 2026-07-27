@@ -17,8 +17,17 @@ func StdinIsTerminal() bool {
 
 // ConfirmHostInstall prompts before installing local CLIs (T-063).
 func ConfirmHostInstall(in io.Reader, out io.Writer) (bool, error) {
+	return confirmYesNo(in, out, "Install missing host CLIs from this plan?")
+}
+
+// ConfirmSetupApply prompts before host+cluster setup apply (T-063/T-064).
+func ConfirmSetupApply(in io.Reader, out io.Writer) (bool, error) {
+	return confirmYesNo(in, out, "Apply host/cluster installs from this setup plan?")
+}
+
+func confirmYesNo(in io.Reader, out io.Writer, prompt string) (bool, error) {
 	t := themeFor(out)
-	fmt.Fprint(out, t.Bold("Install missing host CLIs from this plan?")+" [y/N]: ")
+	fmt.Fprint(out, t.Bold(prompt)+" [y/N]: ")
 	if f, ok := out.(*os.File); ok {
 		_ = f.Sync()
 	}

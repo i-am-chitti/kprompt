@@ -1,7 +1,7 @@
-// Package setup builds bootstrap plans from tools.Detect and optionally
-// installs missing host CLIs (ADR-0018 · T-062 plan · T-063 host apply).
+// Package setup builds bootstrap plans from tools.Detect and applies
+// approve-gated host/cluster installs (ADR-0018 · T-062…T-064).
 //
-// Cluster operator apply is T-064. Never mutates the cluster or host silently.
+// Never mutates silently. Cluster path is install-only (wipe-class denied).
 package setup
 
 import (
@@ -94,8 +94,8 @@ func BuildPlan(reg *tools.Registry, opts Options) (Plan, error) {
 		Steps:   make([]Step, 0, 8),
 		Notes: []string{
 			"Plan from tools.Detect (ADR-0018). Default is dry-run.",
-			"Host CLI apply: kprompt setup --approve (T-063 · Helm). Cluster operators: T-064.",
-			"Re-check with: kprompt tools · kprompt doctor",
+			"Apply with --approve / TTY: host Helm (T-063) + cluster Argo/Prom stack (T-064).",
+			"Wipe-class uninstalls denied. Re-check: kprompt tools · kprompt doctor",
 		},
 	}
 
@@ -162,24 +162,26 @@ func componentsForProfile(profile string) []componentSpec {
 		Action: "install-cluster",
 		Commands: func(tools.Result) []string {
 			return []string{
-				"# illustrative — T-064 will wrap plan→approve",
-				"kubectl create namespace argo",
-				"kubectl apply -n argo -f https://github.com/argoproj/argo-workflows/releases/latest/download/install.yaml",
+				"kubectl create namespace " + DefaultArgoNamespace,
+				"kubectl apply -n " + DefaultArgoNamespace + " -f " + argoWorkflowsInstallYAML,
 				"# docs: https://argo-workflows.readthedocs.io/en/latest/quick-start/",
 			}
 		},
 	}
 	prom := componentSpec{
-		ID: tools.IDPrometheus, Name: "Prometheus", Lane: LaneConfig, Risk: "none",
-		Action: "configure-url",
+		ID: tools.IDPrometheus, Name: "Prometheus", Lane: LaneCluster, Risk: "medium",
+		Action: "install-cluster",
 		Commands: func(tools.Result) []string {
 			return []string{
-				"kprompt config set tools.prometheus.url http://prometheus.monitoring.svc:9090",
-				"# or: export KPROMPT_PROMETHEUS_URL=https://…",
-				"# optional later: install kube-prometheus-stack via T-064",
+				"helm repo add " + prometheusCommunityRepoName + " " + prometheusCommunityRepoURL,
+				"helm repo update " + prometheusCommunityRepoName,
+				"helm install " + DefaultPrometheusRelease + " " + kubePrometheusStackChart +
+					" -n " + DefaultPrometheusNamespace + " --create-namespace",
+				"# then: kprompt config set tools.prometheus.url http://" + DefaultPrometheusRelease + "-kube-prometheus-stack-prometheus." + DefaultPrometheusNamespace + ".svc:9090",
+				"# or skip install and point at an existing Prometheus URL",
 			}
 		},
-		ConfigMsg: "Set Prometheus URL in config/env (prefer configure over install when a stack already exists).",
+		ConfigMsg: "Install kube-prometheus-stack (Helm) or configure an existing Prometheus URL after approve.",
 	}
 	grafana := componentSpec{
 		ID: tools.IDGrafana, Name: "Grafana", Lane: LaneConfig, Risk: "none",
@@ -307,7 +309,7 @@ func FormatText(w io.Writer, plan Plan) error {
 		}
 	}
 	if plan.Needed > 0 {
-		fmt.Fprintln(w, "\nNo mutations performed yet. Host CLIs: --approve or TTY confirm (T-063). Cluster: T-064.")
+		fmt.Fprintln(w, "\nNo mutations performed yet. Apply host+cluster with --approve or TTY confirm (T-063/T-064).")
 	}
 	return nil
 }
