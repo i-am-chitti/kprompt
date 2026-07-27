@@ -320,15 +320,40 @@ func isProblem(ev agentwatch.Event) bool {
 			return false
 		}
 	}
+	detail := strings.ToLower(ev.Detail)
+	switch ev.Resource {
+	case agentwatch.ResourceHPA:
+		if strings.Contains(detail, "at_max=true") {
+			return true
+		}
+	case agentwatch.ResourceResourceQuota:
+		if strings.Contains(detail, "exceeded=true") {
+			return true
+		}
+	case agentwatch.ResourceIngress:
+		if strings.Contains(detail, "pending_lb=true") {
+			return true
+		}
+	case agentwatch.ResourceJob:
+		if ev.PodPhase == "Failed" {
+			return true
+		}
+	case agentwatch.ResourcePVC:
+		if ev.PodPhase == "Pending" {
+			return true
+		}
+	}
 	reason := strings.ToLower(strings.TrimSpace(ev.Reason))
 	switch reason {
 	case "backoff", "failed", "unhealthy", "failedscheduling", "oomkilling", "oomkilled",
 		"evicted", "crashloopbackoff", "failedmount", "failedattachvolume", "probeerror",
-		"failedcreatedpodcontainer", "networknotready", "failedkillpod":
+		"failedcreatedpodcontainer", "networknotready", "failedkillpod",
+		"nodenotready", "systemoom", "freediskspacefailed":
 		return true
 	}
-	msg := strings.ToLower(ev.Message)
-	if strings.Contains(msg, "crashloop") || strings.Contains(msg, "oomkilled") {
+	msg := strings.ToLower(ev.Message + " " + detail)
+	if strings.Contains(msg, "crashloop") || strings.Contains(msg, "oomkilled") ||
+		strings.Contains(msg, "nodenotready") || strings.Contains(msg, "node not ready") {
 		return true
 	}
 	return false
@@ -349,9 +374,17 @@ func isRecovery(ev agentwatch.Event) bool {
 
 func severityFor(ev agentwatch.Event) string {
 	r := strings.ToLower(ev.Reason)
+	d := strings.ToLower(ev.Detail)
+	msg := strings.ToLower(ev.Message)
 	switch {
-	case strings.Contains(r, "oom"), strings.Contains(strings.ToLower(ev.Message), "oom"):
+	case strings.Contains(r, "oom"), strings.Contains(msg, "oom"), strings.Contains(r, "systemoom"):
 		return incident.SeverityCritical
+	case strings.Contains(r, "nodenotready"), strings.Contains(msg, "nodenotready"):
+		return incident.SeverityHigh
+	case strings.Contains(d, "exceeded=true"):
+		return incident.SeverityHigh
+	case strings.Contains(d, "at_max=true"):
+		return incident.SeverityMedium
 	case strings.Contains(r, "backoff"), strings.Contains(r, "crash"), ev.PodPhase == "Failed":
 		return incident.SeverityHigh
 	case ev.PodPhase == "Pending", r == "failedscheduling":

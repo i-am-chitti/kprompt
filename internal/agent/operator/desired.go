@@ -280,7 +280,7 @@ func observeRoleRules(cr *agentv1.KpromptAgent) []rbacv1.PolicyRule {
 	rules := []rbacv1.PolicyRule{
 		{
 			APIGroups: []string{""},
-			Resources: []string{"pods", "pods/log", "events", "configmaps", "services"},
+			Resources: []string{"pods", "pods/log", "events", "configmaps", "services", "resourcequotas", "limitranges"},
 			Verbs:     []string{"get", "list", "watch"},
 		},
 		{
@@ -296,6 +296,16 @@ func observeRoleRules(cr *agentv1.KpromptAgent) []rbacv1.PolicyRule {
 		{
 			APIGroups: []string{""},
 			Resources: []string{"persistentvolumeclaims"},
+			Verbs:     []string{"get", "list", "watch"},
+		},
+		{
+			APIGroups: []string{"networking.k8s.io"},
+			Resources: []string{"ingresses"},
+			Verbs:     []string{"get", "list", "watch"},
+		},
+		{
+			APIGroups: []string{"autoscaling"},
+			Resources: []string{"horizontalpodautoscalers"},
 			Verbs:     []string{"get", "list", "watch"},
 		},
 		// Status sync onto this CR (AG-013).

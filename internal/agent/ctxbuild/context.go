@@ -90,6 +90,7 @@ type AgentContext struct {
 	RecentEvents   []incident.EvidenceRef `json:"recentEvents,omitempty"`
 	LogSnippets    []incident.EvidenceRef `json:"logSnippets,omitempty"`
 	ConfigMaps     []ConfigMapTouch       `json:"configMaps,omitempty"`
+	Metrics        []incident.EvidenceRef `json:"metrics,omitempty"` // AG-024 EvidenceMetric
 	PriorIncidents []incident.Incident    `json:"priorIncidents,omitempty"`
 	Memory         []memory.Fact          `json:"memory,omitempty"`
 	Degraded       []string               `json:"degraded,omitempty"`
@@ -101,11 +102,13 @@ type Options struct {
 	Memory         []memory.Fact
 	EventLimit     int
 	SkipLive       bool // tests / offline — only reshape incident evidence
+	SkipMetrics    bool // skip Prom even if Metrics querier is set
 }
 
 // Builder reads the cluster to enrich an Incident.
 type Builder struct {
-	Client kubernetes.Interface
+	Client  kubernetes.Interface
+	Metrics MetricsQuerier // optional Prom (AG-024); nil → degraded prometheus
 }
 
 // Build returns an AgentContext for the analyzer.
@@ -146,6 +149,9 @@ func (b *Builder) Build(ctx context.Context, inc incident.Incident, opts Options
 		b.enrichPod(ctx, &out, ns, workload, kind, inc)
 		b.enrichEvents(ctx, &out, ns, workload, opts.EventLimit)
 		b.enrichConfigMaps(ctx, &out, ns)
+		if !opts.SkipMetrics {
+			b.enrichMetrics(ctx, &out, workload)
+		}
 	}
 	return out
 }
@@ -191,6 +197,12 @@ func (c AgentContext) PromptBlocks() []string {
 			names = append(names, cm.Name)
 		}
 		blocks = append(blocks, "configmaps: "+strings.Join(names, ", "))
+	}
+	if len(c.Metrics) > 0 {
+		blocks = append(blocks, "metrics:")
+		for _, m := range c.Metrics {
+			blocks = append(blocks, fmt.Sprintf("  - %s: %s", m.Reason, m.Message))
+		}
 	}
 	if len(c.Memory) > 0 {
 		blocks = append(blocks, "namespace_memory:")

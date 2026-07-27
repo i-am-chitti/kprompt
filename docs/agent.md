@@ -142,13 +142,13 @@ Chart: [`charts/kprompt-operator`](../charts/kprompt-operator).
 | `KPROMPT_WEBHOOK_URL` | Generic AgentAlert JSON POST |
 | `KPROMPT_AGENT_CR` (+ `_NAMESPACE`) | Patch KpromptAgent.status |
 
-## Watched resources (AG-004)
+## Watched resources (AG-004 · AG-023)
 
 Default is `pods,events`. Expand with `--watch`:
 
 ```bash
 kprompt agent run -n payments \
-  --watch pods,events,deployments,replicasets,statefulsets,jobs,cronjobs,pvc,configmaps
+  --watch pods,events,deployments,services,ingresses,hpa,resourcequotas,limitranges,pvc,configmaps
 ```
 
 | Value(s) | Kind |
@@ -162,9 +162,18 @@ kprompt agent run -n payments \
 | `cronjobs` / `cj` | CronJob (schedule/suspend) |
 | `pvc` | PersistentVolumeClaim (phase) |
 | `configmaps` / `cm` | ConfigMap (key count) |
+| `services` / `svc` | Service |
+| `ingresses` / `ing` | Ingress (hosts / LB pending) |
+| `hpa` | HorizontalPodAutoscaler (at max) |
+| `resourcequotas` / `quota` | ResourceQuota (exceeded) |
+| `limitranges` | LimitRange |
 | `secrets` | Secret — **opt-in, metadata only** (never values, ADR-0013) |
 
 Secrets are never watched implicitly and only metadata (type + key count) is emitted.
+
+**Node pressure:** derived from Events (`NodeNotReady`, `SystemOOM`, …). Cluster-scoped Node objects are not watched (Role default, ADR-0016).
+
+**Metrics (AG-024):** when `KPROMPT_PROMETHEUS_URL` (or config `tools.prometheus.url`) is set, context builder attaches CPU/memory/restart metric EvidenceRefs. Missing Prom → `degraded: prometheus` (never invents values).
 
 ## Pipeline flags
 

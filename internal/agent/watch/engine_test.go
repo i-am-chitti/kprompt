@@ -160,6 +160,9 @@ func TestNormalizeResources(t *testing.T) {
 		{"unknown dropped", []string{"pods", "widgets"}, []string{ResourcePod}},
 		{"secrets opt-in only when named", []string{"secrets"}, []string{ResourceSecret}},
 		{"all unknown falls back", []string{"widgets"}, []string{ResourcePod, ResourceEvent}},
+		{"ag023 kinds", []string{"svc", "ingress", "hpa", "quota", "limitranges"}, []string{
+			ResourceHPA, ResourceIngress, ResourceLimitRange, ResourceResourceQuota, ResourceService,
+		}},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

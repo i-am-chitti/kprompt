@@ -29,6 +29,7 @@ import (
 	"github.com/kprompt/kprompt/internal/cluster"
 	"github.com/kprompt/kprompt/internal/config"
 	"github.com/kprompt/kprompt/internal/llm"
+	"github.com/kprompt/kprompt/internal/tools"
 )
 
 func newAgentCmd() *cobra.Command {
@@ -285,6 +286,13 @@ KpromptAgent status sync:
 			}
 			if buildContext || doAnalyze {
 				ctxBuilder = &ctxbuild.Builder{Client: clients.Clientset}
+				file, ferr := config.LoadFile()
+				if ferr == nil {
+					settings := tools.LoadSettings(file)
+					if prom, perr := tools.NewPrometheusClient(settings); perr == nil {
+						ctxBuilder.Metrics = prom
+					}
+				}
 			}
 			if trackHealth {
 				healthTracker = health.NewTracker(ns, clients.Clientset)

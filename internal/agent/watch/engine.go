@@ -1,7 +1,8 @@
-// Package watch implements namespace-scoped Pods + Events watching for the Observe agent (AG-003).
+// Package watch implements namespace-scoped watching for the Observe / Namespace Agent (AG-003 · AG-004 · AG-023).
 //
 // It uses Kubernetes list→watch with reconnect/backoff and optional bookmark events.
 // This package is read-only: it never mutates the cluster.
+// Node pressure is derived from Events (Role-scoped); cluster-scoped Node watch is out of scope.
 package watch
 
 import (
@@ -13,8 +14,10 @@ import (
 	"time"
 
 	appsv1 "k8s.io/api/apps/v1"
+	autoscalingv2 "k8s.io/api/autoscaling/v2"
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
+	networkingv1 "k8s.io/api/networking/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/watch"
@@ -255,6 +258,16 @@ func (e *Engine) listWatchFor(resource string) listWatchFn {
 		return e.listWatchConfigMaps
 	case ResourceSecret:
 		return e.listWatchSecrets
+	case ResourceService:
+		return e.listWatchService
+	case ResourceIngress:
+		return e.listWatchIngress
+	case ResourceHPA:
+		return e.listWatchHPA
+	case ResourceResourceQuota:
+		return e.listWatchResourceQuota
+	case ResourceLimitRange:
+		return e.listWatchLimitRange
 	default:
 		return nil
 	}
@@ -499,6 +512,36 @@ func normalize(resource string, we watch.Event) (Event, bool) {
 			return Event{}, false
 		}
 		return fromSecret(we.Type, obj), true
+	case ResourceService:
+		obj, ok := we.Object.(*corev1.Service)
+		if !ok {
+			return Event{}, false
+		}
+		return fromService(we.Type, obj), true
+	case ResourceIngress:
+		obj, ok := we.Object.(*networkingv1.Ingress)
+		if !ok {
+			return Event{}, false
+		}
+		return fromIngress(we.Type, obj), true
+	case ResourceHPA:
+		obj, ok := we.Object.(*autoscalingv2.HorizontalPodAutoscaler)
+		if !ok {
+			return Event{}, false
+		}
+		return fromHPA(we.Type, obj), true
+	case ResourceResourceQuota:
+		obj, ok := we.Object.(*corev1.ResourceQuota)
+		if !ok {
+			return Event{}, false
+		}
+		return fromResourceQuota(we.Type, obj), true
+	case ResourceLimitRange:
+		obj, ok := we.Object.(*corev1.LimitRange)
+		if !ok {
+			return Event{}, false
+		}
+		return fromLimitRange(we.Type, obj), true
 	default:
 		return Event{}, false
 	}

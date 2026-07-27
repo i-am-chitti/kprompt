@@ -9,7 +9,7 @@ metadata:
 rules:
   # Observe Mode — read/watch only (ADR-0013). No create/update/patch/delete.
   - apiGroups: [""]
-    resources: ["pods", "pods/log", "events", "configmaps", "services"]
+    resources: ["pods", "pods/log", "events", "configmaps", "services", "resourcequotas", "limitranges"]
     verbs: ["get", "list", "watch"]
   - apiGroups: ["apps"]
     resources: ["deployments", "replicasets", "statefulsets"]
@@ -19,6 +19,12 @@ rules:
     verbs: ["get", "list", "watch"]
   - apiGroups: [""]
     resources: ["persistentvolumeclaims"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["networking.k8s.io"]
+    resources: ["ingresses"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["autoscaling"]
+    resources: ["horizontalpodautoscalers"]
     verbs: ["get", "list", "watch"]
   {{- if eq (.Values.agent.memoryBackend | default "file") "configmap" }}
   # Namespace memory ConfigMap (AG-015) — facts only; not a control-plane upload.

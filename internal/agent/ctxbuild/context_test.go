@@ -2,6 +2,7 @@ package ctxbuild
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -13,6 +14,7 @@ import (
 	"k8s.io/client-go/kubernetes/fake"
 
 	"github.com/kprompt/kprompt/internal/incident"
+	toolprometheus "github.com/kprompt/kprompt/internal/tools/prometheus"
 )
 
 func TestBuildSkipLiveReshapesEvidence(t *testing.T) {
@@ -128,5 +130,57 @@ func TestBuildDegradesWithoutClient(t *testing.T) {
 	got := (&Builder{}).Build(context.Background(), inc, Options{})
 	if len(got.Degraded) == 0 || got.Degraded[0] != "kubernetes" {
 		t.Fatalf("degraded=%v", got.Degraded)
+	}
+}
+
+type stubMetrics struct {
+	val float64
+	err error
+}
+
+func (s stubMetrics) Query(ctx context.Context, promQL string, at time.Time) (toolprometheus.Result, error) {
+	if s.err != nil {
+		return toolprometheus.Result{}, s.err
+	}
+	return toolprometheus.Result{
+		Scalar: &toolprometheus.Sample{Value: fmt.Sprintf("%g", s.val)},
+	}, nil
+}
+
+func TestEnrichMetricsSuccess(t *testing.T) {
+	client := fake.NewSimpleClientset()
+	b := &Builder{Client: client, Metrics: stubMetrics{val: 0.42}}
+	inc := incident.NewIncident("inc-m", "payments", time.Now().UTC())
+	inc.PrimaryResource = &incident.ResourceRef{Kind: "Deployment", Name: "payment-api", Namespace: "payments"}
+	got := b.Build(context.Background(), inc, Options{})
+	if len(got.Metrics) == 0 {
+		t.Fatalf("expected metrics, degraded=%v", got.Degraded)
+	}
+	for _, d := range got.Degraded {
+		if d == "prometheus" {
+			t.Fatalf("should not degrade prometheus when metrics present: %v", got.Degraded)
+		}
+	}
+	blocks := got.PromptBlocks()
+	joined := strings.Join(blocks, "\n")
+	if !strings.Contains(joined, "metrics:") {
+		t.Fatalf("prompt missing metrics: %s", joined)
+	}
+}
+
+func TestEnrichMetricsDegradesWhenMissing(t *testing.T) {
+	client := fake.NewSimpleClientset()
+	b := &Builder{Client: client} // no Metrics
+	inc := incident.NewIncident("inc-m2", "payments", time.Now().UTC())
+	inc.PrimaryResource = &incident.ResourceRef{Kind: "Deployment", Name: "api", Namespace: "payments"}
+	got := b.Build(context.Background(), inc, Options{})
+	found := false
+	for _, d := range got.Degraded {
+		if d == "prometheus" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("expected prometheus degraded, got %v", got.Degraded)
 	}
 }

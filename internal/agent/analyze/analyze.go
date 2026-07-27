@@ -14,6 +14,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/kprompt/kprompt/internal/agent/confidence"
 	"github.com/kprompt/kprompt/internal/agent/ctxbuild"
 	"github.com/kprompt/kprompt/internal/agent/detect"
 	"github.com/kprompt/kprompt/internal/agent/patterns"
@@ -144,6 +145,18 @@ func (a *Analyzer) Analyze(ctx context.Context, agentCtx ctxbuild.AgentContext, 
 	}
 
 	normalizeResult(&res, inc)
+
+	matched := strings.TrimSpace(res.DetectorCode) != ""
+	llmTrusted := source == "llm"
+	if adj, note := confidence.Adjust(res.Confidence, agentCtx, matched, llmTrusted); adj != res.Confidence || note != "" {
+		res.Confidence = adj
+		if !llmTrusted && !matched && (note == "not enough evidence" || note == "weak evidence") {
+			res.RootCause = confidence.NotEnoughEvidenceRoot
+			if len(res.Alternatives) == 0 {
+				res.Alternatives = []string{"Need more Events/logs/metrics before asserting root cause"}
+			}
+		}
+	}
 
 	recordRoot := res.RootCause
 	recordRec := res.Recommendation
