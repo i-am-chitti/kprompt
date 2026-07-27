@@ -1,7 +1,25 @@
+kprompt-agent installed.
+
 1. Watch namespace: {{ include "kprompt-agent.watchNamespace" . }}
-2. Mode: Observe only (no cluster mutate).
-3. Create/fill Secret {{ include "kprompt-agent.secretName" . }} with LLM / Slack / webhook keys, then restart the pod if needed:
+2. Mode: Observe by default (ADR-0013) — Role is get/list/watch only unless you enable Autopilot apply.
+3. Autopilot (ADR-0015):
+   - agent.autopilotPropose={{ .Values.agent.autopilotPropose | default false }}  → proposals only
+   - agent.autopilotApply={{ .Values.agent.autopilotApply | default false }}    → mutate only with RemediationPolicy mode=policyAuto apply=true
+   - Helm defaults keep apply=false. There is no silent LLM-said-so apply.
+4. Secret {{ include "kprompt-agent.secretName" . }} — put LLM / Slack / webhook keys, then restart if needed:
      kubectl -n {{ include "kprompt-agent.watchNamespace" . }} rollout restart deploy/{{ include "kprompt-agent.fullname" . }}
-4. Logs:
+5. Logs:
      kubectl -n {{ include "kprompt-agent.watchNamespace" . }} logs -l app.kubernetes.io/instance={{ .Release.Name }} -f
-5. Docs: https://github.com/kprompt/kprompt/blob/main/docs/agent.md
+6. Docs:
+     https://github.com/kprompt/kprompt/blob/main/docs/agent.md
+     https://github.com/kprompt/kprompt/blob/main/docs/namespace-agent.md
+     https://github.com/kprompt/kprompt/blob/main/docs/agent-ops.md
+{{- if .Values.agent.remediationPolicy }}
+
+RemediationPolicy ConfigMap: kprompt-remediation-policy (proposeOnly by default — edit apply/mode carefully).
+{{- end }}
+{{- if .Values.agent.autopilotApply }}
+
+WARNING: autopilotApply=true grants Deployment update/patch and Pod delete in this namespace.
+Confirm RemediationPolicy mode=policyAuto apply=true before relying on in-loop apply.
+{{- end }}

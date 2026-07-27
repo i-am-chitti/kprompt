@@ -8,7 +8,7 @@ Deploys a single Deployment that runs:
 kprompt agent run --namespace <ns> --in-cluster [--analyze] [--fetch-logs] [--health] …
 ```
 
-Never mutates the cluster (ADR-0013). Default mode is **Observe**. Optional `--autopilot-propose` is **propose-only** (ADR-0015) — never silent apply. Autopilot **apply** is not enabled by this chart.
+Never mutates the cluster in Observe Mode (ADR-0013). Default is **Observe**. Optional `agent.autopilotPropose` emits proposals only (ADR-0015). `agent.autopilotApply` stays **false** by default and still requires RemediationPolicy `mode=policyAuto apply=true` — never silent LLM apply.
 
 Honest positioning (vs K8sGPT / Kagent, RBAC, LLM cost): [docs/agent.md](../../docs/agent.md) · [docs/namespace-agent.md](../../docs/namespace-agent.md) · [docs/agent-ops.md](../../docs/agent-ops.md) · [kprompt.ai/docs/agent](https://kprompt.ai/docs/agent).
 

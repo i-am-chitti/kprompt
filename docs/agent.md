@@ -12,7 +12,7 @@ This is **Observe Mode** by default — it never applies, patches, or deletes cl
 | **Kagent** | **In-cluster agent framework** (multi-agent CRDs / tools) | We ship one **kprompt-native Observe pipeline** (Incident / AgentAlert + PlanResult DNA), not a general multi-agent platform. Do not expect Kagent feature parity. |
 | **kprompt CLI** | Reactive intent compiler (plan → approve → apply) | The agent is **optional**. The laptop CLI still needs no daemon ([ADR-0001](https://github.com/kprompt/kprompt-architecture/blob/main/decisions/ADR-0001-go-cli.md)). |
 
-Explicit non-claims: no silent remediations, no ClusterRole-by-default, no “we host your fleet agent” SaaS, no Autopilot apply in V1.
+Explicit non-claims: no silent remediations, no ClusterRole-by-default on namespace agents, no “we host your fleet agent” SaaS. Autopilot **apply** is opt-in (`policyAuto` + allowlist + explicit approve/`--autopilot-apply`) — never LLM-said-so.
 
 **Modes table (Observe vs Namespace Agent vs Coordinator):** [namespace-agent.md](./namespace-agent.md) · **Ops runbook (cost/RBAC):** [agent-ops.md](./agent-ops.md).
 
@@ -204,7 +204,9 @@ Secrets are never watched implicitly and only metadata (type + key count) is emi
 | `--agent-cr` | AG-013 status sync |
 | `--memory` | AG-015 namespace facts |
 | `--patterns` | AG-016 seen-before + AG-033 outcome weights |
-| `--autopilot-propose` | AG-017 / ADR-0015 propose-only |
+| `--autopilot-propose` | AG-017 / ADR-0015 propose (default) |
+| `--autopilot-policy` | AG-040 RemediationPolicy file |
+| `--autopilot-apply` | AG-042 policyAuto in-loop apply (off by default) |
 | `--slack-ask` | AG-019 ask (+ FP learning with `--patterns`) |
 | `--coordinator-url` | AG-036 Coordinator handoff (opt-in) |
 | `--gitops-evidence` | AG-035 Argo/Flux EvidenceRefs (opt-in) |
@@ -238,11 +240,9 @@ Remembers incident signatures (reason + workload kind + bucket like crashloop/oo
 kprompt agent run -n payments --analyze --heuristic --patterns
 ```
 
-**Not shipped:** silent Autopilot apply. See [ADR-0015](https://github.com/kprompt/kprompt-architecture/blob/main/decisions/ADR-0015-autopilot-mode.md) — MVP is **propose-only**.
-
 ## Autopilot (AG-017 · AG-040…AG-044 · ADR-0015)
 
-Opt-in. Default remains Observe / **proposeOnly**.
+Opt-in. Default remains Observe / **proposeOnly**. **Silent apply is not shipped** — mutate requires RemediationPolicy `mode=policyAuto` **and** `apply=true`, plus an explicit gate (`apply-proposal --approve` or `--autopilot-apply`). Helm chart defaults keep both propose and apply flags off.
 
 ```bash
 # Propose allowlisted actions (rollback / restart / scale / evict)

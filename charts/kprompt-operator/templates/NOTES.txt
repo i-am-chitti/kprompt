@@ -1,0 +1,11 @@
+kprompt-operator installed in {{ .Release.Namespace }}.
+
+1. This controller reconciles KpromptAgent CRs into Observe agent Deployments (SA/Role/RoleBinding).
+2. V1 accepts mode=Observe only — do not expect Autopilot CR mode here.
+3. Prefer charts/kprompt-agent for a single namespace Role-only install (no ClusterRole).
+4. Default agent image: {{ .Values.defaultAgentImage | default .Values.image.repository }}
+5. Sample CR: https://github.com/kprompt/kprompt/blob/main/config/samples/kpromptagent.yaml
+6. Docs: https://github.com/kprompt/kprompt/blob/main/docs/agent.md#operator-ag-014
+
+Logs:
+  kubectl -n {{ .Release.Namespace }} logs -l app.kubernetes.io/instance={{ .Release.Name }} -f

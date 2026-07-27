@@ -112,7 +112,7 @@ Generic get/list works for discoverable built-ins and CRDs (Node, ConfigMap, Sec
 
 ## Status
 
-**v0.5.0 (experimental)** — Adds the optional **Observe agent** runtime: namespace watch → Incident → gated Slack/webhook, Helm + Operator, memory/patterns, and Autopilot **propose-only** (ADR-0015). Still includes the v0.4 plan → safety → apply CLI, deep explain, integrations (Helm through GitOps), optimize/graph, multi-context, Homebrew, and optional Team login. See [docs/agent.md](./docs/agent.md) and [docs/integration-matrix.md](./docs/integration-matrix.md).
+**v0.5.x (experimental)** — Optional **Observe / Namespace Agent** runtime: watch → Incident → InvestigationReport → gated Slack/webhook, Helm + Operator, memory/patterns/GitOps evidence, thin Coordinator, and Autopilot **propose-only by default** with gated `policyAuto` apply (ADR-0015). Still includes the v0.4 plan → safety → apply CLI, deep explain, integrations, optimize/graph, multi-context, Homebrew, and optional Team login. See [docs/agent.md](./docs/agent.md) · [docs/namespace-agent.md](./docs/namespace-agent.md).
 
 ## Install
 
