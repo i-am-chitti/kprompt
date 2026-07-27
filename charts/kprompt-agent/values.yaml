@@ -39,6 +39,8 @@ agent:
   autopilotPropose: false
   # AG-032: persist incidents (file|configmap|"").
   incidentsBackend: ""
+  # AG-035: Argo/Flux EvidenceRefs (opt-in; adds Role rules for Applications/Kustomizations).
+  gitopsEvidence: false
   minSeverity: medium
   minConfidence: "0.7"
   provider: openai

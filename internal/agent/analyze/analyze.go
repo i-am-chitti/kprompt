@@ -18,23 +18,26 @@ import (
 	"github.com/kprompt/kprompt/internal/agent/ctxbuild"
 	"github.com/kprompt/kprompt/internal/agent/detect"
 	"github.com/kprompt/kprompt/internal/agent/patterns"
+	"github.com/kprompt/kprompt/internal/agent/priority"
 	"github.com/kprompt/kprompt/internal/incident"
 	"github.com/kprompt/kprompt/internal/llm"
 )
 
 // Result from a structured LLM (or heuristic) analysis.
 type Result struct {
-	Severity       string   `json:"severity"`
-	Confidence     float64  `json:"confidence"`
-	Summary        string   `json:"summary"`
-	RootCause      string   `json:"rootCause"`
-	Recommendation string   `json:"recommendation"`
+	Severity       string  `json:"severity"`
+	Confidence     float64 `json:"confidence"`
+	Summary        string  `json:"summary"`
+	RootCause      string  `json:"rootCause"`
+	Recommendation string  `json:"recommendation"`
 	// DetectorCode is set when the heuristic catalog matched (AG-026).
 	DetectorCode string `json:"detectorCode,omitempty"`
 	// CausalChain is symptom → … → probable root (AG-028 / ADR-0016).
 	CausalChain []string `json:"causalChain,omitempty"`
 	// Alternatives are non-primary hypotheses.
 	Alternatives []string `json:"alternatives,omitempty"`
+	// Objective is ADR-0016 §5 priority class (AG-030).
+	Objective string `json:"objective,omitempty"`
 }
 
 var analysisSchema = json.RawMessage(`{
@@ -53,9 +56,10 @@ const systemPrompt = `You are kprompt Observe Mode, an AI SRE assistant for Kube
 Given structured incident context, produce a concise root-cause analysis.
 Rules:
 - Use only evidence in the context; do not invent cluster facts.
-- namespace_memory facts are priors/hints only — never sole proof of root cause; require Events/logs/metrics/traces.
+- namespace_memory facts are priors/hints only — never sole proof of root cause; require Events/logs/metrics/traces/gitops.
 - If signals are weak, lower confidence and say you do not have enough evidence.
 - recommendation must be safe guidance (check/verify); never claim you mutated the cluster.
+- Prefer severity that reflects impact priority: outage/data-loss/security before performance/cost/hygiene.
 - severity must be one of: info, low, medium, high, critical.
 - Respond with JSON only matching the schema.`
 
@@ -146,6 +150,7 @@ func (a *Analyzer) Analyze(ctx context.Context, agentCtx ctxbuild.AgentContext, 
 	}
 
 	normalizeResult(&res, inc)
+	applyPriority(&res, agentCtx)
 
 	matched := strings.TrimSpace(res.DetectorCode) != ""
 	llmTrusted := source == "llm"
@@ -286,10 +291,19 @@ func Heuristic(agentCtx ctxbuild.AgentContext) Result {
 			chain = append(chain, "Recent deployment change-cause recorded")
 		}
 	}
+	for _, g := range agentCtx.GitOps {
+		if g.Reason == "out_of_sync" || g.Reason == "unhealthy" {
+			conf = minFloat(conf+0.03, 0.95)
+			if !strings.Contains(strings.ToLower(root), "gitops") {
+				root = root + "; GitOps " + g.Reason
+			}
+			break
+		}
+	}
 	if len(agentCtx.Degraded) > 0 {
 		conf = maxFloat(conf-0.1, 0.3)
 	}
-	return Result{
+	res := Result{
 		Severity:       sev,
 		Confidence:     conf,
 		Summary:        summary,
@@ -299,6 +313,18 @@ func Heuristic(agentCtx ctxbuild.AgentContext) Result {
 		CausalChain:    chain,
 		Alternatives:   alts,
 	}
+	applyPriority(&res, agentCtx)
+	return res
+}
+
+// applyPriority stamps ADR-0016 objective and raises severity to the objective floor (AG-030).
+func applyPriority(res *Result, agentCtx ctxbuild.AgentContext) {
+	if res == nil {
+		return
+	}
+	c := priority.Classify(agentCtx, res.DetectorCode, res.Severity, res.Summary, res.RootCause)
+	res.Objective = c.Objective
+	res.Severity = priority.ApplySeverity(res.Severity, c.Objective)
 }
 
 func buildReport(inc incident.Incident, agentCtx ctxbuild.AgentContext, res Result, seenNote string) incident.InvestigationReport {
@@ -316,6 +342,9 @@ func buildReport(inc incident.Incident, agentCtx ctxbuild.AgentContext, res Resu
 		rep.Evidence = append([]incident.EvidenceRef(nil), agentCtx.RecentEvents...)
 		rep.Evidence = append(rep.Evidence, agentCtx.LogSnippets...)
 	}
+	rep.Evidence = append(rep.Evidence, agentCtx.Metrics...)
+	rep.Evidence = append(rep.Evidence, agentCtx.Traces...)
+	rep.Evidence = append(rep.Evidence, agentCtx.GitOps...)
 	rep.Timeline = append([]incident.EvidenceRef(nil), rep.Evidence...)
 
 	hyps := make([]incident.Hypothesis, 0, 1+len(res.Alternatives))
@@ -340,11 +369,29 @@ func buildReport(inc incident.Incident, agentCtx ctxbuild.AgentContext, res Resu
 		Title:      res.Recommendation,
 		Why:        res.RootCause,
 		Confidence: res.Confidence,
+		ActionID:   res.Objective,
 	}}
+	priority.SortActions(rep.RecommendedActions)
+	if res.Objective != "" {
+		rep.Reasoning = firstNonEmptyJoin(rep.Reasoning, "objective="+res.Objective)
+	}
 	if seenNote != "" {
 		rep.Unknowns = append(rep.Unknowns, seenNote)
 	}
 	return rep
+}
+
+func firstNonEmptyJoin(a, b string) string {
+	a = strings.TrimSpace(a)
+	b = strings.TrimSpace(b)
+	switch {
+	case a == "":
+		return b
+	case b == "":
+		return a
+	default:
+		return a + "; " + b
+	}
 }
 
 func buildFacts(inc incident.Incident, agentCtx ctxbuild.AgentContext) string {

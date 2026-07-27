@@ -42,6 +42,8 @@ type AppStatus struct {
 	Health    string `json:"health,omitempty"`
 	Revision  string `json:"revision,omitempty"`
 	Message   string `json:"message,omitempty"`
+	// History is recent deploy revisions when available (Argo status.history; Flux current rev).
+	History []string `json:"history,omitempty"`
 }
 
 // StatusReport is the stable human + JSON contract for GitOps status (T-043).
@@ -208,6 +210,9 @@ func summarizeFlux(obj *unstructured.Unstructured) AppStatus {
 	} else if rev, ok, _ := unstructured.NestedString(obj.Object, "status", "lastAttemptedRevision"); ok {
 		st.Revision = rev
 	}
+	if st.Revision != "" {
+		st.History = []string{st.Revision}
+	}
 	conds, found, _ := unstructured.NestedSlice(obj.Object, "status", "conditions")
 	if found {
 		for _, raw := range conds {
@@ -252,6 +257,24 @@ func summarizeArgoCD(obj *unstructured.Unstructured) AppStatus {
 	}
 	if rev, ok, _ := unstructured.NestedString(obj.Object, "status", "sync", "revision"); ok {
 		st.Revision = rev
+	}
+	if hist, ok, _ := unstructured.NestedSlice(obj.Object, "status", "history"); ok {
+		// Newest last in Argo history — take trailing revisions for deploy evidence.
+		for i := len(hist) - 1; i >= 0 && len(st.History) < 3; i-- {
+			m, ok := hist[i].(map[string]any)
+			if !ok {
+				continue
+			}
+			rev, _ := m["revision"].(string)
+			rev = strings.TrimSpace(rev)
+			if rev == "" {
+				continue
+			}
+			st.History = append(st.History, rev)
+		}
+	}
+	if len(st.History) == 0 && st.Revision != "" {
+		st.History = []string{st.Revision}
 	}
 	if msg, ok, _ := unstructured.NestedString(obj.Object, "status", "conditions"); !ok {
 		_ = msg

@@ -58,6 +58,9 @@ spec:
             {{- if .Values.agent.patterns }}
             - --patterns
             {{- end }}
+            {{- if .Values.agent.gitopsEvidence }}
+            - --gitops-evidence
+            {{- end }}
             {{- if .Values.agent.autopilotPropose }}
             - --autopilot-propose
             {{- end }}

@@ -92,6 +92,7 @@ type AgentContext struct {
 	ConfigMaps     []ConfigMapTouch       `json:"configMaps,omitempty"`
 	Metrics        []incident.EvidenceRef `json:"metrics,omitempty"` // AG-024 EvidenceMetric
 	Traces         []incident.EvidenceRef `json:"traces,omitempty"`  // AG-025 EvidenceTrace
+	GitOps         []incident.EvidenceRef `json:"gitops,omitempty"`  // AG-035 EvidenceGitOps
 	PriorIncidents []incident.Incident    `json:"priorIncidents,omitempty"`
 	Memory         []memory.Fact          `json:"memory,omitempty"`
 	Degraded       []string               `json:"degraded,omitempty"`
@@ -105,6 +106,7 @@ type Options struct {
 	SkipLive       bool // tests / offline — only reshape incident evidence
 	SkipMetrics    bool // skip Prom even if Metrics querier is set
 	SkipTraces     bool // skip OTel even if Traces querier is set
+	SkipGitOps     bool // skip GitOps even if GitOps querier is set
 }
 
 // Builder reads the cluster to enrich an Incident.
@@ -112,6 +114,7 @@ type Builder struct {
 	Client  kubernetes.Interface
 	Metrics MetricsQuerier // optional Prom (AG-024); nil → degraded prometheus
 	Traces  TracesQuerier  // optional OTel (AG-025); nil → degraded otel
+	GitOps  GitOpsQuerier  // optional Argo/Flux (AG-035); nil → skip (opt-in)
 }
 
 // Build returns an AgentContext for the analyzer.
@@ -157,6 +160,9 @@ func (b *Builder) Build(ctx context.Context, inc incident.Incident, opts Options
 		}
 		if !opts.SkipTraces {
 			b.enrichTraces(ctx, &out, workload)
+		}
+		if !opts.SkipGitOps {
+			b.enrichGitOps(ctx, &out, workload)
 		}
 	}
 	return out
@@ -214,6 +220,12 @@ func (c AgentContext) PromptBlocks() []string {
 		blocks = append(blocks, "traces:")
 		for _, tr := range c.Traces {
 			blocks = append(blocks, fmt.Sprintf("  - %s: %s", tr.Reason, truncate(tr.Message, 200)))
+		}
+	}
+	if len(c.GitOps) > 0 {
+		blocks = append(blocks, "gitops:")
+		for _, g := range c.GitOps {
+			blocks = append(blocks, fmt.Sprintf("  - %s: %s", g.Reason, truncate(g.Message, 200)))
 		}
 	}
 	if len(c.Memory) > 0 {

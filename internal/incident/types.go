@@ -42,6 +42,7 @@ const (
 	EvidenceObject = "object"
 	EvidenceMetric = "metric"
 	EvidenceTrace  = "trace"
+	EvidenceGitOps = "gitops" // AG-035 Argo/Flux sync + deploy history
 )
 
 // ResourceRef is a Kubernetes object identity (JSON-friendly ObjectRef).

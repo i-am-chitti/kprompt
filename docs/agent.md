@@ -177,6 +177,10 @@ Secrets are never watched implicitly and only metadata (type + key count) is emi
 
 **Traces (AG-025):** when `KPROMPT_OTEL_ENDPOINT` (+ optional `KPROMPT_OTEL_BACKEND`) is set, context builder attaches compact trace EvidenceRefs. Missing OTel → `degraded: otel`.
 
+**GitOps evidence (AG-035):** `--gitops-evidence` lists Argo CD Applications / Flux Kustomizations in the watch namespace and attaches sync/health + deploy history EvidenceRefs (`type=gitops`). Opt-in; missing CRDs → `degraded: gitops`. Helm: `agent.gitopsEvidence`.
+
+**Priority policy (AG-030):** analysis stamps an ADR-0016 objective (`outage` → … → `best_practices`) and raises severity to the objective floor (never lowers). Recommended actions are ranked accordingly.
+
 **Durable incidents (AG-032):** `--incidents-backend file|configmap` persists open incidents / Slack thread ts across restarts (`~/.config/kprompt/incidents` or ConfigMap `kprompt-incident-state`).
 
 **Slack ask (AG-019):** `--slack-ask` listens on `--slack-ask-addr` (default `:8080`) for Slack Events (`status` / `why` / `what broke` / `false positive`). Read-only for the cluster — never mutates. With `--patterns`, `false positive` dampens future “seen before” boosts (AG-033). Requires bot token mode + Events API URL (or port-forward).
@@ -201,6 +205,7 @@ Secrets are never watched implicitly and only metadata (type + key count) is emi
 | `--autopilot-propose` | AG-017 / ADR-0015 propose-only |
 | `--slack-ask` | AG-019 ask (+ FP learning with `--patterns`) |
 | `--coordinator-url` | AG-036 Coordinator handoff (opt-in) |
+| `--gitops-evidence` | AG-035 Argo/Flux EvidenceRefs (opt-in) |
 
 ## Namespace memory (AG-015)
 

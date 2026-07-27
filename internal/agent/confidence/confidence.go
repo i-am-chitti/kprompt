@@ -17,7 +17,7 @@ func Adjust(base float64, agentCtx ctxbuild.AgentContext, detectorMatched bool, 
 	conf := clamp(base)
 	note := ""
 
-	evidenceN := len(agentCtx.Incident.Evidence) + len(agentCtx.RecentEvents) + len(agentCtx.LogSnippets) + len(agentCtx.Metrics) + len(agentCtx.Traces)
+	evidenceN := len(agentCtx.Incident.Evidence) + len(agentCtx.RecentEvents) + len(agentCtx.LogSnippets) + len(agentCtx.Metrics) + len(agentCtx.Traces) + len(agentCtx.GitOps)
 	if !llmTrusted {
 		switch {
 		case evidenceN == 0:
@@ -42,6 +42,9 @@ func Adjust(base float64, agentCtx ctxbuild.AgentContext, detectorMatched bool, 
 	}
 	if len(agentCtx.Traces) > 0 {
 		conf = min(conf+0.03, 0.98)
+	}
+	if len(agentCtx.GitOps) > 0 {
+		conf = min(conf+0.02, 0.98)
 	}
 	// AG-034: memory is evidence-not-proof — never raise confidence from memory alone.
 	if len(agentCtx.Memory) > 0 && evidenceN == 0 {

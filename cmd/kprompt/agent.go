@@ -143,6 +143,7 @@ func newAgentRunCmd() *cobra.Command {
 		slackAsk         bool
 		slackAskAddr     string
 		coordinatorURL   string
+		gitopsEvidence   bool
 	)
 	cmd := &cobra.Command{
 		Use:   "run",
@@ -168,6 +169,7 @@ Pipeline flags (read-only — never mutate workload objects):
   --autopilot-propose  emit PlanResult-shaped AutopilotProposal (ADR-0015; propose-only, never silent apply)
   --slack-ask          listen for Slack Events ask (status/why/what broke/false positive) — read-only (AG-019)
   --coordinator-url    POST CoordinatorHandoff when cross-ns suspicion (AG-036; opt-in)
+  --gitops-evidence    attach Argo/Flux sync + deploy history as EvidenceRefs (AG-035; opt-in)
 
 Durable incidents (AG-032; local / in-cluster only):
   --incidents-backend file|configmap   persist open incidents across restarts
@@ -333,6 +335,14 @@ KpromptAgent status sync:
 					}
 					if otel, oerr := tools.NewOTelClient(settings); oerr == nil {
 						ctxBuilder.Traces = otel
+					}
+				}
+				if gitopsEvidence {
+					dyn, derr := cluster.DynamicForConfig(clients.Config)
+					if derr != nil {
+						fmt.Fprintf(cmd.ErrOrStderr(), "warning: gitops evidence: dynamic client: %v\n", derr)
+					} else {
+						ctxBuilder.GitOps = &ctxbuild.ClusterGitOps{Config: clients.Config, Dynamic: dyn}
 					}
 				}
 			}
@@ -716,6 +726,7 @@ KpromptAgent status sync:
 	cmd.Flags().BoolVar(&slackAsk, "slack-ask", false, "Slack Events ask listener for status/why/what broke/false positive (AG-019; read-only)")
 	cmd.Flags().StringVar(&slackAskAddr, "slack-ask-addr", ":8080", "listen address for --slack-ask Events API")
 	cmd.Flags().StringVar(&coordinatorURL, "coordinator-url", "", "POST CoordinatorHandoff when cross-ns suspicion (AG-036; opt-in)")
+	cmd.Flags().BoolVar(&gitopsEvidence, "gitops-evidence", false, "attach Argo/Flux sync + deploy history EvidenceRefs (AG-035; opt-in)")
 	cmd.Flags().BoolVar(&heuristic, "heuristic", false, "with --analyze, skip LLM and use local heuristics only")
 	cmd.Flags().StringVar(&providerName, "provider", "", "LLM provider for --analyze (default from config)")
 	cmd.Flags().StringVar(&modelName, "model", "", "LLM model for --analyze (default from config)")
