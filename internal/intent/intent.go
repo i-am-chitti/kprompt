@@ -1,6 +1,9 @@
 package intent
 
-import "encoding/json"
+import (
+	"encoding/json"
+	"strings"
+)
 
 // Kind classifies a user intent.
 type Kind string
@@ -26,6 +29,7 @@ const (
 	KindWorkflow    Kind = "workflow"
 	KindTekton      Kind = "tekton"
 	KindKEDA        Kind = "keda"
+	KindHPA         Kind = "hpa"
 	KindIstio       Kind = "istio"
 	KindCrossplane  Kind = "crossplane"
 	KindGitOps      Kind = "gitops"
@@ -39,6 +43,29 @@ const (
 	KindDeny        Kind = "deny"
 	KindUnknown     Kind = "unknown"
 )
+
+// ExtractKinds are kinds the LLM may emit (matches SchemaJSON enum).
+// KindPatch is intentionally excluded — it is produced only by suggest follow-ups.
+var ExtractKinds = map[Kind]struct{}{
+	KindDeploy: {}, KindInstall: {}, KindUpgrade: {}, KindScale: {}, KindRollback: {},
+	KindGet: {}, KindExplain: {}, KindInvestigate: {}, KindWhy: {}, KindTimeline: {},
+	KindImpact: {}, KindAudit: {}, KindCleanup: {}, KindLearn: {}, KindDrift: {},
+	KindLogs: {}, KindDescribe: {}, KindWorkflow: {}, KindTekton: {}, KindKEDA: {},
+	KindHPA: {}, KindIstio: {}, KindCrossplane: {}, KindGitOps: {}, KindPerformance: {},
+	KindTrace: {}, KindDashboard: {}, KindOptimize: {}, KindGraph: {}, KindDelete: {},
+	KindDeny: {}, KindUnknown: {},
+}
+
+// NormalizeKind coerces any non-extract kind to unknown so invented LLM values
+// (e.g. "hpascaleup") never reach the planner as fake kinds. Case is folded so
+// "HPA" maps to KindHPA.
+func NormalizeKind(k Kind) Kind {
+	k = Kind(strings.ToLower(strings.TrimSpace(string(k))))
+	if _, ok := ExtractKinds[k]; ok {
+		return k
+	}
+	return KindUnknown
+}
 
 // Intent is the structured result of NL understanding.
 type Intent struct {
@@ -65,7 +92,7 @@ const SchemaJSON = `{
   "properties": {
     "kind": {
       "type": "string",
-      "enum": ["deploy", "install", "upgrade", "scale", "rollback", "get", "explain", "investigate", "why", "timeline", "impact", "audit", "cleanup", "learn", "drift", "logs", "describe", "workflow", "tekton", "keda", "istio", "crossplane", "gitops", "performance", "trace", "dashboard", "optimize", "graph", "delete", "deny", "unknown"]
+      "enum": ["deploy", "install", "upgrade", "scale", "rollback", "get", "explain", "investigate", "why", "timeline", "impact", "audit", "cleanup", "learn", "drift", "logs", "describe", "workflow", "tekton", "keda", "hpa", "istio", "crossplane", "gitops", "performance", "trace", "dashboard", "optimize", "graph", "delete", "deny", "unknown"]
     },
     "target": {
       "type": "object",
@@ -91,9 +118,7 @@ func ParseStructured(raw []byte) (Intent, error) {
 	if err := json.Unmarshal(raw, &in); err != nil {
 		return Intent{}, err
 	}
-	if in.Kind == "" {
-		in.Kind = KindUnknown
-	}
+	in.Kind = NormalizeKind(in.Kind)
 	if in.Params == nil {
 		in.Params = map[string]any{}
 	}

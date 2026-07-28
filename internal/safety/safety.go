@@ -59,6 +59,9 @@ func CheckPrompt(prompt string) Result {
 	if kedaDenied := CheckKEDAPrompt(p); kedaDenied.Denied {
 		return kedaDenied
 	}
+	if hpaDenied := CheckHPAPrompt(p); hpaDenied.Denied {
+		return hpaDenied
+	}
 	if istioDenied := CheckIstioPrompt(p); istioDenied.Denied {
 		return istioDenied
 	}
@@ -137,6 +140,9 @@ func EvaluatePlan(plan planner.ExecutionPlan) Result {
 	if kedaDenied := evaluateKEDAPlan(plan); kedaDenied.Denied {
 		return kedaDenied
 	}
+	if hpaDenied := evaluateHPAPlan(plan); hpaDenied.Denied {
+		return hpaDenied
+	}
 	if istioDenied := evaluateIstioPlan(plan); istioDenied.Denied {
 		return istioDenied
 	}
@@ -156,7 +162,7 @@ func EvaluatePlan(plan planner.ExecutionPlan) Result {
 			return Result{Risk: RiskMedium, Message: "GitOps sync requires approval"}
 		}
 		return Result{Risk: RiskLow}
-	case intent.KindScale, intent.KindDeploy, intent.KindInstall, intent.KindUpgrade, intent.KindRollback, intent.KindPatch, intent.KindWorkflow, intent.KindTekton, intent.KindKEDA:
+	case intent.KindScale, intent.KindDeploy, intent.KindInstall, intent.KindUpgrade, intent.KindRollback, intent.KindPatch, intent.KindWorkflow, intent.KindTekton, intent.KindKEDA, intent.KindHPA:
 		return Result{Risk: RiskMedium, Message: "Mutation requires approval"}
 	case intent.KindGet, intent.KindExplain, intent.KindInvestigate, intent.KindWhy, intent.KindTimeline, intent.KindImpact, intent.KindAudit, intent.KindCleanup, intent.KindLogs, intent.KindDescribe, intent.KindPerformance, intent.KindTrace, intent.KindDashboard, intent.KindOptimize, intent.KindGraph, intent.KindIstio:
 		// Generic Kubernetes reads and optimize reports (including Secret) are RiskLow.

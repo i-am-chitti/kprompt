@@ -76,18 +76,25 @@ func TestFromOptimizeHPAScaleAndMaxedPrompt(t *testing.T) {
 				HasHPA: true, Maxed: true, HPAName: "web-hpa",
 				Message: "at max",
 			},
+			{
+				Kind: optimize.WorkloadDeployment, Namespace: "prod", Name: "redis",
+				StaticReplicas: true,
+				Message:        "no HPA",
+			},
 		},
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	var scale, maxed *Suggestion
+	var scale, maxed, static *Suggestion
 	for i := range suggestions {
 		switch suggestions[i].Code {
 		case "optimize.hpa.scale":
 			scale = &suggestions[i]
 		case "optimize.hpa.maxed":
 			maxed = &suggestions[i]
+		case "optimize.hpa.static":
+			static = &suggestions[i]
 		}
 	}
 	if scale == nil || scale.Plan == nil || scale.Plan.Actions[0].Replicas == nil || *scale.Plan.Actions[0].Replicas != 4 {
@@ -95,6 +102,12 @@ func TestFromOptimizeHPAScaleAndMaxedPrompt(t *testing.T) {
 	}
 	if maxed == nil || maxed.Plan != nil {
 		t.Fatalf("maxed should be prompt-only: %+v", maxed)
+	}
+	if static == nil || static.Plan == nil || static.Plan.Actions[0].Op != planner.OpCreate {
+		t.Fatalf("static should be HPA create plan: %+v", static)
+	}
+	if static.Plan.Actions[0].Object.Kind != "HorizontalPodAutoscaler" {
+		t.Fatalf("static object=%+v", static.Plan.Actions[0].Object)
 	}
 }
 

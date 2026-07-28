@@ -16,7 +16,7 @@ kprompt --contexts staging,prod "optimize my cluster"
 | Inventory | Deployments / StatefulSets, replicas, requests/limits |
 | Idle | Prometheus usage ≪ request (underutilized) |
 | Rightsizing | Concrete request/limit deltas from usage |
-| HPA | Static-replica / maxed-HPA hints |
+| HPA | Static-replica / maxed-HPA hints; static Deployments get an optional approve-gated HPA create plan |
 | Cost / carbon notes | Optional $/gCO2e estimates on idle + rightsizing **lower** (T-073) |
 
 ## Cost / carbon notes (T-073)

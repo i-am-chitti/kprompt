@@ -101,12 +101,17 @@ func FromOptimize(ctx context.Context, client kubernetes.Interface, rep optimize
 			continue
 		}
 		if h.StaticReplicas {
-			out = append(out, Suggestion{
-				Code:    "optimize.hpa.static",
-				Title:   fmt.Sprintf("Add HPA for %s/%s", h.Kind, h.Name),
-				Prompt:  fmt.Sprintf("add HPA for %s", h.Name),
-				Summary: h.Message,
-			})
+			if h.Kind == optimize.WorkloadDeployment {
+				s := suggestHPA(h.Namespace, h.Name, h.Message)
+				out = append(out, s)
+			} else {
+				out = append(out, Suggestion{
+					Code:    "optimize.hpa.static",
+					Title:   fmt.Sprintf("Add HPA for %s/%s", h.Kind, h.Name),
+					Prompt:  fmt.Sprintf("add HPA for %s", h.Name),
+					Summary: h.Message,
+				})
+			}
 			continue
 		}
 		if h.HasHPA && h.Desired != nil && h.Current != nil && *h.Desired > *h.Current &&
@@ -157,6 +162,40 @@ func suggestScale(namespace, name string, replicas int32, reason string) Suggest
 		Title:   fmt.Sprintf("Scale %s to %d", name, replicas),
 		Prompt:  fmt.Sprintf("scale %s to %d", name, replicas),
 		Plan:    plan,
+		Summary: plan.Summary,
+	}
+}
+
+func suggestHPA(namespace, name, reason string) Suggestion {
+	ns := strings.TrimSpace(namespace)
+	if ns == "" {
+		ns = "default"
+	}
+	plan, err := planner.Build(intent.Intent{
+		Kind: intent.KindHPA,
+		Target: intent.Target{
+			Name:      name,
+			Namespace: ns,
+			Kind:      "HorizontalPodAutoscaler",
+		},
+		Params: map[string]any{
+			"target": name,
+			"reason": "optimize.hpa.static",
+		},
+	})
+	if err != nil {
+		return Suggestion{
+			Code:    "optimize.hpa.static",
+			Title:   fmt.Sprintf("Add HPA for %s", name),
+			Prompt:  fmt.Sprintf("add HPA for %s", name),
+			Summary: reason,
+		}
+	}
+	return Suggestion{
+		Code:    "optimize.hpa.static",
+		Title:   fmt.Sprintf("Add HPA for %s/%s", "Deployment", name),
+		Prompt:  fmt.Sprintf("add HPA for %s", name),
+		Plan:    &plan,
 		Summary: plan.Summary,
 	}
 }

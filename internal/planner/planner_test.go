@@ -411,3 +411,13 @@ func TestBuildDeleteRejectsUnscoped(t *testing.T) {
 		t.Fatal("expected error for Namespace")
 	}
 }
+
+func TestBuildUnknownIntent(t *testing.T) {
+	_, err := Build(intent.Intent{Kind: intent.KindUnknown, Target: intent.Target{Name: "redis"}})
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if !strings.Contains(err.Error(), "unknown intent") {
+		t.Fatalf("got %v", err)
+	}
+}

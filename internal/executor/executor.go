@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	appsv1 "k8s.io/api/apps/v1"
+	autoscalingv2 "k8s.io/api/autoscaling/v2"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -168,6 +169,12 @@ func (r *Runner) applyManifest(ctx context.Context, a planner.Action) error {
 			return fmt.Errorf("decode Service: %w", err)
 		}
 		return r.applyService(ctx, &svc)
+	case "HorizontalPodAutoscaler":
+		var h autoscalingv2.HorizontalPodAutoscaler
+		if err := yaml.Unmarshal([]byte(a.Manifest), &h); err != nil {
+			return fmt.Errorf("decode HorizontalPodAutoscaler: %w", err)
+		}
+		return r.applyHPA(ctx, &h)
 	default:
 		return fmt.Errorf("apply of %s not implemented", a.Object.Kind)
 	}
@@ -262,6 +269,29 @@ func (r *Runner) applyService(ctx context.Context, svc *corev1.Service) error {
 	svc.Spec.ClusterIP = existing.Spec.ClusterIP
 	svc.Spec.ClusterIPs = existing.Spec.ClusterIPs
 	_, err = r.Client.CoreV1().Services(ns).Update(ctx, svc, metav1.UpdateOptions{
+		FieldManager: FieldManager,
+	})
+	return err
+}
+
+func (r *Runner) applyHPA(ctx context.Context, h *autoscalingv2.HorizontalPodAutoscaler) error {
+	ns := h.Namespace
+	if ns == "" {
+		ns = "default"
+		h.Namespace = ns
+	}
+	existing, err := r.Client.AutoscalingV2().HorizontalPodAutoscalers(ns).Get(ctx, h.Name, metav1.GetOptions{})
+	if apierrors.IsNotFound(err) {
+		_, err = r.Client.AutoscalingV2().HorizontalPodAutoscalers(ns).Create(ctx, h, metav1.CreateOptions{
+			FieldManager: FieldManager,
+		})
+		return err
+	}
+	if err != nil {
+		return err
+	}
+	h.ResourceVersion = existing.ResourceVersion
+	_, err = r.Client.AutoscalingV2().HorizontalPodAutoscalers(ns).Update(ctx, h, metav1.UpdateOptions{
 		FieldManager: FieldManager,
 	})
 	return err

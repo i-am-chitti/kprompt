@@ -53,6 +53,8 @@ func Build(in intent.Intent) (ExecutionPlan, error) {
 		return buildTekton(in, ns)
 	case intent.KindKEDA:
 		return buildKEDA(in, ns)
+	case intent.KindHPA:
+		return buildHPA(in, ns)
 	case intent.KindIstio:
 		return buildIstio(in)
 	case intent.KindCrossplane:
@@ -81,6 +83,8 @@ func Build(in intent.Intent) (ExecutionPlan, error) {
 		return buildDelete(in, ns)
 	case intent.KindDeny:
 		return ExecutionPlan{Intent: in, Summary: "Denied intent", RequiresApproval: false}, nil
+	case intent.KindUnknown:
+		return ExecutionPlan{}, fmt.Errorf("unknown intent; could not map the request to a supported operation")
 	default:
 		return ExecutionPlan{}, fmt.Errorf("unsupported intent kind %q", in.Kind)
 	}

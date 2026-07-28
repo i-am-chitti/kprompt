@@ -194,6 +194,7 @@ model: gpt-4o-mini
 ```bash
 kprompt "scale api to 10"
 kprompt "scale api to 10" --approve
+kprompt "add HPA for redis"
 ```
 
 Destructive prompts (wipe cluster, delete everything, delete a namespace, …) are **hard-denied**.
