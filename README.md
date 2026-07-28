@@ -112,7 +112,7 @@ Generic get/list works for discoverable built-ins and CRDs (Node, ConfigMap, Sec
 
 ## Status
 
-**v0.6.0 (experimental)** — Namespace Agent pack: multi-signal Observe (Prom/OTel/GitOps), InvestigationReport v2, Slack ask, thin Coordinator, gated Autopilot (`policyAuto`), plus CLI investigate/why/timeline/impact/audit/cleanup. Autopilot stays **propose-only by default**. See [docs/agent.md](./docs/agent.md) · [docs/namespace-agent.md](./docs/namespace-agent.md).
+**v0.7.0 (experimental)** — Setup bootstrap, GitOps PR mode, learn/drift/recipes, Moonshot preset, plus community docs/tests/chart polish. Builds on the Namespace Agent pack (Observe, Coordinator, investigate/why/timeline/…). Autopilot stays **propose-only by default**. See [CHANGELOG.md](./CHANGELOG.md) · [docs/agent.md](./docs/agent.md).
 
 ## Install
 
@@ -131,7 +131,7 @@ brew install kprompt/tap/kprompt
 Fallback (pinned release script on jsDelivr):
 
 ```bash
-curl -fsSL https://cdn.jsdelivr.net/gh/kprompt/kprompt@v0.6.0/install/install.sh | bash
+curl -fsSL https://cdn.jsdelivr.net/gh/kprompt/kprompt@v0.7.0/install/install.sh | bash
 ```
 
 ### From source (dev)
