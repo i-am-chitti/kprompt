@@ -72,6 +72,14 @@ var Presets = []Preset{
 		HelpURL:      "https://platform.deepseek.com/",
 	},
 	{
+		Name:         "moonshot",
+		Kind:         "openai",
+		BaseURL:      "https://api.moonshot.ai/v1",
+		DefaultModel: "kimi-k3",
+		EnvKeys:      []string{"KPROMPT_MOONSHOT_API_KEY", "MOONSHOT_API_KEY"},
+		HelpURL:      "https://platform.kimi.ai/console/api-keys",
+	},
+	{
 		Name:         "openrouter",
 		Kind:         "openai",
 		BaseURL:      "https://openrouter.ai/api/v1",

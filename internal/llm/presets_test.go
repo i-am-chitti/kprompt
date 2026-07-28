@@ -19,7 +19,7 @@ func TestLookupPresetDefaults(t *testing.T) {
 
 func TestSupportedNamesIncludesNewProviders(t *testing.T) {
 	s := SupportedNames()
-	for _, want := range []string{"openai", "anthropic", "gemini", "groq", "mistral", "deepseek", "ollama", "openrouter", "together"} {
+	for _, want := range []string{"openai", "anthropic", "gemini", "groq", "mistral", "deepseek", "moonshot", "ollama", "openrouter", "together"} {
 		if !contains(s, want) {
 			t.Fatalf("%q missing from %s", want, s)
 		}

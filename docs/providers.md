@@ -12,6 +12,7 @@ API keys are **environment variables only** (never stored in the config file).
 | Groq | `groq` | `KPROMPT_GROQ_API_KEY` / `GROQ_API_KEY` | `llama-3.3-70b-versatile` | OpenAI-compatible |
 | Mistral | `mistral` | `KPROMPT_MISTRAL_API_KEY` / `MISTRAL_API_KEY` | `mistral-small-latest` | OpenAI-compatible |
 | DeepSeek | `deepseek` | `KPROMPT_DEEPSEEK_API_KEY` / `DEEPSEEK_API_KEY` | `deepseek-chat` | OpenAI-compatible |
+| Moonshot (Kimi K3) | `moonshot` | `KPROMPT_MOONSHOT_API_KEY` / `MOONSHOT_API_KEY` | `kimi-k3` | OpenAI-compatible |
 | OpenRouter | `openrouter` | `KPROMPT_OPENROUTER_API_KEY` / `OPENROUTER_API_KEY` | `openai/gpt-4o-mini` | OpenAI-compatible |
 | Together | `together` | `KPROMPT_TOGETHER_API_KEY` / `TOGETHER_API_KEY` | Llama 3.1 8B Turbo | OpenAI-compatible |
 | Ollama (local) | `ollama` | optional | `llama3.2` | `http://127.0.0.1:11434/v1` — no key required |
@@ -35,6 +36,10 @@ kprompt --provider gemini --model gemini-2.0-flash "deploy redis"
 # Groq
 export KPROMPT_GROQ_API_KEY=...
 kprompt --provider groq "scale api to 3"
+
+# Moonshot / Kimi K3
+export KPROMPT_MOONSHOT_API_KEY=...
+kprompt --provider moonshot "explain why api is crashlooping"
 
 # Local Ollama (ollama serve + ollama pull llama3.2)
 kprompt --provider ollama --model llama3.2 "list pods"

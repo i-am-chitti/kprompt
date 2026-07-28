@@ -159,6 +159,7 @@ export KPROMPT_OPENAI_API_KEY=sk-...          # --provider openai (default)
 export KPROMPT_ANTHROPIC_API_KEY=sk-ant-...   # --provider anthropic
 export KPROMPT_GEMINI_API_KEY=...             # --provider gemini
 export KPROMPT_GROQ_API_KEY=...               # --provider groq
+export KPROMPT_MOONSHOT_API_KEY=...           # --provider moonshot (Kimi K3)
 # local: kprompt --provider ollama --model llama3.2 "..."
 ```
 
@@ -255,7 +256,7 @@ See also: [GitOps PR mode](./docs/gitops-pr.md). Example: `kprompt "deploy redis
 | `--wait` | After apply, wait for Deployment rollout, then verify |
 | `--timeout` | Timeout for `--wait` (default `5m`) |
 | `--output` / `-o` | `text` (default) or `json` (CI PlanResult) |
-| `--provider` | `openai`, `anthropic`, `gemini`, `groq`, `mistral`, `deepseek`, `openrouter`, `together`, `ollama`, `openai-compatible` |
+| `--provider` | `openai`, `anthropic`, `gemini`, `groq`, `mistral`, `deepseek`, `moonshot`, `openrouter`, `together`, `ollama`, `openai-compatible` |
 | `--model` | Model id |
 | `--context` | kubeconfig context |
 | `--contexts` | Comma-separated contexts for read fan-out / per-context mutate |
