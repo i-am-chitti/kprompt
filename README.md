@@ -1,6 +1,6 @@
 # kprompt
 
-**AI Kubernetes CLI** — natural language compiles into a **reviewable plan**, then you approve before anything touches the cluster.
+**The AI Runtime for Kubernetes** — observe, reason, plan safe actions, and execute only after approval.
 
 [![CI](https://github.com/kprompt/kprompt/actions/workflows/ci.yml/badge.svg)](https://github.com/kprompt/kprompt/actions/workflows/ci.yml)
 [![Release](https://img.shields.io/github/v/release/kprompt/kprompt?logo=github)](https://github.com/kprompt/kprompt/releases/latest)
@@ -8,7 +8,7 @@
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue)](./LICENSE)
 [![Stars](https://img.shields.io/github/stars/kprompt/kprompt?style=flat&logo=github)](https://github.com/kprompt/kprompt/stargazers)
 
-> Talk to Your Cluster.
+> The AI Runtime for Kubernetes.
 
 ![kprompt turns "scale api to 10" into a reviewable plan — intent, risk, actions, diff, and blast radius — then waits at "Apply this plan? [y/N]:"](./.github/assets/plan-demo.svg)
 
@@ -47,13 +47,14 @@ Questions, demos, and roadmap ideas: **[Discussions](https://github.com/kprompt/
 
 | | |
 |--|--|
-| **Intent compiler** | English → typed plan (actions, risk, hard denies) |
+| **AI Runtime** | Observe → reason → plan → validate → approve → execute → learn |
 | **Plan before apply** | TTY `y/N` or explicit `--approve`; wipe-class denied |
 | **CI-ready** | `--output json` PlanResult for jq gates |
 | **Day-2 stack** | Helm, Prom, OTel, Grafana, GitOps… under one approval loop |
 | **Local BYOK** | Your kubeconfig + your LLM keys — no cluster creds uploaded |
+| **Observe agent** | Optional in-cluster watch → Incident → gated notify (no silent mutate) |
 
-Same NL-CLI lane as [kubectl-ai](https://github.com/GoogleCloudPlatform/kubectl-ai); different contract: **PlanResult → safety → approve → apply** (not a free-form chat REPL). See [kprompt vs kubectl-ai](https://kprompt.ai/blog/kprompt-vs-kubectl-ai).
+Category: **AI Runtime for Kubernetes** — not a ChatGPT wrapper or free-form kubectl chat. Same NL-CLI lane as [kubectl-ai](https://github.com/GoogleCloudPlatform/kubectl-ai) for day-2 mutate; different contract: **PlanResult → safety → approve → apply**. See [kprompt vs kubectl-ai](https://kprompt.ai/blog/kprompt-vs-kubectl-ai).
 
 Longer positioning: [intent compiler, not chat](https://kprompt.ai/blog/intent-compiler-not-chat) · [AI SRE direction](https://kprompt.ai/blog/ai-sre-not-ai-kubectl) · [Roadmap](https://kprompt.ai/docs/roadmap)
 
