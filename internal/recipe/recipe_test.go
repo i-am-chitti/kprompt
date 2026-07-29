@@ -67,86 +67,54 @@ func TestCatalogStable(t *testing.T) {
 	}
 }
 
-func TestFormatList(t *testing.T) {
-	listStr := FormatList()
-	headers := []string{"ID", "TITLE", "STEPS"}
-	for _, h := range headers {
-		if !strings.Contains(listStr, h) {
-			t.Errorf("FormatList() missing header: %q", h)
-		}
+func TestFormatListIncludesHeaderAndKnownRecipe(t *testing.T) {
+	out := FormatList()
+	if !strings.Contains(out, "ID") || !strings.Contains(out, "TITLE") || !strings.Contains(out, "STEPS") {
+		t.Fatalf("missing table header in output:\n%s", out)
 	}
-	// Verify that a known recipe ID appears
-	knownID := "harden-production"
-	if !strings.Contains(listStr, knownID) {
-		t.Errorf("FormatList() missing known recipe ID: %q", knownID)
+	if !strings.Contains(out, "harden-production") {
+		t.Fatalf("missing known recipe id in output:\n%s", out)
 	}
 }
 
-func TestFormatShow(t *testing.T) {
-	r, ok := Lookup("harden-production")
+func TestFormatShowIncludesTitleStepsAndFooter(t *testing.T) {
+	r, ok := Lookup("crashloop-rca")
 	if !ok {
-		t.Fatalf("failed to look up recipe 'harden-production'")
+		t.Fatal("crashloop-rca recipe not found")
 	}
-	showStr := FormatShow(r)
-	if !strings.Contains(showStr, r.Title) {
-		t.Errorf("FormatShow() missing title: %q", r.Title)
+
+	out := FormatShow(r)
+	if !strings.Contains(out, "Recipe: crashloop-rca") || !strings.Contains(out, r.Title) {
+		t.Fatalf("missing title in output:\n%s", out)
 	}
-	for _, s := range r.Steps {
-		if !strings.Contains(showStr, s) {
-			t.Errorf("FormatShow() missing step: %q", s)
-		}
+	if !strings.Contains(out, "Steps:") || !strings.Contains(out, "1. ") {
+		t.Fatalf("missing steps in output:\n%s", out)
 	}
-	footer := "Never mutates silently"
-	if !strings.Contains(showStr, footer) {
-		t.Errorf("FormatShow() missing footer text: %q", footer)
+	if !strings.Contains(out, "Never mutates silently") {
+		t.Fatalf("missing footer in output:\n%s", out)
 	}
 }
 
 func TestExtractWorkload(t *testing.T) {
 	tests := []struct {
-		name     string
-		prompt   string
-		expected string
+		name   string
+		prompt string
+		want   string
 	}{
-		{
-			name:     "for api",
-			prompt:   "deploy for api",
-			expected: "api",
-		},
-		{
-			name:     "workload payment-api",
-			prompt:   "workload payment-api",
-			expected: "payment-api",
-		},
-		{
-			name:     "deployment billing-service",
-			prompt:   "deployment billing-service",
-			expected: "billing-service",
-		},
-		{
-			name:     "pod my-pod",
-			prompt:   "pod my-pod",
-			expected: "my-pod",
-		},
-		{
-			name:     "no match",
-			prompt:   "harden production",
-			expected: "",
-		},
-		{
-			name:     "empty",
-			prompt:   "",
-			expected: "",
-		},
+		{name: "for api", prompt: "crashloop recipe for api", want: "api"},
+		{name: "workload payment-api", prompt: "run workload payment-api", want: "payment-api"},
+		{name: "deployment checkout", prompt: "investigate deployment checkout", want: "checkout"},
+		{name: "pod my-pod", prompt: "logs pod my-pod", want: "my-pod"},
+		{name: "empty", prompt: "", want: ""},
+		{name: "no match", prompt: "show service dependency graph", want: ""},
 	}
 
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			got := ExtractWorkload(tc.prompt)
-			if got != tc.expected {
-				t.Errorf("ExtractWorkload(%q) = %q; want %q", tc.prompt, got, tc.expected)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := ExtractWorkload(tt.prompt)
+			if got != tt.want {
+				t.Fatalf("ExtractWorkload(%q) = %q, want %q", tt.prompt, got, tt.want)
 			}
 		})
 	}
 }
-

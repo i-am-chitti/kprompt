@@ -159,6 +159,7 @@ export KPROMPT_OPENAI_API_KEY=sk-...          # --provider openai (default)
 export KPROMPT_ANTHROPIC_API_KEY=sk-ant-...   # --provider anthropic
 export KPROMPT_GEMINI_API_KEY=...             # --provider gemini
 export KPROMPT_GROQ_API_KEY=...               # --provider groq
+export KPROMPT_XAI_API_KEY=...                # --provider xai (Grok)
 export KPROMPT_MOONSHOT_API_KEY=...           # --provider moonshot (Kimi K3)
 # local: kprompt --provider ollama --model llama3.2 "..."
 ```
@@ -221,7 +222,7 @@ kprompt --contexts staging,prod "optimize my cluster"  # fleet optimize rollup
 kprompt "list pods across staging and prod"
 # multi-context mutate: confirm each context (or --approve-each-context; never plain --approve)
 kprompt --contexts staging,prod "scale api to 3"
-kprompt dash             # local read-only cluster UI (requires kprompt-dash on PATH)
+kprompt dash             # local read-only cluster UI (requires kprompt-dash on PATH; see docs/dash.md)
 ```
 
 ## Team enrollment (optional)
