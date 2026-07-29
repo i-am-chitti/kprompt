@@ -56,7 +56,7 @@ Questions, demos, and roadmap ideas: **[Discussions](https://github.com/kprompt/
 
 Category: **AI Runtime for Kubernetes** — not a ChatGPT wrapper or free-form kubectl chat. Same NL-CLI lane as [kubectl-ai](https://github.com/GoogleCloudPlatform/kubectl-ai) for day-2 mutate; different contract: **PlanResult → safety → approve → apply**. See [kprompt vs kubectl-ai](https://kprompt.ai/blog/kprompt-vs-kubectl-ai).
 
-Longer positioning: [intent compiler, not chat](https://kprompt.ai/blog/intent-compiler-not-chat) · [AI SRE direction](https://kprompt.ai/blog/ai-sre-not-ai-kubectl) · [Roadmap](https://kprompt.ai/docs/roadmap)
+Longer positioning: [AI Runtime for Kubernetes](https://kprompt.ai/blog/ai-runtime-for-kubernetes) · [intent compiler, not chat](https://kprompt.ai/blog/intent-compiler-not-chat) · [AI SRE direction](https://kprompt.ai/blog/ai-sre-not-ai-kubectl) · [Roadmap](https://kprompt.ai/docs/roadmap)
 
 ## What you can ask
 
