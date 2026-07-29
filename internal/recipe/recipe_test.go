@@ -66,3 +66,87 @@ func TestCatalogStable(t *testing.T) {
 		t.Fatal("not sorted")
 	}
 }
+
+func TestFormatList(t *testing.T) {
+	listStr := FormatList()
+	headers := []string{"ID", "TITLE", "STEPS"}
+	for _, h := range headers {
+		if !strings.Contains(listStr, h) {
+			t.Errorf("FormatList() missing header: %q", h)
+		}
+	}
+	// Verify that a known recipe ID appears
+	knownID := "harden-production"
+	if !strings.Contains(listStr, knownID) {
+		t.Errorf("FormatList() missing known recipe ID: %q", knownID)
+	}
+}
+
+func TestFormatShow(t *testing.T) {
+	r, ok := Lookup("harden-production")
+	if !ok {
+		t.Fatalf("failed to look up recipe 'harden-production'")
+	}
+	showStr := FormatShow(r)
+	if !strings.Contains(showStr, r.Title) {
+		t.Errorf("FormatShow() missing title: %q", r.Title)
+	}
+	for _, s := range r.Steps {
+		if !strings.Contains(showStr, s) {
+			t.Errorf("FormatShow() missing step: %q", s)
+		}
+	}
+	footer := "Never mutates silently"
+	if !strings.Contains(showStr, footer) {
+		t.Errorf("FormatShow() missing footer text: %q", footer)
+	}
+}
+
+func TestExtractWorkload(t *testing.T) {
+	tests := []struct {
+		name     string
+		prompt   string
+		expected string
+	}{
+		{
+			name:     "for api",
+			prompt:   "deploy for api",
+			expected: "api",
+		},
+		{
+			name:     "workload payment-api",
+			prompt:   "workload payment-api",
+			expected: "payment-api",
+		},
+		{
+			name:     "deployment billing-service",
+			prompt:   "deployment billing-service",
+			expected: "billing-service",
+		},
+		{
+			name:     "pod my-pod",
+			prompt:   "pod my-pod",
+			expected: "my-pod",
+		},
+		{
+			name:     "no match",
+			prompt:   "harden production",
+			expected: "",
+		},
+		{
+			name:     "empty",
+			prompt:   "",
+			expected: "",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got := ExtractWorkload(tc.prompt)
+			if got != tc.expected {
+				t.Errorf("ExtractWorkload(%q) = %q; want %q", tc.prompt, got, tc.expected)
+			}
+		})
+	}
+}
+
