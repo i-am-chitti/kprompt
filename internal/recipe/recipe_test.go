@@ -104,6 +104,7 @@ func TestExtractWorkload(t *testing.T) {
 		{name: "for api", prompt: "crashloop recipe for api", want: "api"},
 		{name: "workload payment-api", prompt: "run workload payment-api", want: "payment-api"},
 		{name: "deployment checkout", prompt: "investigate deployment checkout", want: "checkout"},
+		{name: "pod my-pod", prompt: "logs pod my-pod", want: "my-pod"},
 		{name: "empty", prompt: "", want: ""},
 		{name: "no match", prompt: "show service dependency graph", want: ""},
 	}
