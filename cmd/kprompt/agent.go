@@ -31,9 +31,11 @@ import (
 	agentwatch "github.com/kprompt/kprompt/internal/agent/watch"
 	"github.com/kprompt/kprompt/internal/cluster"
 	"github.com/kprompt/kprompt/internal/config"
+	"github.com/kprompt/kprompt/internal/graph"
 	"github.com/kprompt/kprompt/internal/incident"
 	"github.com/kprompt/kprompt/internal/llm"
 	"github.com/kprompt/kprompt/internal/tools"
+	"github.com/kprompt/kprompt/internal/ui"
 )
 
 func newAgentCmd() *cobra.Command {
@@ -48,6 +50,7 @@ func newAgentCmd() *cobra.Command {
 	cmd.AddCommand(newAgentAutopilotCmd())
 	cmd.AddCommand(newAgentMemoryCmd())
 	cmd.AddCommand(newAgentPatternsCmd())
+	cmd.AddCommand(newAgentGraphCmd())
 	return cmd
 }
 
@@ -1014,6 +1017,70 @@ func newAgentPatternsCmd() *cobra.Command {
 		Short: "Incident Memory signatures (AG-016 · AG-054; local/in-cluster only)",
 	}
 	cmd.AddCommand(newAgentPatternsListCmd())
+	return cmd
+}
+
+func newAgentGraphCmd() *cobra.Command {
+	var (
+		ns        string
+		kubeCtx   string
+		inCluster bool
+		includeNP bool
+		output    string
+	)
+	cmd := &cobra.Command{
+		Use:   "graph",
+		Short: "Dump Knowledge Graph MVP service dependency graph (AG-055; read-only)",
+		Long: `Build a read-only service-graph for one namespace (Services, EndpointSlices,
+optional NetworkPolicies). Same contract as:
+
+  kprompt "show service dependency graph" -n <ns>
+
+Does not mutate the cluster. Full continuous topology remains out of scope —
+see docs/graph.md.`,
+		Example: `  kprompt agent graph -n payments
+  kprompt agent graph -n payments --output json`,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			ns = strings.TrimSpace(ns)
+			if ns == "" {
+				return fmt.Errorf("--namespace is required")
+			}
+			var clients *cluster.Clients
+			var err error
+			if inCluster {
+				clients, err = cluster.ConnectInCluster()
+			} else {
+				clients, err = cluster.Connect(kubeCtx)
+			}
+			if err != nil {
+				return err
+			}
+			report, err := graph.Build(cmd.Context(), clients.Clientset, graph.Request{
+				Namespace:            ns,
+				IncludeNetworkPolicy: includeNP,
+			})
+			if err != nil {
+				return err
+			}
+			settings := tools.LoadSettings(config.File{})
+			if otelClient, oerr := tools.NewOTelClient(settings); oerr == nil {
+				graph.EnrichFromOTel(cmd.Context(), otelClient, &report, time.Hour)
+			}
+			if strings.EqualFold(strings.TrimSpace(output), "json") {
+				enc := json.NewEncoder(cmd.OutOrStdout())
+				enc.SetIndent("", "  ")
+				return enc.Encode(report)
+			}
+			ui.PrintGraphReport(cmd.OutOrStdout(), report)
+			return nil
+		},
+	}
+	cmd.Flags().StringVarP(&ns, "namespace", "n", "", "namespace (required)")
+	cmd.Flags().StringVar(&kubeCtx, "context", "", "kubeconfig context")
+	cmd.Flags().BoolVar(&inCluster, "in-cluster", false, "use InClusterConfig")
+	cmd.Flags().BoolVar(&includeNP, "network-policy", true, "include NetworkPolicy edges")
+	cmd.Flags().StringVarP(&output, "output", "o", "text", "output format: text|json")
+	_ = cmd.MarkFlagRequired("namespace")
 	return cmd
 }
 

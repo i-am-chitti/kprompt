@@ -251,7 +251,7 @@ kprompt agent patterns list -n payments
 kprompt agent patterns list -n payments --patterns-backend configmap
 ```
 
-**Honesty:** memory/patterns boost confidence and explainability — they never auto-mutate. Memory alone never proves root cause (AG-034). Knowledge Graph topology remains **building**.
+**Honesty:** memory/patterns boost confidence and explainability — they never auto-mutate. Memory alone never proves root cause (AG-034). Thin **Knowledge Graph** MVP (service graph + impact + memory deps) is documented in [graph.md](./graph.md); full continuous topology stays building.
 
 ## Namespace memory (AG-015)
 
