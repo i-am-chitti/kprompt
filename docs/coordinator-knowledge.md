@@ -25,6 +25,8 @@ kprompt agent coordinator knowledge --url http://127.0.0.1:9090 --json
 
 Helm (`charts/kprompt-coordinator`): `knowledge.enabled=true` (default) writes ConfigMap `kprompt-coordinator-knowledge` in the release namespace.
 
+Kind demo: `make coordinator-e2e` in [kprompt-examples](https://github.com/kprompt/kprompt-examples) asserts `/v1/knowledge` durable + restore after restart (AG-061).
+
 ## What this is
 
 1. Namespaces observed on handoffs
