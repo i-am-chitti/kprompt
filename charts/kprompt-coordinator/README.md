@@ -7,7 +7,7 @@ kprompt agent coordinator --addr :9090
 kprompt agent coordinator --addr :9090 --probe-kube   # read-only Pods/Events in suspect ns
 ```
 
-**Never mutates workloads.** Receives `CoordinatorHandoff`, returns `CoordinatorReply` with merged InvestigationReport v2.
+**Never mutates workloads.** Receives `CoordinatorHandoff`, returns `CoordinatorReply` with merged InvestigationReport v2. Shared Knowledge MVP: `GET /v1/knowledge` summarizes in-memory handoff edges (restart-lossy).
 
 ## Install
 

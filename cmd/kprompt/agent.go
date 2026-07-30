@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
+	"net/http"
 	"os"
 	"os/signal"
 	"strconv"
@@ -148,14 +150,20 @@ and reply with CoordinatorReply.
 Never applies/patches/deletes workloads (ADR-0017). Optional --probe-kube enables a
 read-only Events/Pods probe of suspectNamespace (AG-050). Default probe is a no-op.
 
+Shared Knowledge MVP (AG-059): in-memory recent handoffs exposed as GET /v1/knowledge
+(restart-lossy). Subcommands: coordinator knowledge | coordinator recent.
+
 Endpoints:
   GET  /healthz
-  POST /v1/handoff   — accept handoff.Envelope → CoordinatorReply
-  GET  /v1/recent    — in-memory recent handoffs (debug)
+  POST /v1/handoff    — accept handoff.Envelope → CoordinatorReply
+  GET  /v1/recent     — in-memory recent handoffs
+  GET  /v1/knowledge  — Shared Knowledge MVP summary (namespace edges)
 
 Pair with: kprompt agent run … --coordinator-url http://<addr>/v1/handoff`,
 		Example: `  kprompt agent coordinator --addr :9090
-  kprompt agent coordinator --addr :9090 --probe-kube`,
+  kprompt agent coordinator --addr :9090 --probe-kube
+  kprompt agent coordinator knowledge --url http://127.0.0.1:9090
+  kprompt agent coordinator recent --url http://127.0.0.1:9090`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			runCtx, stop := signal.NotifyContext(cmd.Context(), os.Interrupt, syscall.SIGTERM)
 			defer stop()
@@ -196,7 +204,86 @@ Pair with: kprompt agent run … --coordinator-url http://<addr>/v1/handoff`,
 	cmd.Flags().BoolVar(&probeKube, "probe-kube", false, "read-only Pods/Events probe of suspectNamespace (AG-050)")
 	cmd.Flags().StringVar(&kubeCtx, "context", "", "kubeconfig context for --probe-kube")
 	cmd.Flags().BoolVar(&inCluster, "in-cluster", false, "use in-cluster config for --probe-kube")
+	cmd.AddCommand(newAgentCoordinatorKnowledgeCmd())
+	cmd.AddCommand(newAgentCoordinatorRecentCmd())
 	return cmd
+}
+
+func newAgentCoordinatorKnowledgeCmd() *cobra.Command {
+	var (
+		baseURL string
+		asJSON  bool
+	)
+	cmd := &cobra.Command{
+		Use:   "knowledge",
+		Short: "Fetch Coordinator Shared Knowledge MVP (AG-059)",
+		Long: `GET /v1/knowledge from a running Coordinator — namespace edges derived from
+recent handoffs. Restart-lossy; not a durable blast-radius graph.`,
+		Example: `  kprompt agent coordinator knowledge --url http://127.0.0.1:9090`,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			body, err := fetchCoordinatorJSON(cmd.Context(), baseURL, "/v1/knowledge")
+			if err != nil {
+				return err
+			}
+			if asJSON {
+				_, err = cmd.OutOrStdout().Write(append(body, '\n'))
+				return err
+			}
+			var sum coordinator.KnowledgeSummary
+			if err := json.Unmarshal(body, &sum); err != nil {
+				return fmt.Errorf("decode knowledge: %w", err)
+			}
+			fmt.Fprintln(cmd.OutOrStdout(), coordinator.FormatKnowledge(sum))
+			return nil
+		},
+	}
+	cmd.Flags().StringVar(&baseURL, "url", "http://127.0.0.1:9090", "Coordinator base URL (no path)")
+	cmd.Flags().BoolVar(&asJSON, "json", false, "print raw JSON")
+	return cmd
+}
+
+func newAgentCoordinatorRecentCmd() *cobra.Command {
+	var baseURL string
+	cmd := &cobra.Command{
+		Use:   "recent",
+		Short: "Fetch recent Coordinator handoffs (AG-059)",
+		Long:  `GET /v1/recent from a running Coordinator — raw in-memory handoff ring.`,
+		Example: `  kprompt agent coordinator recent --url http://127.0.0.1:9090`,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			body, err := fetchCoordinatorJSON(cmd.Context(), baseURL, "/v1/recent")
+			if err != nil {
+				return err
+			}
+			_, err = cmd.OutOrStdout().Write(append(body, '\n'))
+			return err
+		},
+	}
+	cmd.Flags().StringVar(&baseURL, "url", "http://127.0.0.1:9090", "Coordinator base URL (no path)")
+	return cmd
+}
+
+func fetchCoordinatorJSON(ctx context.Context, baseURL, path string) ([]byte, error) {
+	base := strings.TrimRight(strings.TrimSpace(baseURL), "/")
+	if base == "" {
+		return nil, fmt.Errorf("coordinator url is required")
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, base+path, nil)
+	if err != nil {
+		return nil, err
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	body, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+	if err != nil {
+		return nil, err
+	}
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("coordinator %s: HTTP %d: %s", path, resp.StatusCode, strings.TrimSpace(string(body)))
+	}
+	return body, nil
 }
 
 func newAgentOperatorCmd() *cobra.Command {

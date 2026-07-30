@@ -41,7 +41,7 @@ Still **plan → safety → approve → apply**. Simulation never mutates by its
 - Ephemeral what-if sandbox / shadow cluster
 - Full mesh/OTel blast radius when signals are missing
 - Failure injection, chaos, or capacity forecasting product
-- Coordinator shared blast-radius knowledge graph (still building)
+- Durable Coordinator blast-radius knowledge graph (Shared Knowledge MVP is in-memory handoff edges only — [coordinator-knowledge.md](./coordinator-knowledge.md))
 - Auto-remediation from a simulated outcome
 
 ## Related
