@@ -129,15 +129,20 @@ Propose-only policies always deny. Never invents allowlist entries.`,
 }
 
 func newAgentCoordinatorCmd() *cobra.Command {
-	var addr string
+	var (
+		addr      string
+		probeKube bool
+		kubeCtx   string
+		inCluster bool
+	)
 	cmd := &cobra.Command{
 		Use:   "coordinator",
 		Short: "Thin Coordinator HTTP fan-in (AG-037; no mutate)",
 		Long: `Listen for Namespace Agent CoordinatorHandoff POSTs, merge InvestigationReports,
 and reply with CoordinatorReply.
 
-Never applies/patches/deletes workloads (ADR-0017). Optional probe hooks are
-read-only; the default probe is a no-op (records routing notes + unknowns).
+Never applies/patches/deletes workloads (ADR-0017). Optional --probe-kube enables a
+read-only Events/Pods probe of suspectNamespace (AG-050). Default probe is a no-op.
 
 Endpoints:
   GET  /healthz
@@ -145,11 +150,26 @@ Endpoints:
   GET  /v1/recent    — in-memory recent handoffs (debug)
 
 Pair with: kprompt agent run … --coordinator-url http://<addr>/v1/handoff`,
-		Example: `  kprompt agent coordinator --addr :9090`,
+		Example: `  kprompt agent coordinator --addr :9090
+  kprompt agent coordinator --addr :9090 --probe-kube`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			runCtx, stop := signal.NotifyContext(cmd.Context(), os.Interrupt, syscall.SIGTERM)
 			defer stop()
 			svc := coordinator.New()
+			if probeKube {
+				var clients *cluster.Clients
+				var err error
+				if inCluster {
+					clients, err = cluster.ConnectInCluster()
+				} else {
+					clients, err = cluster.Connect(kubeCtx)
+				}
+				if err != nil {
+					return fmt.Errorf("coordinator --probe-kube: %w", err)
+				}
+				svc.Probe = &coordinator.KubeProbe{Client: clients.Clientset}
+				fmt.Fprintf(cmd.ErrOrStderr(), "kprompt agent coordinator: kube probe enabled (read-only)\n")
+			}
 			h := &coordinator.Handler{
 				Service: svc,
 				Logf: func(format string, a ...any) {
@@ -169,6 +189,9 @@ Pair with: kprompt agent run … --coordinator-url http://<addr>/v1/handoff`,
 		},
 	}
 	cmd.Flags().StringVar(&addr, "addr", ":9090", "listen address for Coordinator HTTP API")
+	cmd.Flags().BoolVar(&probeKube, "probe-kube", false, "read-only Pods/Events probe of suspectNamespace (AG-050)")
+	cmd.Flags().StringVar(&kubeCtx, "context", "", "kubeconfig context for --probe-kube")
+	cmd.Flags().BoolVar(&inCluster, "in-cluster", false, "use in-cluster config for --probe-kube")
 	return cmd
 }
 
@@ -643,10 +666,16 @@ KpromptAgent status sync:
 						if handoffClient != nil && !outcome.Skipped {
 							if suspect, reason, ok := handoff.NeedsHandoff(ns, outcome.Report); ok {
 								env := handoff.New(ns, suspect, reason, outcome.Report)
-								if herr := handoffClient.Handoff(cmd.Context(), env); herr != nil {
+								reply, herr := handoffClient.Handoff(cmd.Context(), env)
+								if herr != nil {
 									fmt.Fprintf(cmd.ErrOrStderr(), "coordinator handoff: %v\n", herr)
 								} else if !emitJSON {
-									fmt.Fprintf(out, "handoff from=%s reason=%q\n", ns, reason)
+									if reply != nil && reply.Merged.Summary != "" {
+										fmt.Fprintf(out, "handoff from=%s suspect=%s conf=%.2f routing=%v summary=%s\n",
+											ns, reply.SuspectNamespace, reply.Merged.Confidence, reply.Routing, reply.Merged.Summary)
+									} else {
+										fmt.Fprintf(out, "handoff from=%s suspect=%s reason=%q\n", ns, suspect, reason)
+									}
 								}
 							}
 						}

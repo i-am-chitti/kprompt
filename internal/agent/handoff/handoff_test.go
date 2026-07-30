@@ -1,6 +1,10 @@
 package handoff
 
 import (
+	"context"
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
@@ -43,5 +47,53 @@ func TestNeedsHandoff(t *testing.T) {
 	rep2 := sampleReport("payments")
 	if _, _, ok := NeedsHandoff("payments", rep2); ok {
 		t.Fatal("expected no handoff")
+	}
+}
+
+func TestNeedsHandoffExtractsSuspectNS(t *testing.T) {
+	rep := sampleReport("payments")
+	rep.Summary = "timeout calling redis.platform.svc.cluster.local"
+	suspect, reason, ok := NeedsHandoff("payments", rep)
+	if !ok || suspect != "platform" {
+		t.Fatalf("suspect=%q ok=%v reason=%q", suspect, ok, reason)
+	}
+
+	rep3 := sampleReport("payments")
+	rep3.Unknowns = []string{"need verification in namespace platform"}
+	suspect, _, ok = NeedsHandoff("payments", rep3)
+	if !ok || suspect != "platform" {
+		t.Fatalf("phrase suspect=%q ok=%v", suspect, ok)
+	}
+
+	rep4 := sampleReport("payments")
+	rep4.Summary = "issue in namespace payments"
+	if s, _, ok := NeedsHandoff("payments", rep4); ok && s == "payments" {
+		t.Fatal("should not treat own namespace as suspect")
+	}
+}
+
+func TestHTTPClientParsesReply(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewEncoder(w).Encode(Reply{
+			Kind:             KindReply,
+			FromNamespace:    "payments",
+			SuspectNamespace: "platform",
+			Merged:           sampleReport("payments"),
+			Routing:          []string{"probed namespace platform"},
+			MutateAttempted:  false,
+		})
+	}))
+	defer srv.Close()
+
+	c := &HTTPClient{URL: srv.URL}
+	reply, err := c.Handoff(context.Background(), New("payments", "platform", "cross-ns", sampleReport("payments")))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if reply == nil || reply.SuspectNamespace != "platform" || len(reply.Routing) == 0 {
+		t.Fatalf("%+v", reply)
+	}
+	if reply.MutateAttempted {
+		t.Fatal("mutate must stay false")
 	}
 }

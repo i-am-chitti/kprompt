@@ -77,15 +77,18 @@ All of the above stay **local / in-cluster** — not uploaded to `api.kprompt.ai
 - Treat InvestigationReport / Slack text as sensitive (may include log snippets).
 - Autopilot propose audit files may name workloads — protect laptop paths in shared demos.
 
-## Coordinator (AG-037…AG-039)
+## Coordinator (AG-037…AG-039 · AG-050)
 
 ```bash
 # Laptop / kind
 kprompt agent coordinator --addr :9090
+kprompt agent coordinator --addr :9090 --probe-kube   # read-only suspect-ns probe
 
-# In-cluster
+# In-cluster (optional probe into named namespaces)
 helm upgrade --install kprompt-coordinator ./charts/kprompt-coordinator \
-  -n kprompt-system --create-namespace
+  -n kprompt-system --create-namespace \
+  --set probe.enabled=true \
+  --set rbac.probeNamespaces={platform}
 ```
 
 | Check | Expect |
@@ -93,6 +96,7 @@ helm upgrade --install kprompt-coordinator ./charts/kprompt-coordinator \
 | `GET /healthz` | `ok` |
 | `POST /v1/handoff` | `CoordinatorReply` JSON, `mutateAttempted: false` |
 | RBAC | SA only by default — **no** ClusterRole unless `rbac.clusterRole.create=true` (namespaces get/list only) |
+| Probe RBAC | With `probe.enabled` + `rbac.probeNamespaces`: Pods/Events `get/list` in listed ns only |
 | Ns agents | Stay Role-scoped; point `--coordinator-url` at the Service `/v1/handoff` |
 
 Handoff errors on the ns agent: URL wrong, report validation failed, or Coordinator down — Observe loop continues.

@@ -25,6 +25,10 @@ spec:
             - coordinator
             - --addr
             - ":{{ .Values.service.port }}"
+            {{- if .Values.probe.enabled }}
+            - --probe-kube
+            - --in-cluster
+            {{- end }}
           ports:
             - name: http
               containerPort: {{ .Values.service.port }}
