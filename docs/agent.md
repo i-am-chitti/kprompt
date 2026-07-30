@@ -227,6 +227,32 @@ Secrets are never watched implicitly and only metadata (type + key count) is emi
 | `--coordinator-url` | AG-036 Coordinator handoff (opt-in) |
 | `--gitops-evidence` | AG-035 Argo/Flux EvidenceRefs (opt-in) |
 
+## Incident Memory (AG-015 · AG-016 · AG-032…AG-034 · AG-054)
+
+**Shipped** as the Learn stack — local / in-cluster only, never uploaded to `api.kprompt.ai`.
+
+| Layer | Flag / CLI | What it remembers |
+|-------|------------|-------------------|
+| Namespace facts | `--memory` · `agent memory list` | Redis/Postgres/… deps (evidence, not proof) |
+| Incident patterns | `--patterns` · `agent patterns list` | Signatures → “Seen before (N×)” + outcome weights |
+| Durable incidents | `--incidents-backend` | Open incidents + Slack thread ts across restarts |
+
+Helm chart defaults (`charts/kprompt-agent`) persist all three via ConfigMaps so pod restarts do not wipe memory.
+
+```bash
+# Laptop (file backends)
+kprompt agent run -n payments --analyze --heuristic --memory --patterns \
+  --incidents-backend file
+
+kprompt agent memory list -n payments
+kprompt agent patterns list -n payments
+
+# In-cluster ConfigMaps (Helm defaults)
+kprompt agent patterns list -n payments --patterns-backend configmap
+```
+
+**Honesty:** memory/patterns boost confidence and explainability — they never auto-mutate. Memory alone never proves root cause (AG-034). Knowledge Graph topology remains **building**.
+
 ## Namespace memory (AG-015)
 
 Persists dependency facts (“uses Redis/Kafka/Postgres”) **locally or in-cluster only** — never uploaded to `api.kprompt.ai` by default.
@@ -254,6 +280,7 @@ Remembers incident signatures (reason + workload kind + bucket like crashloop/oo
 
 ```bash
 kprompt agent run -n payments --analyze --heuristic --patterns
+kprompt agent patterns list -n payments
 ```
 
 ## Autopilot (AG-017 · AG-040…AG-044 · ADR-0015)

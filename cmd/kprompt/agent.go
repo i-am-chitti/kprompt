@@ -47,6 +47,7 @@ func newAgentCmd() *cobra.Command {
 	cmd.AddCommand(newAgentCoordinatorCmd())
 	cmd.AddCommand(newAgentAutopilotCmd())
 	cmd.AddCommand(newAgentMemoryCmd())
+	cmd.AddCommand(newAgentPatternsCmd())
 	return cmd
 }
 
@@ -286,6 +287,7 @@ func newAgentRunCmd() *cobra.Command {
 		memoryDir        string
 		usePatterns      bool
 		patternsDir      string
+		patternsBackend  string // file | configmap
 		autopilotProp    bool
 		autopilotDir     string
 		autopilotPolicy  string
@@ -318,6 +320,7 @@ Pipeline flags (read-only — never mutate workload objects):
   --agent-cr       patch KpromptAgent.status (AG-013; health + lastAlert)
   --memory         discover/load namespace deps+facts into analyzer context (AG-015)
   --patterns       learn incident signatures; boost confidence on “seen before” (AG-016)
+  --patterns-backend file|configmap   pattern store (AG-054; default file)
   --autopilot-propose  emit PlanResult-shaped AutopilotProposal (ADR-0015; propose-only by default)
   --autopilot-policy   RemediationPolicy JSON file (AG-040); else ConfigMap / defaults
   --autopilot-apply    with policyAuto+apply=true, apply approved proposals in-loop (AG-042; off by default)
@@ -535,11 +538,11 @@ KpromptAgent status sync:
 				}
 				analyzer = analyze.New(provider, opts)
 				if usePatterns {
-					dir := strings.TrimSpace(patternsDir)
-					if dir == "" {
-						dir = patterns.DefaultDir()
+					pstore, perr := openPatternsStore(patternsBackend, patternsDir, ns, inCluster, clients)
+					if perr != nil {
+						return perr
 					}
-					analyzer.Patterns = patterns.New(patterns.FileStore{Dir: dir})
+					analyzer.Patterns = patterns.New(pstore)
 				}
 			}
 			if notifySlack {
@@ -923,7 +926,8 @@ KpromptAgent status sync:
 	cmd.Flags().StringVar(&memoryBackend, "memory-backend", "file", "memory store: file|configmap")
 	cmd.Flags().StringVar(&memoryDir, "memory-dir", "", "file backend directory (default ~/.config/kprompt/memory)")
 	cmd.Flags().BoolVar(&usePatterns, "patterns", false, "learn incident signatures; boost confidence on seen-before (AG-016; never mutates)")
-	cmd.Flags().StringVar(&patternsDir, "patterns-dir", "", "pattern store directory (default ~/.config/kprompt/patterns)")
+	cmd.Flags().StringVar(&patternsBackend, "patterns-backend", "file", "pattern store: file|configmap (AG-054)")
+	cmd.Flags().StringVar(&patternsDir, "patterns-dir", "", "file backend directory (default ~/.config/kprompt/patterns)")
 	cmd.Flags().BoolVar(&autopilotProp, "autopilot-propose", false, "emit AutopilotProposal for allowlisted actions (ADR-0015; propose-only by default)")
 	cmd.Flags().StringVar(&autopilotDir, "autopilot-audit-dir", "", "autopilot audit directory (default ~/.config/kprompt/autopilot)")
 	cmd.Flags().StringVar(&autopilotPolicy, "autopilot-policy", "", "RemediationPolicy JSON file (AG-040)")
@@ -981,6 +985,73 @@ func openIncidentsStore(backend, dir, ns string, inCluster bool, clients *cluste
 	default:
 		return nil, fmt.Errorf("incidents: unknown backend %q (want file|configmap)", backend)
 	}
+}
+
+func openPatternsStore(backend, dir, ns string, inCluster bool, clients *cluster.Clients) (patterns.Store, error) {
+	b := strings.ToLower(strings.TrimSpace(backend))
+	if b == "" {
+		b = "file"
+	}
+	switch b {
+	case "configmap":
+		if clients == nil || clients.Clientset == nil {
+			return nil, fmt.Errorf("patterns: configmap backend requires kubernetes")
+		}
+		return patterns.ConfigMapStore{Client: clients.Clientset, Namespace: ns}, nil
+	case "file":
+		if dir == "" {
+			dir = patterns.DefaultDir()
+		}
+		return patterns.FileStore{Dir: dir}, nil
+	default:
+		return nil, fmt.Errorf("patterns: unknown backend %q (want file|configmap)", backend)
+	}
+}
+
+func newAgentPatternsCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "patterns",
+		Short: "Incident Memory signatures (AG-016 · AG-054; local/in-cluster only)",
+	}
+	cmd.AddCommand(newAgentPatternsListCmd())
+	return cmd
+}
+
+func newAgentPatternsListCmd() *cobra.Command {
+	var ns, backend, dir, kubeCtx string
+	var inCluster bool
+	cmd := &cobra.Command{
+		Use:   "list",
+		Short: "List learned incident signatures for a namespace",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			ns = strings.TrimSpace(ns)
+			if ns == "" {
+				return fmt.Errorf("--namespace is required")
+			}
+			clients, err := connectOptional(kubeCtx, inCluster, backend == "configmap")
+			if err != nil {
+				return err
+			}
+			store, err := openPatternsStore(backend, dir, ns, inCluster, clients)
+			if err != nil {
+				return err
+			}
+			snap, err := patterns.New(store).List(ns)
+			if err != nil {
+				return err
+			}
+			enc := json.NewEncoder(cmd.OutOrStdout())
+			enc.SetIndent("", "  ")
+			return enc.Encode(snap)
+		},
+	}
+	cmd.Flags().StringVarP(&ns, "namespace", "n", "", "namespace (required)")
+	cmd.Flags().StringVar(&backend, "patterns-backend", "file", "file|configmap")
+	cmd.Flags().StringVar(&dir, "patterns-dir", "", "file backend directory")
+	cmd.Flags().StringVar(&kubeCtx, "context", "", "kubeconfig context")
+	cmd.Flags().BoolVar(&inCluster, "in-cluster", false, "use InClusterConfig")
+	_ = cmd.MarkFlagRequired("namespace")
+	return cmd
 }
 
 func newAgentMemoryCmd() *cobra.Command {
