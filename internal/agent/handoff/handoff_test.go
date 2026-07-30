@@ -72,6 +72,42 @@ func TestNeedsHandoffExtractsSuspectNS(t *testing.T) {
 	}
 }
 
+func TestNeedsHandoffFromEvidence(t *testing.T) {
+	rep := sampleReport("payments")
+	rep.Summary = "CrashLoop on orders"
+	rep.Evidence = []incident.EvidenceRef{{
+		Type:    incident.EvidenceLog,
+		Message: "dial tcp cache.platform.svc.cluster.local:6379: connection refused",
+	}}
+	suspect, _, ok := NeedsHandoff("payments", rep)
+	if !ok || suspect != "platform" {
+		t.Fatalf("suspect=%q ok=%v", suspect, ok)
+	}
+}
+
+func TestFormatReply(t *testing.T) {
+	text := FormatReply(&Reply{
+		SuspectNamespace: "platform",
+		Reason:           "cross-ns",
+		MutateAttempted:  false,
+		Merged: incident.InvestigationReport{
+			Summary:    "platform cache not ready",
+			Confidence: 0.5,
+			Evidence:   []incident.EvidenceRef{{Type: incident.EvidenceEvent, Reason: "BackOff"}},
+			Unknowns:   []string{"Coordinator: merged origin + suspect reports (verify before mutate)"},
+		},
+		Routing: []string{"probed namespace platform — merged suspect InvestigationReport"},
+	})
+	for _, want := range []string{"Coordinator reply", "platform", "50%", "Merged evidence", "probed namespace", "mutate=false"} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("missing %q in:\n%s", want, text)
+		}
+	}
+	if FormatReply(nil) != "" {
+		t.Fatal("nil reply should be empty")
+	}
+}
+
 func TestHTTPClientParsesReply(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		_ = json.NewEncoder(w).Encode(Reply{

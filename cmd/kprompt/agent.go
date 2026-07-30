@@ -669,12 +669,36 @@ KpromptAgent status sync:
 								reply, herr := handoffClient.Handoff(cmd.Context(), env)
 								if herr != nil {
 									fmt.Fprintf(cmd.ErrOrStderr(), "coordinator handoff: %v\n", herr)
-								} else if !emitJSON {
-									if reply != nil && reply.Merged.Summary != "" {
-										fmt.Fprintf(out, "handoff from=%s suspect=%s conf=%.2f routing=%v summary=%s\n",
-											ns, reply.SuspectNamespace, reply.Merged.Confidence, reply.Routing, reply.Merged.Summary)
-									} else {
-										fmt.Fprintf(out, "handoff from=%s suspect=%s reason=%q\n", ns, suspect, reason)
+								} else {
+									if !emitJSON {
+										if reply != nil && reply.Merged.Summary != "" {
+											fmt.Fprintf(out, "handoff from=%s suspect=%s conf=%.2f routing=%v summary=%s\n",
+												ns, reply.SuspectNamespace, reply.Merged.Confidence, reply.Routing, reply.Merged.Summary)
+										} else {
+											fmt.Fprintf(out, "handoff from=%s suspect=%s reason=%q\n", ns, suspect, reason)
+										}
+									}
+									// AG-053: surface CoordinatorReply on Slack thread / webhook.
+									if reply != nil {
+										if slackClient != nil && slackClient.Threaded() {
+											thread := threads[outcome.Alert.IncidentID]
+											if thread == "" && builder != nil {
+												thread = builder.NotifierThread(outcome.Alert.IncidentID)
+											}
+											if thread == "" {
+												thread = ch.Incident.NotifierThread
+											}
+											if text := handoff.FormatReply(reply); text != "" {
+												if _, serr := slackClient.PostText(cmd.Context(), text, thread); serr != nil {
+													fmt.Fprintf(cmd.ErrOrStderr(), "slack coordinator reply: %v\n", serr)
+												}
+											}
+										}
+										if webhookClient != nil {
+											if werr := webhookClient.NotifyJSON(cmd.Context(), reply); werr != nil {
+												fmt.Fprintf(cmd.ErrOrStderr(), "webhook coordinator reply: %v\n", werr)
+											}
+										}
 									}
 								}
 							}

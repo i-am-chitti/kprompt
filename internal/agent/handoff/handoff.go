@@ -157,6 +157,18 @@ func NeedsHandoff(fromNS string, report incident.InvestigationReport) (suspect s
 		parts = append(parts, h.Statement)
 		parts = append(parts, h.CausalChain...)
 	}
+	for _, e := range report.Evidence {
+		parts = append(parts, e.Message, e.Reason, e.URI)
+		if e.Resource != nil {
+			parts = append(parts, e.Resource.Namespace, e.Resource.Name)
+		}
+	}
+	for _, e := range report.Timeline {
+		parts = append(parts, e.Message, e.Reason)
+		if e.Resource != nil {
+			parts = append(parts, e.Resource.Namespace)
+		}
+	}
 	blob := strings.Join(parts, " ")
 
 	if suspect = extractSuspectNS(fromNS, blob); suspect != "" {
@@ -199,4 +211,42 @@ func extractSuspectNS(fromNS, blob string) string {
 		return ns
 	}
 	return ""
+}
+
+// FormatReply renders a compact human-readable CoordinatorReply for Slack / stdout (AG-053).
+func FormatReply(r *Reply) string {
+	if r == nil {
+		return ""
+	}
+	var b strings.Builder
+	fmt.Fprintf(&b, "🔀 *Coordinator reply* · mutate=%v\n", r.MutateAttempted)
+	if r.SuspectNamespace != "" {
+		fmt.Fprintf(&b, "*Suspect namespace:* `%s`\n", r.SuspectNamespace)
+	}
+	if r.Reason != "" {
+		fmt.Fprintf(&b, "*Handoff reason:* %s\n", r.Reason)
+	}
+	if r.Merged.Summary != "" {
+		fmt.Fprintf(&b, "*Merged summary:* %s\n", r.Merged.Summary)
+	}
+	if r.Merged.Confidence > 0 {
+		fmt.Fprintf(&b, "*Merged confidence:* %.0f%%\n", r.Merged.Confidence*100)
+	}
+	if n := len(r.Merged.Evidence); n > 0 {
+		fmt.Fprintf(&b, "*Merged evidence:* %d refs\n", n)
+	}
+	if len(r.Routing) > 0 {
+		fmt.Fprintf(&b, "*Routing:* %s\n", strings.Join(r.Routing, " · "))
+	}
+	for _, u := range r.Merged.Unknowns {
+		u = strings.TrimSpace(u)
+		if u == "" {
+			continue
+		}
+		if strings.Contains(strings.ToLower(u), "coordinator") {
+			fmt.Fprintf(&b, "• %s\n", u)
+		}
+	}
+	fmt.Fprintf(&b, "_kprompt Coordinator · ADR-0017_")
+	return b.String()
 }
