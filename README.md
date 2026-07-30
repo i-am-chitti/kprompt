@@ -155,68 +155,13 @@ go build -o bin/kprompt ./cmd/kprompt
 
 ## Transparent metrics
 
-The Free CLI does **not** phone home. We publish only **public install signals** so adoption stays visible without shipping usage telemetry.
+The Free CLI does **not** phone home. Adoption signals stay public and passive:
 
-| Signal | Source | Live |
-|--------|--------|------|
-| Release asset downloads | [GitHub Releases](https://github.com/kprompt/kprompt/releases) (curl install + Homebrew both hit these) | badges above |
-| Stars | GitHub | badge above |
-| Homebrew | Third-party taps have no public analytics; brew installs still count as release downloads | — |
-| Site / `/install` script fetches | GA4 + Vercel (maintainers) | not public |
-| Prompt runs / `setup` | Local `~/.kprompt/history.jsonl` only; Team audit only after `kprompt login` | — |
+- **Install volume** — live [download badges](https://github.com/kprompt/kprompt/releases) above (curl install and Homebrew both count as release asset downloads)
+- **Stars** — badge above
+- **Prompt runs / setup** — local only (`~/.kprompt/history.jsonl`); Team audit only after `kprompt login`
 
-Downloads ≠ unique users (re-installs, CI, checksums). Script fetch ≠ successful install.
-
-```mermaid
-flowchart LR
-  A[Discover site / GitHub] --> B[GET /install or brew]
-  B --> C[Release binary download]
-  C --> D[First prompt / setup]
-  D -.->|not public — no Free CLI telemetry| E[?]
-```
-
-**Binary downloads by release** (checksums excluded · snapshot 2026-07-30):
-
-```mermaid
-xychart-beta
-  title "Release binary downloads"
-  x-axis [v0.1, v0.2, v0.3, v0.4, v0.5, v0.6, v0.7]
-  y-axis "Downloads" 0 --> 12
-  bar [2, 7, 10, 7, 3, 4, 8]
-```
-
-| Release | Published | Binary downloads |
-|---------|-----------|-----------------:|
-| v0.7.0 | 2026-07-28 | 8 |
-| v0.6.0 | 2026-07-27 | 4 |
-| v0.5.0 | 2026-07-25 | 3 |
-| v0.4.0 | 2026-07-20 | 7 |
-| v0.3.0 | 2026-07-16 | 10 |
-| v0.2.0 | 2026-07-15 | 7 |
-| v0.1.0 | 2026-07-15 | 2 |
-| **Total** | | **41** |
-
-**Platform mix** (all releases · same snapshot):
-
-```mermaid
-pie showData
-  title Downloads by platform
-  "linux_amd64" : 19
-  "darwin_arm64" : 14
-  "darwin_amd64" : 5
-  "linux_arm64" : 3
-```
-
-Star history (live):
-
-[![Star History Chart](https://api.star-history.com/svg?repos=kprompt/kprompt&type=Date)](https://star-history.com/#kprompt/kprompt&Date)
-
-Refresh the release tables anytime:
-
-```bash
-gh api repos/kprompt/kprompt/releases --paginate \
-  --jq '[.[] | {tag: .tag_name, n: ([.assets[] | select(.name | test("checksums")|not) | .download_count] | add)}]'
-```
+Downloads are not unique users (re-installs, CI, checksums). Site `/install` fetches and GA4 stay maintainer-side.
 
 ## Quick start
 
