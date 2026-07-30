@@ -260,7 +260,7 @@ Cluster / kubeconfig failures print short actionable hints (missing config, bad 
 
 ## Flags
 
-See also: [GitOps PR mode](./docs/gitops-pr.md). Example: `kprompt "deploy redis" -n demo --gitops --gitops-repo acme/infra --approve`
+See also: [GitHub Integration MVP / GitOps PR mode](./docs/gitops-pr.md). Example: `kprompt "deploy redis" -n demo --gitops --gitops-repo acme/infra --approve`
 
 | Flag | Description |
 |------|-------------|
