@@ -12,7 +12,7 @@ func newSecretsCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "secrets",
 		Short: "Pull org LLM provider keys from Team",
-		Long:  "Caches keys at ~/.kprompt/provider-secrets.yaml (0600). Env vars always override pulled keys (ADR-0005). Does not print secret values.",
+		Long:  "Caches keys at ~/.kprompt/provider-secrets.yaml (0600). Env vars always override pulled keys. Does not print secret values.",
 	}
 	cmd.AddCommand(&cobra.Command{
 		Use:   "pull",

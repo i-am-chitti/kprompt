@@ -39,7 +39,7 @@ import (
 func newAgentCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "agent",
-		Short: "Observe agent and operator (AG-003 · AG-014)",
+		Short: "Observe agent and operator",
 		Long:  "Namespace-scoped Observe Mode (`agent run`) and optional Operator that reconciles KpromptAgent CRs into agent Deployments. Observe agents never mutate workloads; the operator only manages agent lifecycle objects.",
 	}
 	cmd.AddCommand(newAgentRunCmd())
@@ -53,7 +53,7 @@ func newAgentCmd() *cobra.Command {
 func newAgentAutopilotCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "autopilot",
-		Short: "Autopilot proposal apply bridge (AG-043; gated)",
+		Short: "Autopilot proposal apply bridge (gated)",
 		Long:  "Human approve bridge for AutopilotProposal JSON. Apply requires --approve plus RemediationPolicy mode=policyAuto apply=true.",
 	}
 	cmd.AddCommand(newAgentAutopilotApplyCmd())
@@ -78,7 +78,7 @@ Propose-only policies always deny. Never invents allowlist entries.`,
 		Example: `  kprompt agent autopilot apply-proposal --file proposal.json --approve --policy ./policy-auto.json`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if !approve {
-				return fmt.Errorf("refusing apply without --approve (ADR-0015 / ADR-0003)")
+				return fmt.Errorf("refusing apply without --approve")
 			}
 			path := strings.TrimSpace(file)
 			if path == "" {
@@ -132,11 +132,11 @@ func newAgentCoordinatorCmd() *cobra.Command {
 	var addr string
 	cmd := &cobra.Command{
 		Use:   "coordinator",
-		Short: "Thin Coordinator HTTP fan-in (AG-037; no mutate)",
+		Short: "Thin Coordinator HTTP fan-in (no mutate)",
 		Long: `Listen for Namespace Agent CoordinatorHandoff POSTs, merge InvestigationReports,
 and reply with CoordinatorReply.
 
-Never applies/patches/deletes workloads (ADR-0017). Optional probe hooks are
+Never applies/patches/deletes workloads. Optional probe hooks are
 read-only; the default probe is a no-op (records routing notes + unknowns).
 
 Endpoints:
@@ -182,7 +182,7 @@ func newAgentOperatorCmd() *cobra.Command {
 	)
 	cmd := &cobra.Command{
 		Use:   "operator",
-		Short: "Reconcile KpromptAgent CRs into Observe agent Deployments (AG-014)",
+		Short: "Reconcile KpromptAgent CRs into Observe agent Deployments",
 		Long: `Watch KpromptAgent custom resources and ensure ServiceAccount, Role,
 RoleBinding, and Deployment exist for Observe Mode.
 
@@ -281,28 +281,28 @@ func newAgentRunCmd() *cobra.Command {
 
 Watched resources (read-only):
   --watch          comma-separated: pods,events (default) plus deployments,
-                   replicasets,statefulsets,jobs,cronjobs,pvc,configmaps,secrets
-                   (AG-004). secrets are opt-in and metadata-only (never values).
+                   replicasets,statefulsets,jobs,cronjobs,pvc,configmaps,secrets.
+                   secrets are opt-in and metadata-only (never values).
 
 Pipeline flags (read-only — never mutate workload objects):
-  --incidents      correlate problem signals into Incidents (AG-006)
-  --fetch-logs     on-demand log tail on CrashLoop/Failed/OOM (AG-005)
-  --build-context  assemble AgentContext (AG-007)
-  --analyze        LLM/heuristic → gated AgentAlert (AG-008)
-  --slack          post gated alerts to Slack threads (AG-009)
-  --webhook        POST gated AgentAlert JSON to a URL (AG-010)
-  --health         emit namespace health score / risk_increasing (AG-011)
-  --agent-cr       patch KpromptAgent.status (AG-013; health + lastAlert)
-  --memory         discover/load namespace deps+facts into analyzer context (AG-015)
-  --patterns       learn incident signatures; boost confidence on “seen before” (AG-016)
-  --autopilot-propose  emit PlanResult-shaped AutopilotProposal (ADR-0015; propose-only by default)
-  --autopilot-policy   RemediationPolicy JSON file (AG-040); else ConfigMap / defaults
-  --autopilot-apply    with policyAuto+apply=true, apply approved proposals in-loop (AG-042; off by default)
-  --slack-ask          listen for Slack Events ask (status/why/what broke/false positive) — read-only (AG-019)
-  --coordinator-url    POST CoordinatorHandoff when cross-ns suspicion (AG-036; opt-in)
-  --gitops-evidence    attach Argo/Flux sync + deploy history as EvidenceRefs (AG-035; opt-in)
+  --incidents      correlate problem signals into Incidents
+  --fetch-logs     on-demand log tail on CrashLoop/Failed/OOM
+  --build-context  assemble AgentContext
+  --analyze        LLM/heuristic → gated AgentAlert
+  --slack          post gated alerts to Slack threads
+  --webhook        POST gated AgentAlert JSON to a URL
+  --health         emit namespace health score / risk_increasing
+  --agent-cr       patch KpromptAgent.status (health + lastAlert)
+  --memory         discover/load namespace deps+facts into analyzer context
+  --patterns       learn incident signatures; boost confidence on “seen before”
+  --autopilot-propose  emit PlanResult-shaped AutopilotProposal (propose-only by default)
+  --autopilot-policy   RemediationPolicy JSON file; else ConfigMap / defaults
+  --autopilot-apply    with policyAuto+apply=true, apply approved proposals in-loop (off by default)
+  --slack-ask          listen for Slack Events ask (status/why/what broke/false positive) — read-only
+  --coordinator-url    POST CoordinatorHandoff when cross-ns suspicion (opt-in)
+  --gitops-evidence    attach Argo/Flux sync + deploy history as EvidenceRefs (opt-in)
 
-Durable incidents (AG-032; local / in-cluster only):
+Durable incidents (local / in-cluster only):
   --incidents-backend file|configmap   persist open incidents across restarts
   --incidents-dir     file backend directory (default: ~/.config/kprompt/incidents)
 
@@ -855,32 +855,32 @@ KpromptAgent status sync:
 	cmd.Flags().BoolVar(&inCluster, "in-cluster", false, "use InClusterConfig (ServiceAccount)")
 	cmd.Flags().BoolVar(&emitJSON, "json", false, "emit one JSON object per line")
 	cmd.Flags().BoolVar(&emitInitial, "emit-initial", false, "emit current Pods/Events as Added before live watch")
-	cmd.Flags().StringSliceVar(&watchList, "watch", nil, "resources to watch (default pods,events; AG-004: deployments,replicasets,statefulsets,jobs,cronjobs,pvc,configmaps,secrets). secrets are opt-in and metadata-only")
-	cmd.Flags().BoolVar(&incidents, "incidents", false, "correlate problem signals into Incident changes (AG-006)")
-	cmd.Flags().BoolVar(&fetchLogs, "fetch-logs", false, "on CrashLoop/Failed/OOM attach a short log tail (AG-005; enables --incidents)")
-	cmd.Flags().BoolVar(&buildContext, "build-context", false, "assemble AgentContext for LLM (AG-007; enables --incidents)")
-	cmd.Flags().BoolVar(&doAnalyze, "analyze", false, "run LLM/heuristic analyzer → gated AgentAlert (AG-008)")
-	cmd.Flags().BoolVar(&notifySlack, "slack", false, "post gated alerts to Slack (AG-009; enables --analyze)")
-	cmd.Flags().BoolVar(&notifyWebhook, "webhook", false, "POST gated AgentAlert JSON to webhook URL (AG-010; enables --analyze)")
+	cmd.Flags().StringSliceVar(&watchList, "watch", nil, "resources to watch (default pods,events; deployments,replicasets,statefulsets,jobs,cronjobs,pvc,configmaps,secrets). secrets are opt-in and metadata-only")
+	cmd.Flags().BoolVar(&incidents, "incidents", false, "correlate problem signals into Incident changes")
+	cmd.Flags().BoolVar(&fetchLogs, "fetch-logs", false, "on CrashLoop/Failed/OOM attach a short log tail (enables --incidents)")
+	cmd.Flags().BoolVar(&buildContext, "build-context", false, "assemble AgentContext for LLM (enables --incidents)")
+	cmd.Flags().BoolVar(&doAnalyze, "analyze", false, "run LLM/heuristic analyzer → gated AgentAlert")
+	cmd.Flags().BoolVar(&notifySlack, "slack", false, "post gated alerts to Slack (enables --analyze)")
+	cmd.Flags().BoolVar(&notifyWebhook, "webhook", false, "POST gated AgentAlert JSON to webhook URL (enables --analyze)")
 	cmd.Flags().StringVar(&webhookURL, "webhook-url", "", "override KPROMPT_WEBHOOK_URL for --webhook")
-	cmd.Flags().BoolVar(&trackHealth, "health", false, "emit namespace health score and risk_increasing trends (AG-011; enables --incidents)")
-	cmd.Flags().StringVar(&agentCR, "agent-cr", "", "KpromptAgent name to patch status (AG-013; or KPROMPT_AGENT_CR)")
+	cmd.Flags().BoolVar(&trackHealth, "health", false, "emit namespace health score and risk_increasing trends (enables --incidents)")
+	cmd.Flags().StringVar(&agentCR, "agent-cr", "", "KpromptAgent name to patch status (or KPROMPT_AGENT_CR)")
 	cmd.Flags().StringVar(&agentCRNS, "agent-cr-namespace", "", "namespace of --agent-cr (default: POD_NAMESPACE / default)")
-	cmd.Flags().BoolVar(&useMemory, "memory", false, "discover/load namespace dependency facts into analyzer context (AG-015)")
+	cmd.Flags().BoolVar(&useMemory, "memory", false, "discover/load namespace dependency facts into analyzer context")
 	cmd.Flags().StringVar(&memoryBackend, "memory-backend", "file", "memory store: file|configmap")
 	cmd.Flags().StringVar(&memoryDir, "memory-dir", "", "file backend directory (default ~/.config/kprompt/memory)")
-	cmd.Flags().BoolVar(&usePatterns, "patterns", false, "learn incident signatures; boost confidence on seen-before (AG-016; never mutates)")
+	cmd.Flags().BoolVar(&usePatterns, "patterns", false, "learn incident signatures; boost confidence on seen-before (never mutates)")
 	cmd.Flags().StringVar(&patternsDir, "patterns-dir", "", "pattern store directory (default ~/.config/kprompt/patterns)")
-	cmd.Flags().BoolVar(&autopilotProp, "autopilot-propose", false, "emit AutopilotProposal for allowlisted actions (ADR-0015; propose-only by default)")
+	cmd.Flags().BoolVar(&autopilotProp, "autopilot-propose", false, "emit AutopilotProposal for allowlisted actions (propose-only by default)")
 	cmd.Flags().StringVar(&autopilotDir, "autopilot-audit-dir", "", "autopilot audit directory (default ~/.config/kprompt/autopilot)")
-	cmd.Flags().StringVar(&autopilotPolicy, "autopilot-policy", "", "RemediationPolicy JSON file (AG-040)")
-	cmd.Flags().BoolVar(&autopilotApply, "autopilot-apply", false, "apply proposals when policy mode=policyAuto apply=true (AG-042; off by default)")
-	cmd.Flags().StringVar(&incidentsBackend, "incidents-backend", "", "persist incidents across restarts: file|configmap (AG-032)")
+	cmd.Flags().StringVar(&autopilotPolicy, "autopilot-policy", "", "RemediationPolicy JSON file")
+	cmd.Flags().BoolVar(&autopilotApply, "autopilot-apply", false, "apply proposals when policy mode=policyAuto apply=true (off by default)")
+	cmd.Flags().StringVar(&incidentsBackend, "incidents-backend", "", "persist incidents across restarts: file|configmap")
 	cmd.Flags().StringVar(&incidentsDir, "incidents-dir", "", "file backend directory (default ~/.config/kprompt/incidents)")
-	cmd.Flags().BoolVar(&slackAsk, "slack-ask", false, "Slack Events ask listener for status/why/what broke/false positive (AG-019; read-only)")
+	cmd.Flags().BoolVar(&slackAsk, "slack-ask", false, "Slack Events ask listener for status/why/what broke/false positive (read-only)")
 	cmd.Flags().StringVar(&slackAskAddr, "slack-ask-addr", ":8080", "listen address for --slack-ask Events API")
-	cmd.Flags().StringVar(&coordinatorURL, "coordinator-url", "", "POST CoordinatorHandoff when cross-ns suspicion (AG-036; opt-in)")
-	cmd.Flags().BoolVar(&gitopsEvidence, "gitops-evidence", false, "attach Argo/Flux sync + deploy history EvidenceRefs (AG-035; opt-in)")
+	cmd.Flags().StringVar(&coordinatorURL, "coordinator-url", "", "POST CoordinatorHandoff when cross-ns suspicion (opt-in)")
+	cmd.Flags().BoolVar(&gitopsEvidence, "gitops-evidence", false, "attach Argo/Flux sync + deploy history EvidenceRefs (opt-in)")
 	cmd.Flags().BoolVar(&heuristic, "heuristic", false, "with --analyze, skip LLM and use local heuristics only")
 	cmd.Flags().StringVar(&providerName, "provider", "", "LLM provider for --analyze (default from config)")
 	cmd.Flags().StringVar(&modelName, "model", "", "LLM model for --analyze (default from config)")

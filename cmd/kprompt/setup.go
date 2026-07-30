@@ -25,11 +25,11 @@ func newSetupCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "setup",
 		Short: "Detect gaps; dry-run plan or approve host/cluster installs",
-		Long: `Builds a bootstrap plan from tools.Detect (ADR-0018).
+		Long: `Builds a bootstrap plan from tools.Detect.
 
 Default is dry-run. With --approve (or interactive confirm):
-  • Host: Helm via brew / get-helm-3 (T-063)
-  • Cluster: Argo Workflows + kube-prometheus-stack (T-064) — plan → safety → apply
+  • Host: Helm via brew / get-helm-3
+  • Cluster: Argo Workflows + kube-prometheus-stack — plan → safety → apply
 Never silent. Wipe-class uninstalls are denied.
 
 Profiles:

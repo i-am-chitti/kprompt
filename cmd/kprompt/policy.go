@@ -13,7 +13,7 @@ func newPolicyCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "policy",
 		Short: "Show or pull Team org policy",
-		Long:  "Cached at ~/.kprompt/policy.yaml. Org rules only tighten local hard-denies (ADR-0003).",
+		Long:  "Cached at ~/.kprompt/policy.yaml. Org rules only tighten local hard-denies.",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return showPolicy(cmd)
 		},
