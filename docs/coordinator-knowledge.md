@@ -1,41 +1,45 @@
-# Coordinator Shared Knowledge (MVP)
+# Coordinator Shared Knowledge
 
-Cross-namespace **handoff memory** on the thin Coordinator — not a durable cluster knowledge graph.
+Cross-namespace **handoff memory** on the thin Coordinator — edges from recent handoffs, optionally **restart-safe**.
 
 | Surface | How | Role |
 |---------|-----|------|
 | Handoff merge | `POST /v1/handoff` → `CoordinatorReply` | Origin + optional suspect probe |
-| Recent ring | `GET /v1/recent` | Last N handoffs (in-memory) |
+| Recent ring | `GET /v1/recent` | Last N handoffs |
 | Knowledge summary | `GET /v1/knowledge` | Namespace edges + latest summaries |
+| Durable store (AG-060) | `--knowledge-backend file\|configmap` | Survive Coordinator restarts |
 | CLI | `kprompt agent coordinator knowledge` | Human-readable Shared Knowledge view |
 
 ```bash
-# Run Coordinator (optionally with read-only suspect probe)
-kprompt agent coordinator --addr :9090 --probe-kube
+# Run Coordinator with durable ConfigMap store (Helm default)
+kprompt agent coordinator --addr :9090 --probe-kube \
+  --knowledge-backend configmap --in-cluster --knowledge-namespace kprompt-system
 
-# After handoffs from ns agents (--coordinator-url …/v1/handoff):
+# Laptop file backend
+kprompt agent coordinator --addr :9090 --knowledge-backend file
+
+# Inspect
 kprompt agent coordinator knowledge --url http://127.0.0.1:9090
 kprompt agent coordinator knowledge --url http://127.0.0.1:9090 --json
-kprompt agent coordinator recent --url http://127.0.0.1:9090
 ```
 
-## What this is
+Helm (`charts/kprompt-coordinator`): `knowledge.enabled=true` (default) writes ConfigMap `kprompt-coordinator-knowledge` in the release namespace.
 
-A named **Shared Knowledge MVP** over the Coordinator’s restart-lossy ring:
+## What this is
 
 1. Namespaces observed on handoffs
 2. `from → suspect` edges with counts
 3. Latest merged InvestigationReport summaries
-4. Always `durable: false` in the JSON payload
+4. `durable: true` when a Store is configured (file/ConfigMap)
 
 Still **no Coordinator mutate** ([ADR-0017](https://github.com/kprompt/kprompt-architecture/blob/main/decisions/ADR-0017-coordinator.md)).
 
 ## What this is not
 
-- Durable / ConfigMap / etcd shared knowledge store
-- Continuous blast-radius product graph across the whole cluster
+- Full continuous blast-radius / mesh product graph
 - Replacement for per-namespace Incident Memory ([agent.md](./agent.md))
 - Replacement for read-only Knowledge Graph MVP ([graph.md](./graph.md))
+- Cluster-wide Secret/PVC topology
 
 ## Related
 

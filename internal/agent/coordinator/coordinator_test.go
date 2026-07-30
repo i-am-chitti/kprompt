@@ -91,7 +91,7 @@ func TestSummarizeKnowledge(t *testing.T) {
 	_, _ = svc.Handle(context.Background(), handoff.New("payments", "platform", "dep", sampleReport("payments", "again")))
 	_, _ = svc.Handle(context.Background(), handoff.New("checkout", "payments", "dep", sampleReport("checkout", "latency")))
 
-	sum := Summarize(svc.Recent())
+	sum := Summarize(svc.Recent(), false)
 	if sum.Kind != kindKnowledge || sum.Durable {
 		t.Fatalf("%+v", sum)
 	}

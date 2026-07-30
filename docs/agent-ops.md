@@ -83,7 +83,8 @@ All of the above stay **local / in-cluster** — not uploaded to `api.kprompt.ai
 # Laptop / kind
 kprompt agent coordinator --addr :9090
 kprompt agent coordinator --addr :9090 --probe-kube   # read-only suspect-ns probe
-kprompt agent coordinator knowledge --url http://127.0.0.1:9090  # Shared Knowledge MVP
+kprompt agent coordinator --addr :9090 --knowledge-backend configmap --in-cluster --knowledge-namespace kprompt-system
+kprompt agent coordinator knowledge --url http://127.0.0.1:9090
 
 # In-cluster (optional probe into named namespaces)
 helm upgrade --install kprompt-coordinator ./charts/kprompt-coordinator \
@@ -97,7 +98,7 @@ helm upgrade --install kprompt-coordinator ./charts/kprompt-coordinator \
 | `GET /healthz` | `ok` |
 | `POST /v1/handoff` | `CoordinatorReply` JSON, `mutateAttempted: false` |
 | `GET /v1/recent` | In-memory recent handoff records (restart-lossy) |
-| `GET /v1/knowledge` | Shared Knowledge MVP summary (namespace edges; AG-059) |
+| `GET /v1/knowledge` | Shared Knowledge summary (namespace edges; AG-059 · AG-060 durable when Store set) |
 | RBAC | SA only by default — **no** ClusterRole unless `rbac.clusterRole.create=true` (namespaces get/list only) |
 | Probe RBAC | With `probe.enabled` + `rbac.probeNamespaces`: Pods/Events `get/list` in listed ns only |
 | Ns agents | Stay Role-scoped; point `--coordinator-url` at the Service `/v1/handoff` |

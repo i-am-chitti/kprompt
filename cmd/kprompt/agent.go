@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"syscall"
@@ -136,10 +137,13 @@ Propose-only policies always deny. Never invents allowlist entries.`,
 
 func newAgentCoordinatorCmd() *cobra.Command {
 	var (
-		addr      string
-		probeKube bool
-		kubeCtx   string
-		inCluster bool
+		addr               string
+		probeKube          bool
+		kubeCtx            string
+		inCluster          bool
+		knowledgeBackend   string // "" | file | configmap
+		knowledgeDir       string
+		knowledgeNamespace string
 	)
 	cmd := &cobra.Command{
 		Use:   "coordinator",
@@ -150,26 +154,29 @@ and reply with CoordinatorReply.
 Never applies/patches/deletes workloads (ADR-0017). Optional --probe-kube enables a
 read-only Events/Pods probe of suspectNamespace (AG-050). Default probe is a no-op.
 
-Shared Knowledge MVP (AG-059): in-memory recent handoffs exposed as GET /v1/knowledge
-(restart-lossy). Subcommands: coordinator knowledge | coordinator recent.
+Shared Knowledge (AG-059 · AG-060): GET /v1/knowledge summarizes handoff edges.
+Optional --knowledge-backend file|configmap persists the recent ring across restarts
+(still not a full continuous blast-radius product graph).
 
 Endpoints:
   GET  /healthz
   POST /v1/handoff    — accept handoff.Envelope → CoordinatorReply
-  GET  /v1/recent     — in-memory recent handoffs
-  GET  /v1/knowledge  — Shared Knowledge MVP summary (namespace edges)
+  GET  /v1/recent     — recent handoffs
+  GET  /v1/knowledge  — Shared Knowledge summary (namespace edges)
 
 Pair with: kprompt agent run … --coordinator-url http://<addr>/v1/handoff`,
 		Example: `  kprompt agent coordinator --addr :9090
   kprompt agent coordinator --addr :9090 --probe-kube
-  kprompt agent coordinator knowledge --url http://127.0.0.1:9090
-  kprompt agent coordinator recent --url http://127.0.0.1:9090`,
+  kprompt agent coordinator --addr :9090 --knowledge-backend configmap --in-cluster --knowledge-namespace kprompt-system
+  kprompt agent coordinator knowledge --url http://127.0.0.1:9090`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			runCtx, stop := signal.NotifyContext(cmd.Context(), os.Interrupt, syscall.SIGTERM)
 			defer stop()
 			svc := coordinator.New()
-			if probeKube {
-				var clients *cluster.Clients
+			backend := strings.ToLower(strings.TrimSpace(knowledgeBackend))
+			needKube := probeKube || backend == "configmap"
+			var clients *cluster.Clients
+			if needKube {
 				var err error
 				if inCluster {
 					clients, err = cluster.ConnectInCluster()
@@ -177,10 +184,47 @@ Pair with: kprompt agent run … --coordinator-url http://<addr>/v1/handoff`,
 					clients, err = cluster.Connect(kubeCtx)
 				}
 				if err != nil {
-					return fmt.Errorf("coordinator --probe-kube: %w", err)
+					return fmt.Errorf("coordinator kube: %w", err)
 				}
+			}
+			if probeKube {
 				svc.Probe = &coordinator.KubeProbe{Client: clients.Clientset}
 				fmt.Fprintf(cmd.ErrOrStderr(), "kprompt agent coordinator: kube probe enabled (read-only)\n")
+			}
+			switch backend {
+			case "":
+				// in-memory only
+			case "file":
+				dir := strings.TrimSpace(knowledgeDir)
+				if dir == "" {
+					home, _ := os.UserHomeDir()
+					dir = filepath.Join(home, ".config", "kprompt", "coordinator")
+				}
+				path := filepath.Join(dir, "handoffs.json")
+				svc.Store = coordinator.FileStore{Path: path}
+				fmt.Fprintf(cmd.ErrOrStderr(), "kprompt agent coordinator: knowledge store file %s\n", path)
+			case "configmap":
+				ns := strings.TrimSpace(knowledgeNamespace)
+				if ns == "" {
+					ns = strings.TrimSpace(os.Getenv("POD_NAMESPACE"))
+				}
+				if ns == "" {
+					return fmt.Errorf("coordinator --knowledge-backend configmap requires --knowledge-namespace or POD_NAMESPACE")
+				}
+				svc.Store = coordinator.ConfigMapStore{Client: clients.Clientset, Namespace: ns}
+				fmt.Fprintf(cmd.ErrOrStderr(), "kprompt agent coordinator: knowledge store ConfigMap %s/%s\n", ns, coordinator.ConfigMapName)
+			default:
+				return fmt.Errorf("coordinator --knowledge-backend: want file|configmap, got %q", knowledgeBackend)
+			}
+			if svc.Store != nil {
+				svc.PersistErrLog = func(err error) {
+					fmt.Fprintf(cmd.ErrOrStderr(), "warning: persist knowledge: %v\n", err)
+				}
+				if err := svc.Restore(); err != nil {
+					fmt.Fprintf(cmd.ErrOrStderr(), "warning: restore knowledge: %v\n", err)
+				} else if n := len(svc.Recent()); n > 0 {
+					fmt.Fprintf(cmd.ErrOrStderr(), "kprompt agent coordinator: restored %d handoff(s)\n", n)
+				}
 			}
 			h := &coordinator.Handler{
 				Service: svc,
@@ -202,8 +246,11 @@ Pair with: kprompt agent run … --coordinator-url http://<addr>/v1/handoff`,
 	}
 	cmd.Flags().StringVar(&addr, "addr", ":9090", "listen address for Coordinator HTTP API")
 	cmd.Flags().BoolVar(&probeKube, "probe-kube", false, "read-only Pods/Events probe of suspectNamespace (AG-050)")
-	cmd.Flags().StringVar(&kubeCtx, "context", "", "kubeconfig context for --probe-kube")
-	cmd.Flags().BoolVar(&inCluster, "in-cluster", false, "use in-cluster config for --probe-kube")
+	cmd.Flags().StringVar(&kubeCtx, "context", "", "kubeconfig context for --probe-kube / configmap knowledge")
+	cmd.Flags().BoolVar(&inCluster, "in-cluster", false, "use in-cluster config for --probe-kube / configmap knowledge")
+	cmd.Flags().StringVar(&knowledgeBackend, "knowledge-backend", "", "persist Shared Knowledge: file|configmap (AG-060)")
+	cmd.Flags().StringVar(&knowledgeDir, "knowledge-dir", "", "file backend directory (default ~/.config/kprompt/coordinator)")
+	cmd.Flags().StringVar(&knowledgeNamespace, "knowledge-namespace", "", "ConfigMap namespace (default POD_NAMESPACE)")
 	cmd.AddCommand(newAgentCoordinatorKnowledgeCmd())
 	cmd.AddCommand(newAgentCoordinatorRecentCmd())
 	return cmd

@@ -17,8 +17,8 @@ type KnowledgeEdge struct {
 	LastAt  string `json:"lastAt,omitempty"`
 }
 
-// KnowledgeSummary is the Shared Knowledge MVP view over recent handoffs.
-// Restart-lossy (in-memory ring only) — not a durable cluster knowledge graph.
+// KnowledgeSummary is the Shared Knowledge view over recent handoffs.
+// With a Store (AG-060) Durable is true; still not a full blast-radius product graph.
 type KnowledgeSummary struct {
 	APIVersion      string          `json:"apiVersion"`
 	Kind            string          `json:"kind"`
@@ -28,14 +28,14 @@ type KnowledgeSummary struct {
 	Namespaces      []string        `json:"namespaces,omitempty"`
 	Edges           []KnowledgeEdge `json:"edges,omitempty"`
 	LatestSummaries []string        `json:"latestSummaries,omitempty"`
-	Durable         bool            `json:"durable"` // always false in MVP
+	Durable         bool            `json:"durable"`
 	Note            string          `json:"note,omitempty"`
 }
 
 const kindKnowledge = "CoordinatorKnowledge"
 
-// Summarize builds Shared Knowledge MVP from the in-memory recent ring.
-func Summarize(records []Record) KnowledgeSummary {
+// Summarize builds Shared Knowledge from the recent ring.
+func Summarize(records []Record, durable bool) KnowledgeSummary {
 	nsSet := map[string]struct{}{}
 	type edgeKey struct{ from, suspect string }
 	edges := map[edgeKey]*KnowledgeEdge{}
@@ -102,6 +102,11 @@ func Summarize(records []Record) KnowledgeSummary {
 		latest = latest[len(latest)-maxLatest:]
 	}
 
+	note := "Shared Knowledge MVP: in-memory recent handoffs only (restart-lossy); not a full blast-radius graph"
+	if durable {
+		note = "Shared Knowledge: durable handoff ring (file/ConfigMap); not a full continuous blast-radius product graph"
+	}
+
 	return KnowledgeSummary{
 		APIVersion:      APIVersion,
 		Kind:            kindKnowledge,
@@ -111,8 +116,8 @@ func Summarize(records []Record) KnowledgeSummary {
 		Namespaces:      ns,
 		Edges:           edgeList,
 		LatestSummaries: latest,
-		Durable:         false,
-		Note:            "Shared Knowledge MVP: in-memory recent handoffs only (restart-lossy); not a durable blast-radius graph",
+		Durable:         durable,
+		Note:            note,
 	}
 }
 
@@ -146,5 +151,5 @@ func (h *Handler) knowledge(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(Summarize(h.Service.Recent()))
+	_ = json.NewEncoder(w).Encode(h.Service.Knowledge())
 }
