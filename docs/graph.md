@@ -43,11 +43,11 @@ Helm / laptop Observe agents do **not** upload topology to `api.kprompt.ai`.
 - Always-on cluster-wide graph of Secrets, PVCs, Ingress, Kafka, external APIs as first-class product nodes
 - Interactive topology UI / Team `/graph` viewer
 - Complete mesh call graph without OTel
-- Simulation / blast-radius product built only from this graph
+- Sandbox / chaos Simulation beyond change preview (see [simulation.md](./simulation.md) for MVP)
 
 ## Relation to other surfaces
 
-- **Plan `BlastRadius`** — “what would this mutate touch?” at approve time
+- **Plan `BlastRadius` / Simulation MVP** — change preview before apply ([simulation.md](./simulation.md))
 - **Impact** — “what currently depends on this live object?”
 - **Incident Memory** — recurring signatures + dep facts; never sole RCA proof
 - **Coordinator** — cross-ns handoff/probe merge; not a shared topology store yet
@@ -57,3 +57,4 @@ Helm / laptop Observe agents do **not** upload topology to `api.kprompt.ai`.
 - Auto-remediation from graph edges
 - Inventing runtime callers when OTel/mesh signals are missing
 - Replacing Prometheus, service mesh, or CMDB products
+- Continuous full-cluster Secrets/PVC/external-API topology product (still building)
