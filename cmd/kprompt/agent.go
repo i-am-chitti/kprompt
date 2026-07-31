@@ -1219,22 +1219,24 @@ func newAgentPatternsCmd() *cobra.Command {
 
 func newAgentGraphCmd() *cobra.Command {
 	var (
-		ns        string
-		kubeCtx   string
-		inCluster bool
-		includeNP bool
-		output    string
+		ns            string
+		kubeCtx       string
+		inCluster     bool
+		includeNP     bool
+		includeIngress bool
+		includePVC    bool
+		output        string
 	)
 	cmd := &cobra.Command{
 		Use:   "graph",
-		Short: "Dump Knowledge Graph MVP service dependency graph (AG-055; read-only)",
+		Short: "Dump Knowledge Graph service dependency graph (AG-055 · AG-063; read-only)",
 		Long: `Build a read-only service-graph for one namespace (Services, EndpointSlices,
-optional NetworkPolicies). Same contract as:
+Ingress→Service, Pod→PVC, optional NetworkPolicies). Same contract as:
 
   kprompt "show service dependency graph" -n <ns>
 
-Does not mutate the cluster. Full continuous topology remains out of scope —
-see docs/graph.md.`,
+Does not mutate the cluster. Secrets / external APIs / continuous full-cluster
+topology UI remain out of scope — see docs/graph.md.`,
 		Example: `  kprompt agent graph -n payments
   kprompt agent graph -n payments --output json`,
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -1255,6 +1257,8 @@ see docs/graph.md.`,
 			report, err := graph.Build(cmd.Context(), clients.Clientset, graph.Request{
 				Namespace:            ns,
 				IncludeNetworkPolicy: includeNP,
+				IncludeIngress:       includeIngress,
+				IncludePVC:           includePVC,
 			})
 			if err != nil {
 				return err
@@ -1272,11 +1276,13 @@ see docs/graph.md.`,
 			return nil
 		},
 	}
-	cmd.Flags().StringVarP(&ns, "namespace", "n", "", "namespace (required)")
+	cmd.Flags().StringVarP(&ns, "namespace", "n", "", "namespace to graph (required)")
 	cmd.Flags().StringVar(&kubeCtx, "context", "", "kubeconfig context")
-	cmd.Flags().BoolVar(&inCluster, "in-cluster", false, "use InClusterConfig")
-	cmd.Flags().BoolVar(&includeNP, "network-policy", true, "include NetworkPolicy edges")
-	cmd.Flags().StringVarP(&output, "output", "o", "text", "output format: text|json")
+	cmd.Flags().BoolVar(&inCluster, "in-cluster", false, "use in-cluster config")
+	cmd.Flags().BoolVar(&includeNP, "network-policy", true, "include NetworkPolicy selects edges")
+	cmd.Flags().BoolVar(&includeIngress, "ingress", true, "include Ingress→Service exposes edges (AG-063)")
+	cmd.Flags().BoolVar(&includePVC, "pvc", true, "include Pod→PVC mounts edges (AG-063)")
+	cmd.Flags().StringVarP(&output, "output", "o", "text", "text|json")
 	_ = cmd.MarkFlagRequired("namespace")
 	return cmd
 }

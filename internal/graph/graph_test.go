@@ -2,6 +2,7 @@ package graph
 
 import (
 	"context"
+	"strings"
 	"testing"
 
 	corev1 "k8s.io/api/core/v1"
@@ -67,9 +68,76 @@ func TestBuildServiceGraphRoutesAndNetworkPolicy(t *testing.T) {
 	}
 }
 
+func TestBuildIngressAndPVC(t *testing.T) {
+	client := fake.NewSimpleClientset(
+		&corev1.Service{
+			ObjectMeta: metav1.ObjectMeta{Name: "web", Namespace: "prod"},
+			Spec:       corev1.ServiceSpec{Selector: map[string]string{"app": "web"}},
+		},
+		&networkingv1.Ingress{
+			ObjectMeta: metav1.ObjectMeta{Name: "web-ing", Namespace: "prod"},
+			Spec: networkingv1.IngressSpec{
+				Rules: []networkingv1.IngressRule{{
+					Host: "web.example.com",
+					IngressRuleValue: networkingv1.IngressRuleValue{
+						HTTP: &networkingv1.HTTPIngressRuleValue{
+							Paths: []networkingv1.HTTPIngressPath{{
+								Path: "/",
+								Backend: networkingv1.IngressBackend{
+									Service: &networkingv1.IngressServiceBackend{Name: "web"},
+								},
+							}},
+						},
+					},
+				}},
+			},
+		},
+		&corev1.PersistentVolumeClaim{
+			ObjectMeta: metav1.ObjectMeta{Name: "data", Namespace: "prod"},
+		},
+		&corev1.Pod{
+			ObjectMeta: metav1.ObjectMeta{Name: "web-0", Namespace: "prod"},
+			Spec: corev1.PodSpec{
+				Volumes: []corev1.Volume{{
+					Name: "data",
+					VolumeSource: corev1.VolumeSource{
+						PersistentVolumeClaim: &corev1.PersistentVolumeClaimVolumeSource{ClaimName: "data"},
+					},
+				}},
+				Containers: []corev1.Container{{Name: "c", Image: "nginx"}},
+			},
+		},
+	)
+
+	rep, err := Build(context.Background(), client, Request{
+		Namespace:      "prod",
+		IncludeIngress: true,
+		IncludePVC:     true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var hasExpose, hasMount bool
+	for _, e := range rep.Edges {
+		if e.Type == EdgeExposes {
+			hasExpose = true
+		}
+		if e.Type == EdgeMounts {
+			hasMount = true
+		}
+	}
+	if !hasExpose || !hasMount {
+		t.Fatalf("edges=%+v summary=%s", rep.Edges, rep.Summary)
+	}
+	if !strings.Contains(rep.Summary, "ingresses") || !strings.Contains(rep.Summary, "PVCs") {
+		t.Fatalf("summary=%q", rep.Summary)
+	}
+}
+
 func TestBuildRequiresClient(t *testing.T) {
 	_, err := Build(context.Background(), nil, Request{})
 	if err == nil {
 		t.Fatal("expected error")
 	}
 }
+

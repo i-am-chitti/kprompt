@@ -217,7 +217,7 @@ func refreshSummary(rep *Report) {
 	if rep == nil {
 		return
 	}
-	svcN, podN, npN, otelN, k8sN := 0, 0, 0, 0, 0
+	svcN, podN, npN, ingN, pvcN, otelN, k8sN := 0, 0, 0, 0, 0, 0, 0
 	for _, n := range rep.Nodes {
 		switch n.Kind {
 		case NodeService:
@@ -226,6 +226,10 @@ func refreshSummary(rep *Report) {
 			podN++
 		case NodeNetworkPolicy:
 			npN++
+		case NodeIngress:
+			ingN++
+		case NodePVC:
+			pvcN++
 		}
 	}
 	for _, e := range rep.Edges {
@@ -241,7 +245,7 @@ func refreshSummary(rep *Report) {
 		scopeLabel = fmt.Sprintf("namespace %q", rep.Namespace)
 	}
 	rep.Summary = fmt.Sprintf(
-		"Service dependency graph for %s: %d services, %d pods, %d network policies, %d k8s edges, %d otel call edges.",
-		scopeLabel, svcN, podN, npN, k8sN, otelN,
+		"Service dependency graph for %s: %d services, %d pods, %d ingresses, %d PVCs, %d network policies, %d k8s edges, %d otel call edges.",
+		scopeLabel, svcN, podN, ingN, pvcN, npN, k8sN, otelN,
 	)
 }

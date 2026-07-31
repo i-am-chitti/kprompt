@@ -547,6 +547,8 @@ func RunWith(ctx context.Context, cfg config.Resolved, out io.Writer, deps Deps)
 			report, err := graph.Build(ctx, client, graph.Request{
 				Namespace:            plan.Intent.Target.Namespace,
 				IncludeNetworkPolicy: includeNP,
+				IncludeIngress:       true,
+				IncludePVC:           true,
 			})
 			if err != nil {
 				return cluster.Friendlier(fmt.Errorf("service graph: %w", err))

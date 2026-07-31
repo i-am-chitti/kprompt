@@ -1,9 +1,9 @@
-# Knowledge Graph (MVP)
+# Knowledge Graph (MVP+)
 
-Read-only relationships across Services, consumers, and remembered deps —
-**not** a continuous full-cluster topology product.
+Read-only relationships across Services, Ingress, PVC mounts, consumers, and
+remembered deps — **not** a continuous full-cluster Secrets/external-API topology product.
 
-Contracts: service graph (T-059 · T-060) · impact (S-005 · T-083) · namespace memory deps (AG-015).
+Contracts: service graph (T-059 · T-060 · AG-063) · impact (S-005 · T-083) · namespace memory deps (AG-015).
 
 ## What ships today
 
@@ -22,8 +22,9 @@ kprompt "show service dependency graph" -n payments --output json | jq '.result'
 kprompt "who consumes redis" -n payments
 kprompt "impact of deployment orders" -n payments
 
-# Explicit agent helper (AG-055)
+# Explicit agent helper (AG-055 · AG-063)
 kprompt agent graph -n payments
+kprompt agent graph -n payments --ingress --pvc --network-policy
 kprompt agent graph -n payments -o json
 ```
 
@@ -31,16 +32,18 @@ Helm / laptop Observe agents do **not** upload topology to `api.kprompt.ai`.
 
 ## Node & edge honesty
 
-**Included (MVP):**
+**Included (MVP + AG-063 topology slice):**
 
-- Services, EndpointSlice-backed pods, optional NetworkPolicy allows/denies
+- Services, EndpointSlice-backed pods, optional NetworkPolicy selects
+- **Ingress → Service** `exposes` edges (host/path detail)
+- **Pod → PVC** `mounts` edges (volume name detail)
 - Optional OTel **calls** edges when a querier is configured (else noted as degraded)
 - Static reverse consumers via [impact.md](./impact.md)
 - Heuristic redis/postgres/… facts via Incident Memory (evidence, not proof)
 
 **Not claimed yet (still building / exploring):**
 
-- Always-on cluster-wide graph of Secrets, PVCs, Ingress, Kafka, external APIs as first-class product nodes
+- Always-on cluster-wide graph of **Secrets**, Kafka, external APIs as first-class product nodes
 - Interactive topology UI / Team `/graph` viewer
 - Complete mesh call graph without OTel
 - Sandbox / chaos Simulation beyond change preview (see [simulation.md](./simulation.md) for MVP)
@@ -50,11 +53,11 @@ Helm / laptop Observe agents do **not** upload topology to `api.kprompt.ai`.
 - **Plan `BlastRadius` / Simulation MVP** — change preview before apply ([simulation.md](./simulation.md))
 - **Impact** — “what currently depends on this live object?”
 - **Incident Memory** — recurring signatures + dep facts; never sole RCA proof
-- **Coordinator** — cross-ns handoff/probe merge; not a shared topology store yet
+- **Coordinator Shared Knowledge** — cross-ns handoff edges ([coordinator-knowledge.md](./coordinator-knowledge.md)); not a full topology store
 
 ## Non-goals
 
 - Auto-remediation from graph edges
 - Inventing runtime callers when OTel/mesh signals are missing
 - Replacing Prometheus, service mesh, or CMDB products
-- Continuous full-cluster Secrets/PVC/external-API topology product (still building)
+- Continuous full-cluster Secrets / external-API topology product (still building)

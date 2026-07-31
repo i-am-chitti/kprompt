@@ -21,19 +21,27 @@ const (
 	ScopeCluster   = "cluster"
 	ScopeNamespace = "namespace"
 
-	NodeService        = "Service"
-	NodePod            = "Pod"
-	NodeNetworkPolicy  = "NetworkPolicy"
-	EdgeRoutes         = "routes"
-	EdgeSelects        = "selects"
-	SourceKubernetes   = "k8s"
+	NodeService       = "Service"
+	NodePod           = "Pod"
+	NodeNetworkPolicy = "NetworkPolicy"
+	NodeIngress       = "Ingress"
+	NodePVC           = "PersistentVolumeClaim"
+	EdgeRoutes        = "routes"
+	EdgeSelects       = "selects"
+	EdgeExposes       = "exposes" // Ingress → Service
+	EdgeMounts        = "mounts"  // Pod → PVC
+	SourceKubernetes  = "k8s"
 	// SourceOTel / EdgeCalls are set in otel.go (T-060).
 )
 
 // Request configures a read-only service dependency graph.
 type Request struct {
-	Namespace             string // empty → cluster-wide
-	IncludeNetworkPolicy  bool
+	Namespace            string // empty → cluster-wide
+	IncludeNetworkPolicy bool
+	// IncludeIngress adds Ingress→Service exposes edges (AG-063; default true from callers).
+	IncludeIngress bool
+	// IncludePVC adds Pod→PVC mounts edges (AG-063; default true from callers).
+	IncludePVC bool
 }
 
 // Node is one graph vertex.
@@ -49,7 +57,7 @@ type Node struct {
 type Edge struct {
 	From   string `json:"from"`
 	To     string `json:"to"`
-	Type   string `json:"type"` // routes | selects | calls | allows | denies
+	Type   string `json:"type"` // routes | selects | calls | allows | denies | exposes | mounts
 	Detail string `json:"detail,omitempty"`
 	Source string `json:"source"` // k8s | otel
 }
@@ -178,6 +186,127 @@ func Build(ctx context.Context, client kubernetes.Interface, req Request) (Repor
 		}
 	} else {
 		notes = append(notes, "NetworkPolicy edges omitted (pass includeNetworkPolicy to enable)")
+	}
+
+	if req.IncludeIngress {
+		ings, err := client.NetworkingV1().Ingresses(ns).List(ctx, metav1.ListOptions{Limit: limit})
+		if err != nil {
+			if apierrors.IsForbidden(err) {
+				notes = append(notes, fmt.Sprintf("skipped Ingresses: %v", err))
+			} else {
+				notes = append(notes, fmt.Sprintf("Ingresses unavailable: %v", err))
+			}
+		} else {
+			for _, ing := range ings.Items {
+				ingID := nodeID(NodeIngress, ing.Namespace, ing.Name)
+				nodes[ingID] = Node{
+					ID: ingID, Kind: NodeIngress, Name: ing.Name, Namespace: ing.Namespace,
+					Labels: copyLabels(ing.Labels),
+				}
+				for _, rule := range ing.Spec.Rules {
+					if rule.HTTP == nil {
+						continue
+					}
+					for _, path := range rule.HTTP.Paths {
+						svcName := path.Backend.Service
+						if svcName == nil || strings.TrimSpace(svcName.Name) == "" {
+							continue
+						}
+						svcID := nodeID(NodeService, ing.Namespace, svcName.Name)
+						if _, ok := nodes[svcID]; !ok {
+							nodes[svcID] = Node{
+								ID: svcID, Kind: NodeService, Name: svcName.Name, Namespace: ing.Namespace,
+							}
+						}
+						detail := "path /"
+						if path.Path != "" {
+							detail = "path " + path.Path
+						}
+						if rule.Host != "" {
+							detail = rule.Host + " " + detail
+						}
+						rep.Edges = append(rep.Edges, Edge{
+							From: ingID, To: svcID, Type: EdgeExposes, Detail: detail, Source: SourceKubernetes,
+						})
+					}
+				}
+				// Default backend
+				if ing.Spec.DefaultBackend != nil && ing.Spec.DefaultBackend.Service != nil {
+					svcName := ing.Spec.DefaultBackend.Service.Name
+					if strings.TrimSpace(svcName) != "" {
+						svcID := nodeID(NodeService, ing.Namespace, svcName)
+						if _, ok := nodes[svcID]; !ok {
+							nodes[svcID] = Node{
+								ID: svcID, Kind: NodeService, Name: svcName, Namespace: ing.Namespace,
+							}
+						}
+						rep.Edges = append(rep.Edges, Edge{
+							From: ingID, To: svcID, Type: EdgeExposes, Detail: "defaultBackend", Source: SourceKubernetes,
+						})
+					}
+				}
+			}
+		}
+	} else {
+		notes = append(notes, "Ingress edges omitted (pass includeIngress to enable)")
+	}
+
+	if req.IncludePVC {
+		pvcs, err := client.CoreV1().PersistentVolumeClaims(ns).List(ctx, metav1.ListOptions{Limit: limit})
+		if err != nil {
+			if apierrors.IsForbidden(err) {
+				notes = append(notes, fmt.Sprintf("skipped PVCs: %v", err))
+			} else {
+				notes = append(notes, fmt.Sprintf("PVCs unavailable: %v", err))
+			}
+		} else {
+			for _, pvc := range pvcs.Items {
+				pvcID := nodeID(NodePVC, pvc.Namespace, pvc.Name)
+				nodes[pvcID] = Node{
+					ID: pvcID, Kind: NodePVC, Name: pvc.Name, Namespace: pvc.Namespace,
+					Labels: copyLabels(pvc.Labels),
+				}
+			}
+		}
+		pods, err := client.CoreV1().Pods(ns).List(ctx, metav1.ListOptions{Limit: limit})
+		if err != nil {
+			if apierrors.IsForbidden(err) {
+				notes = append(notes, fmt.Sprintf("skipped Pods for PVC mounts: %v", err))
+			} else {
+				notes = append(notes, fmt.Sprintf("Pods unavailable for PVC mounts: %v", err))
+			}
+		} else {
+			for _, pod := range pods.Items {
+				podID := nodeID(NodePod, pod.Namespace, pod.Name)
+				for _, vol := range pod.Spec.Volumes {
+					if vol.PersistentVolumeClaim == nil {
+						continue
+					}
+					claim := strings.TrimSpace(vol.PersistentVolumeClaim.ClaimName)
+					if claim == "" {
+						continue
+					}
+					if _, ok := nodes[podID]; !ok {
+						nodes[podID] = Node{
+							ID: podID, Kind: NodePod, Name: pod.Name, Namespace: pod.Namespace,
+							Labels: copyLabels(pod.Labels),
+						}
+					}
+					pvcID := nodeID(NodePVC, pod.Namespace, claim)
+					if _, ok := nodes[pvcID]; !ok {
+						nodes[pvcID] = Node{
+							ID: pvcID, Kind: NodePVC, Name: claim, Namespace: pod.Namespace,
+						}
+					}
+					rep.Edges = append(rep.Edges, Edge{
+						From: podID, To: pvcID, Type: EdgeMounts,
+						Detail: "volume " + vol.Name, Source: SourceKubernetes,
+					})
+				}
+			}
+		}
+	} else {
+		notes = append(notes, "PVC mount edges omitted (pass includePVC to enable)")
 	}
 
 	// Deduplicate edges.
