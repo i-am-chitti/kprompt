@@ -7,7 +7,7 @@ CLI path to change desired state through **GitHub**, not silent cluster apply.
 | **GitOps PR mode** | `--gitops` opens/updates a PR via `gh` / `GH_TOKEN` | Shipped (T-072) |
 | **GitOps controllers** | `kprompt "show gitops sync status"` (Flux / Argo CD) | Shipped (T-043) |
 | **Agent evidence** | `--gitops-evidence` Argo/Flux EvidenceRefs | Shipped (AG-035) |
-| **Team org connect-repo** | `app.kprompt.ai` SCM binding | Building (A-060…A-066) |
+| **Team org connect-repo** | `app.kprompt.ai` SCM binding | Building (ADR-0019 · A-061…A-066) |
 
 This doc is the umbrella for the **CLI GitHub Integration MVP**. Deep dive on PR mode: sections below (formerly `gitops-pr.md` body). Team org repos are **not** wired into the CLI yet.
 
@@ -40,7 +40,7 @@ base branch. Confirm becomes “Open this plan as a GitHub PR?” (or `--approve
 | Base branch | `gitops.base_branch` (default `main`) |
 
 If the repo is unset, kprompt **refuses** with an honest error (no silent
-cluster fallback). Team org repos (**A-060**) are not wired yet — this is the
+cluster fallback). Team org repos ([ADR-0019](https://github.com/kprompt/kprompt-architecture/blob/main/decisions/ADR-0019-org-repos-pipelines.md) · **A-061+**) are not wired yet — this is the
 local CLI path.
 
 ## Supported plans (MVP)
