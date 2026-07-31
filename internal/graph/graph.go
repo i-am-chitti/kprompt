@@ -26,10 +26,12 @@ const (
 	NodeNetworkPolicy = "NetworkPolicy"
 	NodeIngress       = "Ingress"
 	NodePVC           = "PersistentVolumeClaim"
+	NodeSecret        = "Secret"    // name-only ref; never Secret.data (AG-064)
+	NodeConfigMap     = "ConfigMap" // name-only ref (AG-064)
 	EdgeRoutes        = "routes"
 	EdgeSelects       = "selects"
 	EdgeExposes       = "exposes" // Ingress → Service
-	EdgeMounts        = "mounts"  // Pod → PVC
+	EdgeMounts        = "mounts"  // Pod → PVC | Secret | ConfigMap
 	SourceKubernetes  = "k8s"
 	// SourceOTel / EdgeCalls are set in otel.go (T-060).
 )
@@ -42,6 +44,9 @@ type Request struct {
 	IncludeIngress bool
 	// IncludePVC adds Pod→PVC mounts edges (AG-063; default true from callers).
 	IncludePVC bool
+	// IncludeVolumeRefs adds Pod→Secret/ConfigMap mounts from Pod specs (AG-064).
+	// Names only — never Secret.data / ConfigMap data values.
+	IncludeVolumeRefs bool
 }
 
 // Node is one graph vertex.
@@ -268,45 +273,29 @@ func Build(ctx context.Context, client kubernetes.Interface, req Request) (Repor
 				}
 			}
 		}
+	} else {
+		notes = append(notes, "PVC mount edges omitted (pass includePVC to enable)")
+	}
+
+	if req.IncludePVC || req.IncludeVolumeRefs {
 		pods, err := client.CoreV1().Pods(ns).List(ctx, metav1.ListOptions{Limit: limit})
 		if err != nil {
 			if apierrors.IsForbidden(err) {
-				notes = append(notes, fmt.Sprintf("skipped Pods for PVC mounts: %v", err))
+				notes = append(notes, fmt.Sprintf("skipped Pods for volume mounts: %v", err))
 			} else {
-				notes = append(notes, fmt.Sprintf("Pods unavailable for PVC mounts: %v", err))
+				notes = append(notes, fmt.Sprintf("Pods unavailable for volume mounts: %v", err))
 			}
 		} else {
 			for _, pod := range pods.Items {
-				podID := nodeID(NodePod, pod.Namespace, pod.Name)
-				for _, vol := range pod.Spec.Volumes {
-					if vol.PersistentVolumeClaim == nil {
-						continue
-					}
-					claim := strings.TrimSpace(vol.PersistentVolumeClaim.ClaimName)
-					if claim == "" {
-						continue
-					}
-					if _, ok := nodes[podID]; !ok {
-						nodes[podID] = Node{
-							ID: podID, Kind: NodePod, Name: pod.Name, Namespace: pod.Namespace,
-							Labels: copyLabels(pod.Labels),
-						}
-					}
-					pvcID := nodeID(NodePVC, pod.Namespace, claim)
-					if _, ok := nodes[pvcID]; !ok {
-						nodes[pvcID] = Node{
-							ID: pvcID, Kind: NodePVC, Name: claim, Namespace: pod.Namespace,
-						}
-					}
-					rep.Edges = append(rep.Edges, Edge{
-						From: podID, To: pvcID, Type: EdgeMounts,
-						Detail: "volume " + vol.Name, Source: SourceKubernetes,
-					})
-				}
+				addPodVolumeEdges(&rep, nodes, pod, req.IncludePVC, req.IncludeVolumeRefs)
+			}
+			if req.IncludeVolumeRefs {
+				notes = append(notes, "Secret/ConfigMap nodes are name-only refs from Pod specs (never Secret.data)")
 			}
 		}
-	} else {
-		notes = append(notes, "PVC mount edges omitted (pass includePVC to enable)")
+	}
+	if !req.IncludeVolumeRefs {
+		notes = append(notes, "Secret/ConfigMap volume-ref edges omitted (pass includeVolumeRefs to enable)")
 	}
 
 	// Deduplicate edges.
@@ -366,6 +355,72 @@ func copyLabels(in map[string]string) map[string]string {
 		out[k] = v
 	}
 	return out
+}
+
+func addPodVolumeEdges(rep *Report, nodes map[string]Node, pod corev1.Pod, includePVC, includeRefs bool) {
+	if rep == nil {
+		return
+	}
+	podID := nodeID(NodePod, pod.Namespace, pod.Name)
+	ensurePod := func() {
+		if _, ok := nodes[podID]; !ok {
+			nodes[podID] = Node{
+				ID: podID, Kind: NodePod, Name: pod.Name, Namespace: pod.Namespace,
+				Labels: copyLabels(pod.Labels),
+			}
+		}
+	}
+	link := func(kind, name, detail string) {
+		name = strings.TrimSpace(name)
+		if name == "" {
+			return
+		}
+		ensurePod()
+		id := nodeID(kind, pod.Namespace, name)
+		if _, ok := nodes[id]; !ok {
+			nodes[id] = Node{ID: id, Kind: kind, Name: name, Namespace: pod.Namespace}
+		}
+		rep.Edges = append(rep.Edges, Edge{
+			From: podID, To: id, Type: EdgeMounts, Detail: detail, Source: SourceKubernetes,
+		})
+	}
+
+	for _, vol := range pod.Spec.Volumes {
+		detail := "volume " + vol.Name
+		if includePVC && vol.PersistentVolumeClaim != nil {
+			link(NodePVC, vol.PersistentVolumeClaim.ClaimName, detail)
+		}
+		if includeRefs && vol.Secret != nil {
+			link(NodeSecret, vol.Secret.SecretName, detail)
+		}
+		if includeRefs && vol.ConfigMap != nil {
+			link(NodeConfigMap, vol.ConfigMap.Name, detail)
+		}
+	}
+	if !includeRefs {
+		return
+	}
+	for _, c := range append(append([]corev1.Container{}, pod.Spec.Containers...), pod.Spec.InitContainers...) {
+		for _, ef := range c.EnvFrom {
+			if ef.SecretRef != nil {
+				link(NodeSecret, ef.SecretRef.Name, "envFrom "+c.Name)
+			}
+			if ef.ConfigMapRef != nil {
+				link(NodeConfigMap, ef.ConfigMapRef.Name, "envFrom "+c.Name)
+			}
+		}
+		for _, ev := range c.Env {
+			if ev.ValueFrom == nil {
+				continue
+			}
+			if ev.ValueFrom.SecretKeyRef != nil {
+				link(NodeSecret, ev.ValueFrom.SecretKeyRef.Name, "env "+ev.Name)
+			}
+			if ev.ValueFrom.ConfigMapKeyRef != nil {
+				link(NodeConfigMap, ev.ValueFrom.ConfigMapKeyRef.Name, "env "+ev.Name)
+			}
+		}
+	}
 }
 
 func endpointPod(ep discoveryv1.Endpoint, sliceNS string) (name, namespace string) {

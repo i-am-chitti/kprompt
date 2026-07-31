@@ -1,9 +1,10 @@
 # Knowledge Graph (MVP+)
 
-Read-only relationships across Services, Ingress, PVC mounts, consumers, and
-remembered deps — **not** a continuous full-cluster Secrets/external-API topology product.
+Read-only relationships across Services, Ingress, volume mounts (PVC / Secret /
+ConfigMap **names**), consumers, and remembered deps — **not** a Secret-value
+CMDB or continuous external-API topology product.
 
-Contracts: service graph (T-059 · T-060 · AG-063) · impact (S-005 · T-083) · namespace memory deps (AG-015).
+Contracts: service graph (T-059 · T-060 · AG-063 · AG-064) · impact (S-005 · T-083) · namespace memory deps (AG-015).
 
 ## What ships today
 
@@ -15,16 +16,9 @@ Contracts: service graph (T-059 · T-060 · AG-063) · impact (S-005 · T-083) �
 | Agent dump | `kprompt agent graph -n payments` | same `service-graph` JSON |
 
 ```bash
-# NL path (PlanResult envelope; read-only — no approve needed)
 kprompt "show service dependency graph" -n payments
-kprompt "show service dependency graph" -n payments --output json | jq '.result'
-
-kprompt "who consumes redis" -n payments
-kprompt "impact of deployment orders" -n payments
-
-# Explicit agent helper (AG-055 · AG-063)
 kprompt agent graph -n payments
-kprompt agent graph -n payments --ingress --pvc --network-policy
+kprompt agent graph -n payments --ingress --pvc --volume-refs --network-policy
 kprompt agent graph -n payments -o json
 ```
 
@@ -32,32 +26,26 @@ Helm / laptop Observe agents do **not** upload topology to `api.kprompt.ai`.
 
 ## Node & edge honesty
 
-**Included (MVP + AG-063 topology slice):**
+**Included:**
 
 - Services, EndpointSlice-backed pods, optional NetworkPolicy selects
-- **Ingress → Service** `exposes` edges (host/path detail)
-- **Pod → PVC** `mounts` edges (volume name detail)
-- Optional OTel **calls** edges when a querier is configured (else noted as degraded)
+- **Ingress → Service** `exposes` edges (AG-063)
+- **Pod → PVC** `mounts` edges (AG-063)
+- **Pod → Secret / ConfigMap** `mounts` from volumes + env/envFrom — **names only**, never `Secret.data` (AG-064)
+- Optional OTel **calls** edges when a querier is configured
 - Static reverse consumers via [impact.md](./impact.md)
 - Heuristic redis/postgres/… facts via Incident Memory (evidence, not proof)
 
 **Not claimed yet (still building / exploring):**
 
-- Always-on cluster-wide graph of **Secrets**, Kafka, external APIs as first-class product nodes
+- Reading or indexing Secret/ConfigMap **values**
+- Always-on cluster-wide external APIs / Kafka as first-class product nodes
 - Interactive topology UI / Team `/graph` viewer
 - Complete mesh call graph without OTel
-- Sandbox / chaos Simulation beyond change preview (see [simulation.md](./simulation.md) for MVP)
-
-## Relation to other surfaces
-
-- **Plan `BlastRadius` / Simulation MVP** — change preview before apply ([simulation.md](./simulation.md))
-- **Impact** — “what currently depends on this live object?”
-- **Incident Memory** — recurring signatures + dep facts; never sole RCA proof
-- **Coordinator Shared Knowledge** — cross-ns handoff edges ([coordinator-knowledge.md](./coordinator-knowledge.md)); not a full topology store
 
 ## Non-goals
 
 - Auto-remediation from graph edges
 - Inventing runtime callers when OTel/mesh signals are missing
 - Replacing Prometheus, service mesh, or CMDB products
-- Continuous full-cluster Secrets / external-API topology product (still building)
+- Secret vault / external-API continuous topology product (still building)

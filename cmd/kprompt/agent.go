@@ -1219,24 +1219,23 @@ func newAgentPatternsCmd() *cobra.Command {
 
 func newAgentGraphCmd() *cobra.Command {
 	var (
-		ns            string
-		kubeCtx       string
-		inCluster     bool
-		includeNP     bool
+		ns             string
+		kubeCtx        string
+		inCluster      bool
+		includeNP      bool
 		includeIngress bool
-		includePVC    bool
-		output        string
+		includePVC     bool
+		includeRefs    bool
+		output         string
 	)
 	cmd := &cobra.Command{
 		Use:   "graph",
-		Short: "Dump Knowledge Graph service dependency graph (AG-055 · AG-063; read-only)",
+		Short: "Dump Knowledge Graph service dependency graph (AG-055 · AG-063 · AG-064; read-only)",
 		Long: `Build a read-only service-graph for one namespace (Services, EndpointSlices,
-Ingress→Service, Pod→PVC, optional NetworkPolicies). Same contract as:
+Ingress→Service, Pod→PVC, Pod→Secret/ConfigMap name-only refs, optional NetworkPolicies).
 
-  kprompt "show service dependency graph" -n <ns>
-
-Does not mutate the cluster. Secrets / external APIs / continuous full-cluster
-topology UI remain out of scope — see docs/graph.md.`,
+Does not mutate the cluster. Never reads Secret.data. External APIs / topology UI
+remain out of scope — see docs/graph.md.`,
 		Example: `  kprompt agent graph -n payments
   kprompt agent graph -n payments --output json`,
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -1259,6 +1258,7 @@ topology UI remain out of scope — see docs/graph.md.`,
 				IncludeNetworkPolicy: includeNP,
 				IncludeIngress:       includeIngress,
 				IncludePVC:           includePVC,
+				IncludeVolumeRefs:    includeRefs,
 			})
 			if err != nil {
 				return err
@@ -1282,6 +1282,7 @@ topology UI remain out of scope — see docs/graph.md.`,
 	cmd.Flags().BoolVar(&includeNP, "network-policy", true, "include NetworkPolicy selects edges")
 	cmd.Flags().BoolVar(&includeIngress, "ingress", true, "include Ingress→Service exposes edges (AG-063)")
 	cmd.Flags().BoolVar(&includePVC, "pvc", true, "include Pod→PVC mounts edges (AG-063)")
+	cmd.Flags().BoolVar(&includeRefs, "volume-refs", true, "include Pod→Secret/ConfigMap name-only refs (AG-064)")
 	cmd.Flags().StringVarP(&output, "output", "o", "text", "text|json")
 	_ = cmd.MarkFlagRequired("namespace")
 	return cmd

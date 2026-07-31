@@ -549,6 +549,7 @@ func RunWith(ctx context.Context, cfg config.Resolved, out io.Writer, deps Deps)
 				IncludeNetworkPolicy: includeNP,
 				IncludeIngress:       true,
 				IncludePVC:           true,
+				IncludeVolumeRefs:    true,
 			})
 			if err != nil {
 				return cluster.Friendlier(fmt.Errorf("service graph: %w", err))

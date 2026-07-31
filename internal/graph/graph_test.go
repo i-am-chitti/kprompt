@@ -134,10 +134,77 @@ func TestBuildIngressAndPVC(t *testing.T) {
 	}
 }
 
+func TestBuildSecretConfigMapRefs(t *testing.T) {
+	client := fake.NewSimpleClientset(
+		&corev1.Pod{
+			ObjectMeta: metav1.ObjectMeta{Name: "api", Namespace: "prod"},
+			Spec: corev1.PodSpec{
+				Volumes: []corev1.Volume{
+					{
+						Name:   "tls",
+						VolumeSource: corev1.VolumeSource{
+							Secret: &corev1.SecretVolumeSource{SecretName: "api-tls"},
+						},
+					},
+					{
+						Name: "cfg",
+						VolumeSource: corev1.VolumeSource{
+							ConfigMap: &corev1.ConfigMapVolumeSource{
+								LocalObjectReference: corev1.LocalObjectReference{Name: "api-cfg"},
+							},
+						},
+					},
+				},
+				Containers: []corev1.Container{{
+					Name:  "c",
+					Image: "api",
+					Env: []corev1.EnvVar{{
+						Name: "TOKEN",
+						ValueFrom: &corev1.EnvVarSource{
+							SecretKeyRef: &corev1.SecretKeySelector{
+								LocalObjectReference: corev1.LocalObjectReference{Name: "api-token"},
+								Key:                  "token",
+							},
+						},
+					}},
+				}},
+			},
+		},
+	)
+	rep, err := Build(context.Background(), client, Request{
+		Namespace:         "prod",
+		IncludeVolumeRefs: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	kinds := map[string]bool{}
+	for _, e := range rep.Edges {
+		if e.Type != EdgeMounts {
+			continue
+		}
+		for _, n := range rep.Nodes {
+			if n.ID == e.To {
+				kinds[n.Kind] = true
+			}
+		}
+	}
+	if !kinds[NodeSecret] || !kinds[NodeConfigMap] {
+		t.Fatalf("kinds=%v edges=%+v", kinds, rep.Edges)
+	}
+	for _, n := range rep.Notes {
+		if strings.Contains(n, "never Secret.data") {
+			return
+		}
+	}
+	t.Fatalf("expected honesty note, notes=%v", rep.Notes)
+}
+
 func TestBuildRequiresClient(t *testing.T) {
 	_, err := Build(context.Background(), nil, Request{})
 	if err == nil {
 		t.Fatal("expected error")
 	}
 }
+
 
