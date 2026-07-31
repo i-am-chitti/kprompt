@@ -17,10 +17,13 @@ Product questions and demos: [Discussions](https://github.com/kprompt/kprompt/di
 
 If this is your first open-source PR, start here:
 
-1. Pick an issue labeled [`good first issue`](https://github.com/kprompt/kprompt/labels/good%20first%20issue) (or [`help wanted`](https://github.com/kprompt/kprompt/labels/help%20wanted)).
+1. Pick an issue labeled [`good first issue`](https://github.com/kprompt/kprompt/labels/good%20first%20issue) (or [`help wanted`](https://github.com/kprompt/kprompt/labels/help%20wanted)) that is **unassigned**.
 2. Comment on the issue: `I'd like to take this` so we can assign you.
-3. Fork → branch → small focused PR linking the issue (`Fixes #N`).
-4. Run the local checks below before pushing.
+3. Wait for the assignee badge (maintainers aim to assign within **24 hours**). That assignment is the signal you own the issue — please do not open a competing PR on someone else's claim.
+4. Fork → branch → small focused PR linking the issue (`Fixes #N`).
+5. Run the local checks below before pushing.
+
+If an issue stays claimed-but-unassigned past a day, ping a maintainer on the issue. If you cannot finish after being assigned, comment so we can free it up.
 
 Newcomers are especially welcome on **docs**, **flag help text**, **Helm NOTES**, and **pure unit tests**. You do not need an LLM API key or a live cluster for most of those.
 
