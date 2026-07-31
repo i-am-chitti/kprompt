@@ -11,6 +11,7 @@ import (
 	"github.com/kprompt/kprompt/internal/learn"
 	"github.com/kprompt/kprompt/internal/optimize"
 	"github.com/kprompt/kprompt/internal/planner"
+	"github.com/kprompt/kprompt/internal/roast"
 	"github.com/kprompt/kprompt/internal/safety"
 	"github.com/kprompt/kprompt/internal/tools/argo"
 	"github.com/kprompt/kprompt/internal/tools/crossplane"
@@ -407,6 +408,13 @@ func (r PlanResult) WithOptimizeResult(report optimize.Report) PlanResult {
 		"sections":         report.Sections,
 	}
 	raw, _ := json.Marshal(payload)
+	r.Result = raw
+	return r
+}
+
+// WithRoastResult attaches a witty read-only health roast.
+func (r PlanResult) WithRoastResult(report roast.Report) PlanResult {
+	raw, _ := json.Marshal(report)
 	r.Result = raw
 	return r
 }

@@ -82,6 +82,7 @@ kprompt "rollback payment-api" --approve
 kprompt "install redis" --approve            # Helm chart (needs helm on PATH)
 
 # day-2
+kprompt "how's my cluster"           # witty health roast (no LLM key)
 kprompt "optimize my cluster"
 kprompt "show gitops sync status"
 kprompt agent run -n payments --health --heuristic   # Observe agent (local)
@@ -103,6 +104,8 @@ kprompt "get secret db-creds" -n prod
 kprompt "timeline for api" -n payments
 kprompt "impact of deployment checkout" -n payments
 kprompt "audit payments namespace" -n payments
+kprompt "how's my cluster"
+kprompt "roast my namespace" -n payments
 kprompt "cleanup unused resources" -n payments
 kprompt "why is my api slow?" -n production
 kprompt "show service dependency graph"

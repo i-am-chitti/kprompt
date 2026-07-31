@@ -17,6 +17,7 @@ import (
 	"github.com/kprompt/kprompt/internal/output"
 	"github.com/kprompt/kprompt/internal/planner"
 	"github.com/kprompt/kprompt/internal/recipe"
+	"github.com/kprompt/kprompt/internal/roast"
 	"github.com/kprompt/kprompt/internal/safety"
 	"github.com/kprompt/kprompt/internal/suggest"
 	"github.com/kprompt/kprompt/internal/tools/argo"
@@ -467,6 +468,20 @@ func PrintPerformanceReport(w io.Writer, report toolprometheus.PerformanceReport
 			report.Suggestion.Suggested,
 			report.Suggestion.Reason,
 		)
+	}
+}
+
+// PrintRoast prints a witty read-only cluster/namespace health roast.
+func PrintRoast(w io.Writer, report roast.Report) {
+	t := themeFor(w)
+	body := roast.Format(report)
+	switch report.Verdict {
+	case "on_fire", "rough":
+		fmt.Fprintln(w, t.Danger(body))
+	case "thriving":
+		fmt.Fprintln(w, t.Success(body))
+	default:
+		fmt.Fprintln(w, body)
 	}
 }
 
