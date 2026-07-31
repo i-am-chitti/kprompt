@@ -43,7 +43,7 @@ func CheckPrompt(prompt string) Result {
 			return Result{
 				Risk:    RiskDenied,
 				Denied:  true,
-				Message: "🚨 Intent: destructive cluster operation\n🛡️ Safe execution: denied\n😅 Your cluster lives another day",
+				Message: WipeDenyMessage(p),
 			}
 		}
 	}

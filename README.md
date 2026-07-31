@@ -20,8 +20,10 @@ Nothing touched the cluster on the wipe — that is the point. Real mutates beco
 $ kprompt "delete everything in the cluster"
 🚨 Intent: destructive cluster operation
 🛡️ Safe execution: denied
-😅 Your cluster lives another day
+😅 Nice try. Named targets only — chaos needs a ticket
 ```
+
+Wipe-class denials rotate a small **flavor pack** of punchlines (stable per prompt) — same safety, less boring stdout.
 
 Static still of a scale plan: [plan-demo.svg](./.github/assets/plan-demo.svg).
 Open source (Apache-2.0). **Experimental.** Always review the plan before apply, prefer non-production first, and treat `--approve` with care. Safety hard-denies help; they do not make unattended production use safe.
