@@ -261,7 +261,8 @@ func (h *Handler) routes() http.Handler {
 	mux.HandleFunc("/healthz", h.healthz)
 	mux.HandleFunc("/v1/handoff", h.handoff)
 	mux.HandleFunc("/v1/recent", h.recent)
-	mux.HandleFunc("/v1/knowledge", h.knowledge) // AG-059 Shared Knowledge MVP
+	mux.HandleFunc("/v1/knowledge", h.knowledge)     // AG-059 Shared Knowledge MVP
+	mux.HandleFunc("/v1/blast-radius", h.blastRadius) // AG-066 blast-radius product graph MVP
 	return mux
 }
 

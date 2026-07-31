@@ -102,9 +102,9 @@ func Summarize(records []Record, durable bool) KnowledgeSummary {
 		latest = latest[len(latest)-maxLatest:]
 	}
 
-	note := "Shared Knowledge MVP: in-memory recent handoffs only (restart-lossy); not a full blast-radius graph"
+	note := "Shared Knowledge MVP: in-memory recent handoffs; blast-radius MVP at GET /v1/blast-radius — not a continuous mesh graph"
 	if durable {
-		note = "Shared Knowledge: durable handoff ring (file/ConfigMap); not a full continuous blast-radius product graph"
+		note = "Shared Knowledge: durable handoff ring (file/ConfigMap); blast-radius MVP at GET /v1/blast-radius — not a continuous mesh graph"
 	}
 
 	return KnowledgeSummary{

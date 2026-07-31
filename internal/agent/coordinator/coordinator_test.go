@@ -122,4 +122,29 @@ func TestSummarizeKnowledge(t *testing.T) {
 	if !strings.Contains(text, "payments") || !strings.Contains(text, "platform") {
 		t.Fatalf("format=%q", text)
 	}
+
+	br := BlastRadius(svc.Recent(), false, "payments")
+	if br.Kind != kindBlastRadius || len(br.Hops) == 0 {
+		t.Fatalf("%+v", br)
+	}
+	if br.Hops[0].From != "payments" || br.Hops[0].To != "platform" {
+		t.Fatalf("hops=%+v", br.Hops)
+	}
+	req2 := httptest.NewRequest(http.MethodGet, "/v1/blast-radius?namespace=payments", nil)
+	rr2 := httptest.NewRecorder()
+	(&Handler{Service: svc}).routes().ServeHTTP(rr2, req2)
+	if rr2.Code != http.StatusOK {
+		t.Fatalf("blast-radius status=%d body=%s", rr2.Code, rr2.Body.String())
+	}
+	var gotBR BlastRadiusReport
+	if err := json.Unmarshal(rr2.Body.Bytes(), &gotBR); err != nil {
+		t.Fatal(err)
+	}
+	if len(gotBR.Hops) < 1 {
+		t.Fatalf("%+v", gotBR)
+	}
+	out := FormatBlastRadius(gotBR)
+	if !strings.Contains(out, "payments") {
+		t.Fatalf("format=%q", out)
+	}
 }

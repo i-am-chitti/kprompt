@@ -317,20 +317,23 @@ Never applies/patches/deletes workloads (ADR-0017). Optional --probe-kube enable
 read-only Events/Pods probe of suspectNamespace (AG-050). Default probe is a no-op.
 
 Shared Knowledge (AG-059 · AG-060): GET /v1/knowledge summarizes handoff edges.
-Optional --knowledge-backend file|configmap persists the recent ring across restarts
-(still not a full continuous blast-radius product graph).
+Blast-radius MVP (AG-066): GET /v1/blast-radius turns those edges into risk-ranked hops
+(not a continuous mesh/OTel product graph). Optional --knowledge-backend file|configmap
+persists the recent ring across restarts.
 
 Endpoints:
   GET  /healthz
-  POST /v1/handoff    — accept handoff.Envelope → CoordinatorReply
-  GET  /v1/recent     — recent handoffs
-  GET  /v1/knowledge  — Shared Knowledge summary (namespace edges)
+  POST /v1/handoff       — accept handoff.Envelope → CoordinatorReply
+  GET  /v1/recent        — recent handoffs
+  GET  /v1/knowledge     — Shared Knowledge summary (namespace edges)
+  GET  /v1/blast-radius  — blast-radius hops (?namespace= filter)
 
 Pair with: kprompt agent run … --coordinator-url http://<addr>/v1/handoff`,
 		Example: `  kprompt agent coordinator --addr :9090
   kprompt agent coordinator --addr :9090 --probe-kube
   kprompt agent coordinator --addr :9090 --knowledge-backend configmap --in-cluster --knowledge-namespace kprompt-system
-  kprompt agent coordinator knowledge --url http://127.0.0.1:9090`,
+  kprompt agent coordinator knowledge --url http://127.0.0.1:9090
+  kprompt agent coordinator blast-radius --url http://127.0.0.1:9090 -n payments`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			runCtx, stop := signal.NotifyContext(cmd.Context(), os.Interrupt, syscall.SIGTERM)
 			defer stop()
@@ -414,6 +417,7 @@ Pair with: kprompt agent run … --coordinator-url http://<addr>/v1/handoff`,
 	cmd.Flags().StringVar(&knowledgeDir, "knowledge-dir", "", "file backend directory (default ~/.config/kprompt/coordinator)")
 	cmd.Flags().StringVar(&knowledgeNamespace, "knowledge-namespace", "", "ConfigMap namespace (default POD_NAMESPACE)")
 	cmd.AddCommand(newAgentCoordinatorKnowledgeCmd())
+	cmd.AddCommand(newAgentCoordinatorBlastRadiusCmd())
 	cmd.AddCommand(newAgentCoordinatorRecentCmd())
 	return cmd
 }
@@ -427,7 +431,7 @@ func newAgentCoordinatorKnowledgeCmd() *cobra.Command {
 		Use:   "knowledge",
 		Short: "Fetch Coordinator Shared Knowledge MVP (AG-059)",
 		Long: `GET /v1/knowledge from a running Coordinator — namespace edges derived from
-recent handoffs. Restart-lossy; not a durable blast-radius graph.`,
+recent handoffs. Pair with blast-radius for risk-ranked hops (AG-066).`,
 		Example: `  kprompt agent coordinator knowledge --url http://127.0.0.1:9090`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			body, err := fetchCoordinatorJSON(cmd.Context(), baseURL, "/v1/knowledge")
@@ -447,6 +451,46 @@ recent handoffs. Restart-lossy; not a durable blast-radius graph.`,
 		},
 	}
 	cmd.Flags().StringVar(&baseURL, "url", "http://127.0.0.1:9090", "Coordinator base URL (no path)")
+	cmd.Flags().BoolVar(&asJSON, "json", false, "print raw JSON")
+	return cmd
+}
+
+func newAgentCoordinatorBlastRadiusCmd() *cobra.Command {
+	var (
+		baseURL string
+		ns      string
+		asJSON  bool
+	)
+	cmd := &cobra.Command{
+		Use:   "blast-radius",
+		Short: "Fetch Coordinator blast-radius MVP (AG-066)",
+		Long: `GET /v1/blast-radius — risk-ranked cross-namespace hops from Shared Knowledge
+handoffs. Not a continuous mesh/OTel product graph.`,
+		Example: `  kprompt agent coordinator blast-radius --url http://127.0.0.1:9090
+  kprompt agent coordinator blast-radius --url http://127.0.0.1:9090 -n payments`,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			path := "/v1/blast-radius"
+			if ns = strings.TrimSpace(ns); ns != "" {
+				path += "?namespace=" + ns
+			}
+			body, err := fetchCoordinatorJSON(cmd.Context(), baseURL, path)
+			if err != nil {
+				return err
+			}
+			if asJSON {
+				_, err = cmd.OutOrStdout().Write(append(body, '\n'))
+				return err
+			}
+			var rep coordinator.BlastRadiusReport
+			if err := json.Unmarshal(body, &rep); err != nil {
+				return fmt.Errorf("decode blast-radius: %w", err)
+			}
+			fmt.Fprintln(cmd.OutOrStdout(), coordinator.FormatBlastRadius(rep))
+			return nil
+		},
+	}
+	cmd.Flags().StringVar(&baseURL, "url", "http://127.0.0.1:9090", "Coordinator base URL (no path)")
+	cmd.Flags().StringVarP(&ns, "namespace", "n", "", "focus namespace (optional filter)")
 	cmd.Flags().BoolVar(&asJSON, "json", false, "print raw JSON")
 	return cmd
 }

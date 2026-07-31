@@ -98,7 +98,7 @@ helm upgrade --install kprompt-coordinator ./charts/kprompt-coordinator \
 | `GET /healthz` | `ok` |
 | `POST /v1/handoff` | `CoordinatorReply` JSON, `mutateAttempted: false` |
 | `GET /v1/recent` | In-memory recent handoff records (restart-lossy) |
-| `GET /v1/knowledge` | Shared Knowledge summary (namespace edges; AG-059 · AG-060 durable when Store set) |
+| `GET /v1/blast-radius` | Blast-radius MVP hops (`?namespace=` filter; AG-066) |
 | RBAC | SA only by default — **no** ClusterRole unless `rbac.clusterRole.create=true` (namespaces get/list only) |
 | Probe RBAC | With `probe.enabled` + `rbac.probeNamespaces`: Pods/Events `get/list` in listed ns only |
 | Ns agents | Stay Role-scoped; point `--coordinator-url` at the Service `/v1/handoff` |

@@ -38,10 +38,11 @@ Still **no Coordinator mutate** ([ADR-0017](https://github.com/kprompt/kprompt-a
 
 ## What this is not
 
-- Full continuous blast-radius / mesh product graph
+- Continuous mesh / OTel call graph product
+- Full continuous blast-radius beyond handoff hops (MVP is AG-066 `/v1/blast-radius`)
 - Replacement for per-namespace Incident Memory ([agent.md](./agent.md))
 - Replacement for read-only Knowledge Graph MVP ([graph.md](./graph.md))
-- Cluster-wide Secret/PVC topology
+- Cluster-wide Secret value topology
 
 ## Related
 
