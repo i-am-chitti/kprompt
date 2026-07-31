@@ -22,6 +22,7 @@ import (
 	"github.com/kprompt/kprompt/internal/agent/correlate"
 	"github.com/kprompt/kprompt/internal/agent/crdstatus"
 	"github.com/kprompt/kprompt/internal/agent/ctxbuild"
+	"github.com/kprompt/kprompt/internal/agent/fleet"
 	"github.com/kprompt/kprompt/internal/agent/handoff"
 	"github.com/kprompt/kprompt/internal/agent/health"
 	agentlogs "github.com/kprompt/kprompt/internal/agent/logs"
@@ -48,12 +49,74 @@ func newAgentCmd() *cobra.Command {
 		Long:  "Namespace-scoped Observe Mode (`agent run`) and optional Operator that reconciles KpromptAgent CRs into agent Deployments. Observe agents never mutate workloads; the operator only manages agent lifecycle objects.",
 	}
 	cmd.AddCommand(newAgentRunCmd())
+	cmd.AddCommand(newAgentListCmd())
 	cmd.AddCommand(newAgentOperatorCmd())
 	cmd.AddCommand(newAgentCoordinatorCmd())
 	cmd.AddCommand(newAgentAutopilotCmd())
 	cmd.AddCommand(newAgentMemoryCmd())
 	cmd.AddCommand(newAgentPatternsCmd())
 	cmd.AddCommand(newAgentGraphCmd())
+	return cmd
+}
+
+func newAgentListCmd() *cobra.Command {
+	var (
+		ns        string
+		allNS     bool
+		kubeCtx   string
+		inCluster bool
+		asJSON    bool
+	)
+	cmd := &cobra.Command{
+		Use:   "list",
+		Short: "List Namespace Agent / Observe surfaces (AG-062 fleet UX)",
+		Long: `Read-only inventory of KpromptAgent CRs and labeled kprompt-agent Deployments.
+
+Shows mode, watch namespace, Ready condition, health score / trend, and open
+incidents when status is synced. Helm-only Deployments appear when no matching CR
+covers them. Never mutates.`,
+		Example: `  kprompt agent list -A
+  kprompt agent list -n payments
+  kprompt agent list -A --json`,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			var clients *cluster.Clients
+			var err error
+			if inCluster {
+				clients, err = cluster.ConnectInCluster()
+			} else {
+				clients, err = cluster.Connect(kubeCtx)
+			}
+			if err != nil {
+				return err
+			}
+			dyn, err := cluster.DynamicForConfig(clients.Config)
+			if err != nil {
+				return err
+			}
+			scope := strings.TrimSpace(ns)
+			if allNS {
+				scope = ""
+			} else if scope == "" {
+				scope = "default"
+			}
+			inv, err := fleet.List(cmd.Context(), dyn, clients.Clientset, fleet.ListOptions{Namespace: scope})
+			if err != nil {
+				return err
+			}
+			if asJSON {
+				enc := json.NewEncoder(cmd.OutOrStdout())
+				enc.SetIndent("", "  ")
+				return enc.Encode(inv)
+			}
+			fmt.Fprintln(cmd.OutOrStdout(), fleet.Format(inv))
+			return nil
+		},
+	}
+	cmd.Flags().StringVarP(&ns, "namespace", "n", "", "namespace scope (default: default; use -A for all)")
+	cmd.Flags().BoolVarP(&allNS, "all-namespaces", "A", false, "list across all namespaces")
+	cmd.Flags().StringVar(&kubeCtx, "context", "", "kubeconfig context")
+	cmd.Flags().BoolVar(&inCluster, "in-cluster", false, "use in-cluster config")
+	cmd.Flags().BoolVar(&asJSON, "json", false, "print AgentFleet JSON")
 	return cmd
 }
 

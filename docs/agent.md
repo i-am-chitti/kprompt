@@ -128,6 +128,8 @@ Full Deployment lifecycle for the CR is **AG-014 Operator**.
 
 Optional controller that watches `KpromptAgent` CRs and creates the Observe agent ServiceAccount, Role, RoleBinding, and Deployment.
 
+**Fleet inventory (AG-062):** `kprompt agent list -A` lists CRs + labeled Deployments ([agent-fleet.md](./agent-fleet.md)).
+
 ```bash
 # Laptop
 kprompt agent operator --once -n payments
