@@ -42,6 +42,8 @@ var detectors = []detectorFunc{
 	detectImagePull,
 	detectCrashLoop,
 	detectFailedScheduling,
+	detectQuota,
+	detectHPA,
 	detectProbe,
 	detectRollout,
 	detectDNS,
@@ -178,6 +180,53 @@ func detectRollout(blob string, ctx ctxbuild.AgentContext) (Hit, bool) {
 		},
 		Alternatives:   []string{"Image pull failure", "Probe failure", "Config regression"},
 		Recommendation: "Inspect new ReplicaSet pods; consider rollback if prior revision was healthy",
+	}, true
+}
+
+func detectQuota(blob string, _ ctxbuild.AgentContext) (Hit, bool) {
+	if !(strings.Contains(blob, "exceeded quota") ||
+		strings.Contains(blob, "forbidden: exceeded quota") ||
+		strings.Contains(blob, "resourcequota") ||
+		strings.Contains(blob, "limited by") && strings.Contains(blob, "quota")) {
+		return Hit{}, false
+	}
+	return Hit{
+		Code:       "quota.exceeded",
+		Severity:   incident.SeverityHigh,
+		Confidence: 0.82,
+		Summary:    "ResourceQuota denial / exceeded",
+		RootCause:  "Namespace ResourceQuota blocks create or scale",
+		CausalChain: []string{
+			"Pod Pending or create rejected",
+			"Forbidden / exceeded quota",
+			"ResourceQuota hard limit",
+		},
+		Alternatives:   []string{"LimitRange", "Cluster capacity"},
+		Recommendation: "Inspect ResourceQuota used vs hard; free unused workloads or raise quota",
+	}, true
+}
+
+func detectHPA(blob string, _ ctxbuild.AgentContext) (Hit, bool) {
+	if !(strings.Contains(blob, "horizontalpodautoscaler") ||
+		strings.Contains(blob, "failedgetresource") ||
+		strings.Contains(blob, "failedgetexternalmetric") ||
+		strings.Contains(blob, "unable to get metrics") ||
+		(strings.Contains(blob, "hpa") && (strings.Contains(blob, "failed") || strings.Contains(blob, "metric")))) {
+		return Hit{}, false
+	}
+	return Hit{
+		Code:       "hpa.metric",
+		Severity:   incident.SeverityMedium,
+		Confidence: 0.72,
+		Summary:    "HPA cannot scale from metrics",
+		RootCause:  "Metrics API / custom metric unavailable for HorizontalPodAutoscaler",
+		CausalChain: []string{
+			"Replica count stuck",
+			"HPA FailedGetResourceMetric / missing metrics",
+			"Metrics-server or adapter gap",
+		},
+		Alternatives:   []string{"Target already at maxReplicas", "Wrong metric name"},
+		Recommendation: "Check metrics-server / adapter and HPA status conditions; verify metric selectors",
 	}, true
 }
 

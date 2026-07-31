@@ -38,6 +38,7 @@ Contracts: [ADR-0013](https://github.com/kprompt/kprompt-architecture/blob/main/
 | Route / verify cross-ns suspicion | Coordinator (`kprompt agent coordinator` / Helm chart) |
 | Shared Knowledge (durable handoff edges) | `GET /v1/knowledge` · ConfigMap store · `agent coordinator knowledge` |
 | Fleet inventory (AG-062) | `kprompt agent list -A` |
+| Intelligence brief (AG-065) | `kprompt agent status -n <ns>` |
 | Apply / patch / delete workloads | Autopilot **policyAuto** only (AG-042+), never silent |
 
 ## Non-claims (do not market these)

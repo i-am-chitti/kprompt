@@ -40,6 +40,20 @@ func TestCatalogPending(t *testing.T) {
 	}
 }
 
+func TestCatalogQuota(t *testing.T) {
+	hit, ok := Catalog(ctxWithEvidence("Forbidden", `Error creating: pods "x" is forbidden: exceeded quota`))
+	if !ok || hit.Code != "quota.exceeded" {
+		t.Fatalf("hit=%+v ok=%v", hit, ok)
+	}
+}
+
+func TestCatalogHPA(t *testing.T) {
+	hit, ok := Catalog(ctxWithEvidence("FailedGetResourceMetric", "unable to get metrics for resource memory"))
+	if !ok || hit.Code != "hpa.metric" {
+		t.Fatalf("hit=%+v ok=%v", hit, ok)
+	}
+}
+
 func TestCatalogDNS(t *testing.T) {
 	hit, ok := Catalog(ctxWithEvidence("", "dial tcp: lookup redis-service: no such host"))
 	if !ok || hit.Code != "dns.fail" {

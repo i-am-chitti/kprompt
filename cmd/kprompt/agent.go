@@ -18,6 +18,7 @@ import (
 
 	"github.com/kprompt/kprompt/internal/agent/analyze"
 	"github.com/kprompt/kprompt/internal/agent/autopilot"
+	"github.com/kprompt/kprompt/internal/agent/brief"
 	"github.com/kprompt/kprompt/internal/agent/coordinator"
 	"github.com/kprompt/kprompt/internal/agent/correlate"
 	"github.com/kprompt/kprompt/internal/agent/crdstatus"
@@ -40,6 +41,7 @@ import (
 	"github.com/kprompt/kprompt/internal/llm"
 	"github.com/kprompt/kprompt/internal/tools"
 	"github.com/kprompt/kprompt/internal/ui"
+	"k8s.io/client-go/kubernetes"
 )
 
 func newAgentCmd() *cobra.Command {
@@ -50,12 +52,109 @@ func newAgentCmd() *cobra.Command {
 	}
 	cmd.AddCommand(newAgentRunCmd())
 	cmd.AddCommand(newAgentListCmd())
+	cmd.AddCommand(newAgentStatusCmd())
 	cmd.AddCommand(newAgentOperatorCmd())
 	cmd.AddCommand(newAgentCoordinatorCmd())
 	cmd.AddCommand(newAgentAutopilotCmd())
 	cmd.AddCommand(newAgentMemoryCmd())
 	cmd.AddCommand(newAgentPatternsCmd())
 	cmd.AddCommand(newAgentGraphCmd())
+	return cmd
+}
+
+func newAgentStatusCmd() *cobra.Command {
+	var (
+		ns               string
+		kubeCtx          string
+		inCluster        bool
+		incidentsBackend string
+		incidentsDir     string
+		patternsBackend  string
+		patternsDir      string
+		memoryBackend    string
+		memoryDir        string
+		asJSON           bool
+	)
+	cmd := &cobra.Command{
+		Use:   "status",
+		Short: "Namespace Agent intelligence brief (AG-065)",
+		Long: `Read-only rollup of health score, open incidents, learned patterns, and
+memory deps for one namespace. Composes Incident Memory stores — does not mutate.
+
+Richer continuous reasoning beyond this brief remains building.`,
+		Example: `  kprompt agent status -n payments
+  kprompt agent status -n payments --incidents-backend configmap --patterns-backend configmap --memory-backend configmap --in-cluster
+  kprompt agent status -n payments --json`,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			ns = strings.TrimSpace(ns)
+			if ns == "" {
+				return fmt.Errorf("--namespace is required")
+			}
+			needKube := inCluster ||
+				strings.EqualFold(incidentsBackend, "configmap") ||
+				strings.EqualFold(patternsBackend, "configmap") ||
+				strings.EqualFold(memoryBackend, "configmap")
+			clients, err := connectOptional(kubeCtx, inCluster, needKube)
+			if err != nil {
+				return err
+			}
+			incBe := strings.TrimSpace(incidentsBackend)
+			if incBe == "" {
+				incBe = "file"
+			}
+			incStore, err := openIncidentsStore(incBe, incidentsDir, ns, inCluster, clients)
+			if err != nil {
+				return err
+			}
+			patBe := strings.TrimSpace(patternsBackend)
+			if patBe == "" {
+				patBe = "file"
+			}
+			patStore, err := openPatternsStore(patBe, patternsDir, ns, inCluster, clients)
+			if err != nil {
+				return err
+			}
+			memBe := strings.TrimSpace(memoryBackend)
+			if memBe == "" {
+				memBe = "file"
+			}
+			memStore, err := openMemoryStore(memBe, memoryDir, ns, inCluster, clients)
+			if err != nil {
+				return err
+			}
+			var cs kubernetes.Interface
+			if clients != nil {
+				cs = clients.Clientset
+			}
+			b, err := brief.Build(cmd.Context(), ns, brief.Inputs{
+				Client:    cs,
+				Incidents: incStore,
+				Patterns:  patStore,
+				Memory:    memStore,
+			})
+			if err != nil {
+				return err
+			}
+			if asJSON {
+				enc := json.NewEncoder(cmd.OutOrStdout())
+				enc.SetIndent("", "  ")
+				return enc.Encode(b)
+			}
+			fmt.Fprintln(cmd.OutOrStdout(), brief.Format(b))
+			return nil
+		},
+	}
+	cmd.Flags().StringVarP(&ns, "namespace", "n", "", "namespace (required)")
+	cmd.Flags().StringVar(&kubeCtx, "context", "", "kubeconfig context")
+	cmd.Flags().BoolVar(&inCluster, "in-cluster", false, "use in-cluster config")
+	cmd.Flags().StringVar(&incidentsBackend, "incidents-backend", "file", "incidents store: file|configmap")
+	cmd.Flags().StringVar(&incidentsDir, "incidents-dir", "", "file backend directory for incidents")
+	cmd.Flags().StringVar(&patternsBackend, "patterns-backend", "file", "patterns store: file|configmap")
+	cmd.Flags().StringVar(&patternsDir, "patterns-dir", "", "file backend directory for patterns")
+	cmd.Flags().StringVar(&memoryBackend, "memory-backend", "file", "memory store: file|configmap")
+	cmd.Flags().StringVar(&memoryDir, "memory-dir", "", "file backend directory for memory")
+	cmd.Flags().BoolVar(&asJSON, "json", false, "print NamespaceAgentBrief JSON")
+	_ = cmd.MarkFlagRequired("namespace")
 	return cmd
 }
 
