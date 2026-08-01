@@ -297,6 +297,7 @@ kprompt whoami           # org + member
 kprompt policy pull      # fetch org policy → ~/.kprompt/policy.yaml
 kprompt policy           # show cached policy
 kprompt secrets pull     # fetch org LLM keys → ~/.kprompt/provider-secrets.yaml (0600)
+kprompt run listen       # CLI bridge: claim app /run jobs; plan locally (never auto-apply)
 kprompt logout           # revoke token + clear credentials/policy/secrets
 ```
 
