@@ -21,6 +21,8 @@ kprompt --context prod "list deployments"
 kprompt config set require_alias_match true   # refuse mutate if kubectl current-context ≠ target
 ```
 
+Team orgs can sync shared aliases via policy (`context_aliases` + optional `require_alias_match`) after `kprompt policy pull`. Org keys win on conflict; local-only aliases still work. See [API-CONTRACT](https://github.com/kprompt/kprompt-architecture/blob/main/API-CONTRACT.md) (A-075).
+
 ## Read fan-out
 
 Explicit only — never “all contexts” by default.

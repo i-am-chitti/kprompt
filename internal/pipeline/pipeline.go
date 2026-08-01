@@ -78,6 +78,9 @@ func RunWith(ctx context.Context, cfg config.Resolved, out io.Writer, deps Deps)
 	if cfg.Prompt == "" {
 		return fmt.Errorf("prompt is required")
 	}
+	if !deps.SkipOrgPolicy {
+		team.ApplyOrgContextPolicy(&cfg)
+	}
 	jsonMode := cfg.JSONOutput()
 	human := out
 	if jsonMode {

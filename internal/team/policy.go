@@ -21,9 +21,11 @@ type Policy struct {
 	DenyIntents     []string       `json:"deny_intents" yaml:"deny_intents"`
 	AllowNamespaces []string       `json:"allow_namespaces" yaml:"allow_namespaces"`
 	DenyNamespaces  []string       `json:"deny_namespaces" yaml:"deny_namespaces"`
-	RequireApprove  bool                `json:"require_approve" yaml:"require_approve"`
-	ChangeWindows   []ChangeWindow      `json:"change_windows,omitempty" yaml:"change_windows,omitempty"`
-	ApproveByRole   map[string][]string `json:"approve_by_role,omitempty" yaml:"approve_by_role,omitempty"`
+	RequireApprove    bool                `json:"require_approve" yaml:"require_approve"`
+	ChangeWindows     []ChangeWindow      `json:"change_windows,omitempty" yaml:"change_windows,omitempty"`
+	ApproveByRole     map[string][]string `json:"approve_by_role,omitempty" yaml:"approve_by_role,omitempty"`
+	ContextAliases    map[string]string   `json:"context_aliases,omitempty" yaml:"context_aliases,omitempty"`
+	RequireAliasMatch bool                `json:"require_alias_match,omitempty" yaml:"require_alias_match,omitempty"`
 }
 
 // ChangeWindow is a time-bound mutate rule from the Team control plane (A-070).

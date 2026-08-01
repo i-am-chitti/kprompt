@@ -75,5 +75,14 @@ func formatPolicy(p team.Policy) string {
 			}
 		}
 	}
+	if len(p.ContextAliases) > 0 {
+		fmt.Fprintf(&b, "context_aliases:\n")
+		for k, v := range p.ContextAliases {
+			fmt.Fprintf(&b, "  %s → %s\n", k, v)
+		}
+	}
+	if p.RequireAliasMatch {
+		fmt.Fprintf(&b, "require_alias_match: true\n")
+	}
 	return b.String()
 }

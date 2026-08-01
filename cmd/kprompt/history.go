@@ -10,6 +10,7 @@ import (
 	"github.com/kprompt/kprompt/internal/config"
 	"github.com/kprompt/kprompt/internal/history"
 	"github.com/kprompt/kprompt/internal/pipeline"
+	"github.com/kprompt/kprompt/internal/team"
 	"github.com/kprompt/kprompt/internal/ui"
 )
 
@@ -74,6 +75,7 @@ func newHistoryCmd() *cobra.Command {
 			if root.PersistentFlags().Changed("theme") {
 				cfg.Theme = theme
 			}
+			team.ApplyOrgContextPolicy(&cfg)
 			if raw := strings.TrimSpace(kubeCtxs); raw != "" {
 				names := config.ParseContextsFlag(raw)
 				resolved, err := config.ResolveContextList(names, cfg.Aliases)

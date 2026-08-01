@@ -12,6 +12,7 @@ import (
 	"github.com/kprompt/kprompt/internal/config"
 	"github.com/kprompt/kprompt/internal/intent"
 	"github.com/kprompt/kprompt/internal/pipeline"
+	"github.com/kprompt/kprompt/internal/team"
 	"github.com/kprompt/kprompt/internal/ui"
 )
 
@@ -76,6 +77,7 @@ func main() {
 			if cmd.Flags().Changed("gitops-base-branch") {
 				cfg.GitOpsBaseBranch = gitopsBaseBranch
 			}
+			team.ApplyOrgContextPolicy(&cfg)
 			if raw := strings.TrimSpace(kubeCtxs); raw != "" {
 				names := config.ParseContextsFlag(raw)
 				resolved, err := config.ResolveContextList(names, cfg.Aliases)
