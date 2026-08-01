@@ -4,12 +4,14 @@
 
 It verifies your config, current LLM provider setup, Kubernetes access,
 detected integrations, optional Team enrollment state, and related local cache
-files. It never prints API key values.
+files. It never prints key or token values.
+
+**Key vocabulary:** an **LLM provider key** is yours (OpenAI/Gemini/… env var, or none for Ollama). A Team **`kp_…` token** from `kprompt login` is separate org enrollment — not required for Free CLI NL plans. kprompt does not sell either.
 
 ## What it checks
 
 - Config file path and selected provider
-- LLM provider/model and whether a usable API key is set
+- LLM provider/model and whether a usable provider key is set (Ollama needs no key)
 - Kubernetes access for the selected context
 - Optional integrations such as Helm and configured backends
 - Optional Team enrollment, cached policy, pulled provider keys, and learned profile
@@ -65,6 +67,7 @@ OK.
 
 ## Notes
 
-- API keys are never printed
-- Team enrollment is optional
+- LLM provider keys and Team tokens are never printed
+- Team enrollment is optional; missing `kp_…` is not a Free CLI failure
+- Prefer Ollama ($0) or the zero-LLM walkthrough before buying a cloud provider key
 - Integration summaries point you to `kprompt tools` for deeper inspection

@@ -28,7 +28,7 @@ Wipe-class denials rotate a small **flavor pack** of punchlines (stable per prom
 Static still of a scale plan: [plan-demo.svg](./.github/assets/plan-demo.svg).
 Open source (Apache-2.0). **Experimental.** Always review the plan before apply, prefer non-production first, and treat `--approve` with care. Safety hard-denies help; they do not make unattended production use safe.
 
-## Try it in 60 seconds — no API key, no cloud
+## Try it in 60 seconds — $0, no provider key, no cloud
 
 [kprompt-examples](https://github.com/kprompt/kprompt-examples) spins up kind, breaks seven workloads on purpose, then runs the Observe agent in `--heuristic` mode: **deterministic, offline, zero LLM spend.**
 
@@ -56,7 +56,7 @@ Questions, demos, and roadmap ideas: **[Discussions](https://github.com/kprompt/
 | **Plan before apply** | TTY `y/N` or explicit `--approve`; wipe-class denied |
 | **CI-ready** | `--output json` PlanResult for jq gates |
 | **Day-2 stack** | Helm, Prom, OTel, Grafana, GitOps… under one approval loop |
-| **Local BYOK** | Your kubeconfig + your LLM keys — no cluster creds uploaded |
+| **Local BYOK / Ollama** | Your kubeconfig + your LLM (Ollama = $0) — no cluster creds uploaded |
 | **Observe agent** | Optional in-cluster watch → Incident → gated notify (no silent mutate) |
 
 Category: **AI Runtime for Kubernetes** — not a ChatGPT wrapper or free-form kubectl chat. Same NL-CLI lane as [kubectl-ai](https://github.com/GoogleCloudPlatform/kubectl-ai) for day-2 mutate; different contract: **PlanResult → safety → approve → apply**. See [kprompt vs kubectl-ai](https://kprompt.ai/blog/kprompt-vs-kubectl-ai).
@@ -171,27 +171,36 @@ Downloads are not unique users (re-installs, CI, checksums). Site `/install` fet
 
 ## Quick start
 
+No kprompt purchase — the Free CLI never sells you an API key. Natural-language plans need **your** LLM (local Ollama = **$0**, or a cloud provider key you already own). Prefer the [60-second walkthrough](#try-it-in-60-seconds--0-no-provider-key-no-cloud) first if you only want the Observe demo.
+
 1. Point kubeconfig at a cluster (`~/.kube/config` or `KUBECONFIG`).
-2. Set an LLM API key (pick a provider):
+2. Pick how you plan — **Ollama first ($0)**, cloud BYOK only if you want it:
 
 ```bash
+# A) Local Ollama — no cloud key, $0 inference
+#    ollama serve && ollama pull llama3.2
+kprompt config set provider ollama
+kprompt config set model llama3.2
+kprompt --provider ollama "list pods"
+
+# B) Optional: your LLM provider key (BYOK — not a kprompt product)
 export KPROMPT_OPENAI_API_KEY=sk-...          # --provider openai (default)
 export KPROMPT_ANTHROPIC_API_KEY=sk-ant-...   # --provider anthropic
 export KPROMPT_GEMINI_API_KEY=...             # --provider gemini
 export KPROMPT_GROQ_API_KEY=...               # --provider groq
 export KPROMPT_XAI_API_KEY=...                # --provider xai (Grok)
 export KPROMPT_MOONSHOT_API_KEY=...           # --provider moonshot (Kimi K3)
-# local: kprompt --provider ollama --model llama3.2 "..."
 ```
 
-See [docs/providers.md](./docs/providers.md) for the full list.
+See [docs/providers.md](./docs/providers.md) for the full list. Optional Team login (`kprompt login` → `kp_…` token) is org policy/audit only — unrelated to LLM keys.
 
 3. Optional config at `~/.kprompt/config.yaml` (no secrets). CLI history/Team files also live under `~/.kprompt/`; Observe local stores use `~/.config/kprompt/` — see [docs/agent.md](./docs/agent.md#where-files-live).
 
 ```bash
 kprompt config
-kprompt config set provider gemini
-kprompt config set model gemini-2.0-flash
+kprompt config set provider ollama
+kprompt config set model llama3.2
+# or: gemini / openai / … after exporting that provider's key
 kprompt config set namespace default
 kprompt config set theme nord
 kprompt theme preview   # sample every palette in the terminal
@@ -207,8 +216,8 @@ kprompt tools   # detect Helm, Argo CRD, Prometheus/Grafana URLs (integration la
 Or edit YAML:
 
 ```yaml
-provider: openai
-model: gpt-4o-mini
+provider: ollama
+model: llama3.2
 ```
 
 4. Run a prompt (default is **plan only**; mutations ask `y/N` on a TTY, or use `--approve`):
@@ -239,7 +248,7 @@ kprompt learn
 kprompt recipe list
 ```
 
-Use `kprompt doctor` after install to verify kubeconfig, LLM keys, integrations, and optional Team enrollment.
+Use `kprompt doctor` after install to verify kubeconfig, LLM provider setup (Ollama or BYOK), integrations, and optional Team enrollment.
 
 ```bash
 kprompt doctor           # kube + LLM key + tools + Team health (exit 1 if required fail)
