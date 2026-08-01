@@ -121,6 +121,7 @@ func main() {
 			fmt.Fprintln(cmd.OutOrStdout(), version)
 		},
 	})
+	root.AddCommand(newCompletionCmd())
 	root.AddCommand(newConfigCmd())
 	root.AddCommand(newThemeCmd())
 	root.AddCommand(newContextsCmd())
