@@ -7,7 +7,7 @@ CLI path to change desired state through **GitHub**, not silent cluster apply.
 | **GitOps PR mode** | `--gitops` opens/updates a PR via `gh` / `GH_TOKEN` | Shipped (T-072) |
 | **GitOps controllers** | `kprompt "show gitops sync status"` (Flux / Argo CD) | Shipped (T-043) |
 | **Agent evidence** | `--gitops-evidence` Argo/Flux EvidenceRefs | Shipped (AG-035) |
-| **Team org connect-repo** | `app.kprompt.ai` SCM binding | Building (ADR-0019 · A-061…A-066) |
+| **Team org connect-repo** | `app.kprompt.ai` SCM binding | Shipped MVP (ADR-0019 · A-061…A-068); Checks annotate A-069 Building |
 
 This doc is the umbrella for the **CLI GitHub Integration MVP**. Deep dive on PR mode: sections below (formerly `gitops-pr.md` body). Team org repos are **not** wired into the CLI yet.
 
