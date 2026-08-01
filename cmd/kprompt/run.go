@@ -54,9 +54,10 @@ Requires kprompt login (operator or admin). Empty state in the app:
 			defer stop()
 
 			return team.Listen(ctx, client, team.BridgeOptions{
-				WorkerLabel: workerLabel,
-				Interval:    interval,
-				Execute:     runworker.Execute,
+				WorkerLabel:  workerLabel,
+				Interval:     interval,
+				Execute:      runworker.Execute,
+				ExecuteApply: runworker.ExecuteApply,
 				Stdout: func(s string) {
 					fmt.Fprintln(cmd.OutOrStdout(), s)
 				},

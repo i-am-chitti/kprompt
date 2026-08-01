@@ -103,3 +103,10 @@ func (c *Client) PostRunResult(ctx context.Context, runID string, in PostRunResu
 	err := c.doJSON(ctx, http.MethodPost, "/v1/runs/"+runID+"/result", in, c.Token, &out)
 	return out, err
 }
+
+// GetRun fetches a single run job.
+func (c *Client) GetRun(ctx context.Context, runID string) (RunJob, error) {
+	var out RunJob
+	err := c.doJSON(ctx, http.MethodGet, "/v1/runs/"+runID, nil, c.Token, &out)
+	return out, err
+}

@@ -8,18 +8,22 @@ import (
 	"time"
 )
 
-// BridgeOptions configures the enrolled CLI bridge poll loop (A-052).
+// BridgeOptions configures the enrolled CLI bridge poll loop (A-052 / A-054).
 type BridgeOptions struct {
 	WorkerLabel string
 	Interval    time.Duration
 	Stdout      func(string)
 	Sleep       func(time.Duration)
-	// Execute runs one claimed job. Required (set by CLI to avoid import cycles).
+	// Execute plans without apply. Required.
 	Execute func(ctx context.Context, job RunJob) (PostRunResultInput, error)
-	// Claim / Post injectables for tests.
-	Claim      func(ctx context.Context, label string) (RunJob, bool, error)
-	Post       func(ctx context.Context, runID string, in PostRunResultInput) (RunJob, error)
-	PullPolicy func(ctx context.Context) error
+	// ExecuteApply applies after in-app approve (optional; skips apply wait if nil).
+	ExecuteApply func(ctx context.Context, job RunJob) (PostRunResultInput, error)
+	Claim        func(ctx context.Context, label string) (RunJob, bool, error)
+	Post         func(ctx context.Context, runID string, in PostRunResultInput) (RunJob, error)
+	Get          func(ctx context.Context, runID string) (RunJob, error)
+	PullPolicy   func(ctx context.Context) error
+	// ApproveWait is how long to wait for in-app approve (default 30m).
+	ApproveWait time.Duration
 }
 
 // Listen polls the control plane for run jobs until ctx is cancelled.
@@ -39,6 +43,10 @@ func Listen(ctx context.Context, client *Client, opt BridgeOptions) error {
 	if interval <= 0 {
 		interval = 3 * time.Second
 	}
+	approveWait := opt.ApproveWait
+	if approveWait <= 0 {
+		approveWait = 30 * time.Minute
+	}
 	claim := opt.Claim
 	if claim == nil {
 		claim = client.ClaimRun
@@ -46,6 +54,10 @@ func Listen(ctx context.Context, client *Client, opt BridgeOptions) error {
 	post := opt.Post
 	if post == nil {
 		post = client.PostRunResult
+	}
+	get := opt.Get
+	if get == nil {
+		get = client.GetRun
 	}
 	pull := opt.PullPolicy
 	if pull == nil {
@@ -91,8 +103,72 @@ func Listen(ctx context.Context, client *Client, opt BridgeOptions) error {
 		}
 		if _, postErr := post(ctx, job.ID, result); postErr != nil {
 			log(fmt.Sprintf("result post error: %v", postErr))
-		} else {
-			log(fmt.Sprintf("Posted %s → %s", job.ID, result.Status))
+			continue
+		}
+		log(fmt.Sprintf("Posted %s → %s", job.ID, result.Status))
+
+		if result.Status != "awaiting_approve" || opt.ExecuteApply == nil {
+			continue
+		}
+		log(fmt.Sprintf("Waiting for in-app approve on %s…", job.ID))
+		decision, waitErr := waitForDecision(ctx, get, sleep, interval, job.ID, approveWait)
+		if waitErr != nil {
+			log(fmt.Sprintf("approve wait: %v", waitErr))
+			continue
+		}
+		switch decision.Status {
+		case "denied", "cancelled", "failed", "succeeded":
+			log(fmt.Sprintf("%s settled as %s", job.ID, decision.Status))
+			continue
+		case "approved":
+			log(fmt.Sprintf("Approved %s — applying locally…", job.ID))
+			_, _ = post(ctx, job.ID, PostRunResultInput{Status: "running", Summary: "bridge applying"})
+			applied, applyErr := opt.ExecuteApply(ctx, job)
+			if applyErr != nil && applied.Status == "" {
+				applied = PostRunResultInput{
+					Status:  "failed",
+					Error:   applyErr.Error(),
+					Summary: "bridge apply failed",
+				}
+			}
+			if _, postErr := post(ctx, job.ID, applied); postErr != nil {
+				log(fmt.Sprintf("apply result post error: %v", postErr))
+			} else {
+				log(fmt.Sprintf("Posted %s → %s", job.ID, applied.Status))
+			}
+		default:
+			log(fmt.Sprintf("%s unexpected status %s after wait", job.ID, decision.Status))
+		}
+	}
+}
+
+func waitForDecision(
+	ctx context.Context,
+	get func(context.Context, string) (RunJob, error),
+	sleep func(time.Duration),
+	interval time.Duration,
+	runID string,
+	deadline time.Duration,
+) (RunJob, error) {
+	until := time.Now().Add(deadline)
+	for {
+		if err := ctx.Err(); err != nil {
+			return RunJob{}, err
+		}
+		if time.Now().After(until) {
+			return RunJob{}, fmt.Errorf("timed out waiting for approve on %s", runID)
+		}
+		job, err := get(ctx, runID)
+		if err != nil {
+			sleep(interval)
+			continue
+		}
+		switch job.Status {
+		case "awaiting_approve":
+			sleep(interval)
+			continue
+		default:
+			return job, nil
 		}
 	}
 }
