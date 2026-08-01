@@ -140,6 +140,7 @@ func main() {
 	root.AddCommand(newWhoamiCmd())
 	root.AddCommand(newPolicyCmd())
 	root.AddCommand(newSecretsCmd())
+	root.AddCommand(newRunCmd())
 
 	ctx := context.Background()
 	if err := root.ExecuteContext(ctx); err != nil {
