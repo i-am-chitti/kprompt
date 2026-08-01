@@ -235,7 +235,7 @@ func RunWith(ctx context.Context, cfg config.Resolved, out io.Writer, deps Deps)
 		return err
 	}
 
-	risk := safety.EvaluatePlanWithOrg(plan, orgPolicy(deps))
+	risk := safety.EvaluatePlanWithOrg(plan, orgPolicy(deps), cfg.Context)
 	if risk.Denied {
 		doc := output.FromPlan(cfg.Prompt, cfg.Context, plan, risk, false)
 		team.PushAuditBestEffort(ctx, auditFromPlan(cfg, plan, risk, "denied"))
@@ -505,7 +505,7 @@ func RunWith(ctx context.Context, cfg config.Resolved, out io.Writer, deps Deps)
 				return nil
 			}
 			fix := *actionable[0].Plan
-			fixRisk := safety.EvaluatePlanWithOrg(fix, orgPolicy(deps))
+			fixRisk := safety.EvaluatePlanWithOrg(fix, orgPolicy(deps), cfg.Context)
 			if fixRisk.Denied {
 				if !jsonMode {
 					ui.PrintDenied(out, fixRisk.Message)
@@ -660,7 +660,7 @@ func RunWith(ctx context.Context, cfg config.Resolved, out io.Writer, deps Deps)
 				return nil
 			}
 			patch := *actionable[0].Plan
-			patchRisk := safety.EvaluatePlanWithOrg(patch, orgPolicy(deps))
+			patchRisk := safety.EvaluatePlanWithOrg(patch, orgPolicy(deps), cfg.Context)
 			if patchRisk.Denied {
 				ui.PrintDenied(out, patchRisk.Message)
 				applied = true
@@ -711,7 +711,7 @@ func RunWith(ctx context.Context, cfg config.Resolved, out io.Writer, deps Deps)
 				return nil
 			}
 			patch := *actionable[0].Plan
-			patchRisk := safety.EvaluatePlanWithOrg(patch, orgPolicy(deps))
+			patchRisk := safety.EvaluatePlanWithOrg(patch, orgPolicy(deps), cfg.Context)
 			if patchRisk.Denied {
 				ui.PrintDenied(out, patchRisk.Message)
 				applied = true
@@ -762,7 +762,7 @@ func RunWith(ctx context.Context, cfg config.Resolved, out io.Writer, deps Deps)
 				return nil
 			}
 			patch := *actionable[0].Plan
-			patchRisk := safety.EvaluatePlanWithOrg(patch, orgPolicy(deps))
+			patchRisk := safety.EvaluatePlanWithOrg(patch, orgPolicy(deps), cfg.Context)
 			if patchRisk.Denied {
 				ui.PrintDenied(out, patchRisk.Message)
 				applied = true
@@ -845,7 +845,7 @@ func RunWith(ctx context.Context, cfg config.Resolved, out io.Writer, deps Deps)
 				return nil
 			}
 			patch := *actionable[0].Plan
-			patchRisk := safety.EvaluatePlanWithOrg(patch, orgPolicy(deps))
+			patchRisk := safety.EvaluatePlanWithOrg(patch, orgPolicy(deps), cfg.Context)
 			if patchRisk.Denied {
 				ui.PrintDenied(out, patchRisk.Message)
 				applied = true
@@ -915,7 +915,7 @@ func RunWith(ctx context.Context, cfg config.Resolved, out io.Writer, deps Deps)
 			}
 			for _, sug := range actionable {
 				patch := *sug.Plan
-				patchRisk := safety.EvaluatePlanWithOrg(patch, orgPolicy(deps))
+				patchRisk := safety.EvaluatePlanWithOrg(patch, orgPolicy(deps), cfg.Context)
 				if patchRisk.Denied {
 					ui.PrintDenied(out, patchRisk.Message)
 					continue
@@ -970,7 +970,7 @@ func RunWith(ctx context.Context, cfg config.Resolved, out io.Writer, deps Deps)
 			runner := &executor.Runner{Client: client}
 			for _, sug := range actionable {
 				patch := *sug.Plan
-				patchRisk := safety.EvaluatePlanWithOrg(patch, orgPolicy(deps))
+				patchRisk := safety.EvaluatePlanWithOrg(patch, orgPolicy(deps), cfg.Context)
 				if patchRisk.Denied {
 					ui.PrintDenied(out, patchRisk.Message)
 					continue
@@ -1709,7 +1709,25 @@ func loadOrgPolicy() *safety.OrgPolicy {
 		AllowNamespaces: pol.AllowNamespaces,
 		DenyNamespaces:  pol.DenyNamespaces,
 		RequireApprove:  pol.RequireApprove,
+		ChangeWindows:   toSafetyWindows(pol.ChangeWindows),
 	}
+}
+
+func toSafetyWindows(in []team.ChangeWindow) []safety.ChangeWindow {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make([]safety.ChangeWindow, len(in))
+	for i, w := range in {
+		out[i] = safety.ChangeWindow{
+			Contexts: w.Contexts,
+			TZ:       w.TZ,
+			Days:     w.Days,
+			Start:    w.Start,
+			End:      w.End,
+		}
+	}
+	return out
 }
 
 func orgPolicy(deps Deps) *safety.OrgPolicy {

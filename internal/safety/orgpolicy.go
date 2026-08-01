@@ -2,7 +2,9 @@ package safety
 
 import (
 	"fmt"
+	"strconv"
 	"strings"
+	"time"
 
 	"github.com/kprompt/kprompt/internal/planner"
 )
@@ -17,6 +19,16 @@ type OrgPolicy struct {
 	AllowNamespaces []string
 	DenyNamespaces  []string
 	RequireApprove  bool
+	ChangeWindows   []ChangeWindow
+}
+
+// ChangeWindow restricts mutating plans for matching kube contexts (A-070).
+type ChangeWindow struct {
+	Contexts []string // glob; empty = all contexts; trailing * suffix supported
+	TZ       string   // IANA
+	Days     []string // mon…sun (normalized; mon-fri expanded on pull)
+	Start    string   // HH:MM
+	End      string   // HH:MM same-day
 }
 
 func riskRank(r Risk) int {
@@ -48,13 +60,18 @@ func parseMaxRisk(s string) Risk {
 }
 
 // EvaluatePlanWithOrg runs local EvaluatePlan then applies org tighten-only rules.
-func EvaluatePlanWithOrg(plan planner.ExecutionPlan, org *OrgPolicy) Result {
+func EvaluatePlanWithOrg(plan planner.ExecutionPlan, org *OrgPolicy, kubeContext string) Result {
 	base := EvaluatePlan(plan)
-	return ApplyOrgPolicy(base, plan, org)
+	return ApplyOrgPolicy(base, plan, org, kubeContext)
 }
 
 // ApplyOrgPolicy tightens a local safety result with org policy (never loosens).
-func ApplyOrgPolicy(base Result, plan planner.ExecutionPlan, org *OrgPolicy) Result {
+func ApplyOrgPolicy(base Result, plan planner.ExecutionPlan, org *OrgPolicy, kubeContext string) Result {
+	return ApplyOrgPolicyAt(base, plan, org, kubeContext, time.Now())
+}
+
+// ApplyOrgPolicyAt is ApplyOrgPolicy with an injectable clock (tests).
+func ApplyOrgPolicyAt(base Result, plan planner.ExecutionPlan, org *OrgPolicy, kubeContext string, now time.Time) Result {
 	if org == nil {
 		return base
 	}
@@ -107,12 +124,123 @@ func ApplyOrgPolicy(base Result, plan planner.ExecutionPlan, org *OrgPolicy) Res
 		}
 	}
 
+	if denied, msg := denyOutsideChangeWindow(plan, base, org.ChangeWindows, kubeContext, now); denied {
+		return Result{Risk: RiskDenied, Denied: true, Message: msg}
+	}
+
 	if org.RequireApprove && riskRank(base.Risk) >= riskRank(RiskMedium) {
 		if base.Message == "" {
 			base.Message = "Org policy requires approval"
 		}
 	}
 	return base
+}
+
+func denyOutsideChangeWindow(plan planner.ExecutionPlan, base Result, windows []ChangeWindow, kubeContext string, now time.Time) (bool, string) {
+	if len(windows) == 0 {
+		return false, ""
+	}
+	// Reads stay allowed outside windows; mutate/medium+ only.
+	if !plan.RequiresApproval && riskRank(base.Risk) < riskRank(RiskMedium) {
+		return false, ""
+	}
+
+	matching := make([]ChangeWindow, 0)
+	for _, w := range windows {
+		if contextMatchesWindow(w.Contexts, kubeContext) {
+			matching = append(matching, w)
+		}
+	}
+	if len(matching) == 0 {
+		return false, "" // no window claims this context
+	}
+	for _, w := range matching {
+		if windowOpen(w, now) {
+			return false, ""
+		}
+	}
+	return true, fmt.Sprintf(
+		"🛡️ Org change window: mutate on context %q is outside allowed hours",
+		strings.TrimSpace(kubeContext),
+	)
+}
+
+func contextMatchesWindow(patterns []string, kubeContext string) bool {
+	ctx := strings.TrimSpace(kubeContext)
+	if len(patterns) == 0 {
+		return true
+	}
+	for _, p := range patterns {
+		if contextGlobMatch(p, ctx) {
+			return true
+		}
+	}
+	return false
+}
+
+func contextGlobMatch(pattern, name string) bool {
+	pattern = strings.TrimSpace(pattern)
+	if pattern == "" || pattern == "*" {
+		return true
+	}
+	name = strings.TrimSpace(name)
+	if strings.HasSuffix(pattern, "*") {
+		prefix := strings.TrimSuffix(pattern, "*")
+		return strings.HasPrefix(strings.ToLower(name), strings.ToLower(prefix))
+	}
+	return strings.EqualFold(pattern, name)
+}
+
+var weekdayShort = map[time.Weekday]string{
+	time.Sunday:    "sun",
+	time.Monday:    "mon",
+	time.Tuesday:   "tue",
+	time.Wednesday: "wed",
+	time.Thursday:  "thu",
+	time.Friday:    "fri",
+	time.Saturday:  "sat",
+}
+
+func windowOpen(w ChangeWindow, now time.Time) bool {
+	loc, err := time.LoadLocation(strings.TrimSpace(w.TZ))
+	if err != nil {
+		return false
+	}
+	local := now.In(loc)
+	day := weekdayShort[local.Weekday()]
+	dayOK := false
+	for _, d := range w.Days {
+		if strings.EqualFold(strings.TrimSpace(d), day) {
+			dayOK = true
+			break
+		}
+	}
+	if !dayOK {
+		return false
+	}
+	sm, err1 := parseClockMinutes(w.Start)
+	em, err2 := parseClockMinutes(w.End)
+	if err1 != nil || err2 != nil || sm >= em {
+		return false
+	}
+	mins := local.Hour()*60 + local.Minute()
+	return mins >= sm && mins < em
+}
+
+func parseClockMinutes(s string) (int, error) {
+	parts := strings.Split(strings.TrimSpace(s), ":")
+	if len(parts) != 2 {
+		return 0, fmt.Errorf("bad time")
+	}
+	h, err := strconv.Atoi(parts[0])
+	if err != nil {
+		return 0, err
+	}
+	m, err := strconv.Atoi(parts[1])
+	if err != nil {
+		return 0, err
+	}
+	return h*60 + m, nil
 }
 
 func planNamespace(plan planner.ExecutionPlan) string {

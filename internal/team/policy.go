@@ -14,14 +14,24 @@ import (
 
 // Policy is the org control-plane policy document (GET /v1/policy).
 type Policy struct {
-	OrgID           string    `json:"org_id" yaml:"org_id"`
-	Version         int       `json:"version" yaml:"version"`
-	UpdatedAt       time.Time `json:"updated_at" yaml:"updated_at"`
-	MaxRisk         string    `json:"max_risk" yaml:"max_risk"`
-	DenyIntents     []string  `json:"deny_intents" yaml:"deny_intents"`
-	AllowNamespaces []string  `json:"allow_namespaces" yaml:"allow_namespaces"`
-	DenyNamespaces  []string  `json:"deny_namespaces" yaml:"deny_namespaces"`
-	RequireApprove  bool      `json:"require_approve" yaml:"require_approve"`
+	OrgID           string         `json:"org_id" yaml:"org_id"`
+	Version         int            `json:"version" yaml:"version"`
+	UpdatedAt       time.Time      `json:"updated_at" yaml:"updated_at"`
+	MaxRisk         string         `json:"max_risk" yaml:"max_risk"`
+	DenyIntents     []string       `json:"deny_intents" yaml:"deny_intents"`
+	AllowNamespaces []string       `json:"allow_namespaces" yaml:"allow_namespaces"`
+	DenyNamespaces  []string       `json:"deny_namespaces" yaml:"deny_namespaces"`
+	RequireApprove  bool           `json:"require_approve" yaml:"require_approve"`
+	ChangeWindows   []ChangeWindow `json:"change_windows,omitempty" yaml:"change_windows,omitempty"`
+}
+
+// ChangeWindow is a time-bound mutate rule from the Team control plane (A-070).
+type ChangeWindow struct {
+	Contexts []string `json:"contexts" yaml:"contexts"`
+	TZ       string   `json:"tz" yaml:"tz"`
+	Days     []string `json:"days" yaml:"days"`
+	Start    string   `json:"start" yaml:"start"`
+	End      string   `json:"end" yaml:"end"`
 }
 
 // Policy fetches the effective org policy for the authenticated token.

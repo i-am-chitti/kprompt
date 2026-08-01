@@ -268,7 +268,7 @@ kprompt secrets pull     # fetch org LLM keys → ~/.kprompt/provider-secrets.ya
 kprompt logout           # revoke token + clear credentials/policy/secrets
 ```
 
-Override API with `KPROMPT_API_URL` / `KPROMPT_API_TOKEN` if needed. The `kp_…` token is stored only in `credentials.yaml` (0600), never in `config.yaml`. Cached org policy only **tightens** local hard-denies. Provider keys: env vars always win over pulled secrets. When enrolled, each plan also best-effort pushes an audit event (`planned` / `denied` / `applied`) to the control plane — disable with `KPROMPT_DISABLE_AUDIT=1`.
+Override API with `KPROMPT_API_URL` / `KPROMPT_API_TOKEN` if needed. The `kp_…` token is stored only in `credentials.yaml` (0600), never in `config.yaml`. Cached org policy only **tightens** local hard-denies (namespaces, max risk, deny intents, and optional **change windows** for mutate on matching kube contexts). Provider keys: env vars always win over pulled secrets. When enrolled, each plan also best-effort pushes an audit event (`planned` / `denied` / `applied`) to the control plane — disable with `KPROMPT_DISABLE_AUDIT=1`.
 
 ## CI
 

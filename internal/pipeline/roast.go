@@ -51,7 +51,7 @@ func runRoastPrompt(ctx context.Context, cfg config.Resolved, out io.Writer, dep
 	if err != nil {
 		return err
 	}
-	risk := safety.EvaluatePlanWithOrg(plan, orgPolicy(deps))
+	risk := safety.EvaluatePlanWithOrg(plan, orgPolicy(deps), cfg.Context)
 	if risk.Denied {
 		doc := output.FromPlan(cfg.Prompt, cfg.Context, plan, risk, false)
 		if deps.OnResult != nil {

@@ -165,7 +165,7 @@ func prepareRoute(
 		if err != nil {
 			return routePreflight{}, fmt.Errorf("route step %d: %w", index+1, err)
 		}
-		risk := safety.EvaluatePlanWithOrg(plan, loadOrgPolicy())
+		risk := safety.EvaluatePlanWithOrg(plan, loadOrgPolicy(), cfg.Context)
 		if risk.Denied {
 			return routePreflight{}, fmt.Errorf(
 				"route step %d denied by safety policy: %s",
