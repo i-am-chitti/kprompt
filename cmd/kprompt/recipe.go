@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"strings"
 
 	"github.com/spf13/cobra"
 
@@ -68,9 +69,10 @@ func newRecipeListCmd() *cobra.Command {
 
 func newRecipeShowCmd() *cobra.Command {
 	return &cobra.Command{
-		Use:   "show <id>",
-		Short: "Show one recipe (steps + notes)",
-		Args:  cobra.ExactArgs(1),
+		Use:               "show <id>",
+		Short:             "Show one recipe (steps + notes)",
+		Args:              cobra.ExactArgs(1),
+		ValidArgsFunction: completeRecipeIDs,
 		Example: `  # Show details of the harden-production recipe
   kprompt recipe show harden-production`,
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -92,15 +94,16 @@ func newRecipeRunCmd() *cobra.Command {
 	var outputFmt string
 
 	cmd := &cobra.Command{
-		Use:   "run <id>",
-		Short: "Expand and execute a recipe as a multi-step route",
-		Args:  cobra.ExactArgs(1),
+		Use:               "run <id>",
+		Short:             "Expand and execute a recipe as a multi-step route",
+		Args:              cobra.ExactArgs(1),
+		ValidArgsFunction: completeRecipeIDs,
 		Example: `  # Run a recipe in a specific namespace
   kprompt recipe run harden-production -n payments
-
+ 
   # Run a recipe with workload and namespace overrides
   kprompt recipe run crashloop-rca --workload api -n payments
-
+ 
   # Run a recipe and automatically approve mutating steps
   kprompt recipe run oom-rca --workload backend --approve`,
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -141,4 +144,17 @@ func newRecipeRunCmd() *cobra.Command {
 	cmd.Flags().BoolVar(&approve, "approve", false, "approve mutating steps in the recipe route")
 	cmd.Flags().StringVarP(&outputFmt, "output", "o", "text", "output format: text|json")
 	return cmd
+}
+
+func completeRecipeIDs(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
+	if len(args) != 0 {
+		return nil, cobra.ShellCompDirectiveNoFileComp
+	}
+	var completions []string
+	for _, r := range recipe.Catalog() {
+		if strings.HasPrefix(strings.ToLower(r.ID), strings.ToLower(toComplete)) {
+			completions = append(completions, fmt.Sprintf("%s\t%s", r.ID, r.Summary))
+		}
+	}
+	return completions, cobra.ShellCompDirectiveNoFileComp
 }
