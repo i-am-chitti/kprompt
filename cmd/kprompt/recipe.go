@@ -17,7 +17,7 @@ func newRecipeCmd() *cobra.Command {
 		Use:   "recipe",
 		Short: "Curated workflow packs (harden, peak prep, Ingress→Gateway discover, RCA chains)",
 		Long: `Recipes expand into multi-step prompts run through the same route + approval
-loop as a manual "A then B" chain. Never mutates silently (S-013 · T-088).`,
+loop as a manual "A then B" chain. Never mutates silently.`,
 		Example: `  # List all built-in recipe packs
   kprompt recipe list
 

@@ -109,7 +109,7 @@ func main() {
 	root.PersistentFlags().StringVarP(&namespace, "namespace", "n", "", "default namespace")
 	root.PersistentFlags().StringVarP(&outputFmt, "output", "o", "text", "output format: text|json")
 	root.PersistentFlags().StringVar(&theme, "theme", "", "color theme: auto|dracula|nord|gruvbox|mono|none")
-	root.PersistentFlags().BoolVar(&gitopsPR, "gitops", false, "open/update a GitHub PR instead of applying to the cluster (T-072; requires gitops.repo)")
+	root.PersistentFlags().BoolVar(&gitopsPR, "gitops", false, "open/update a GitHub PR instead of applying to the cluster (requires gitops.repo)")
 	root.PersistentFlags().StringVar(&gitopsRepo, "gitops-repo", "", "GitHub owner/name for --gitops (or config gitops.repo / KPROMPT_GITOPS_REPO)")
 	root.PersistentFlags().StringVar(&gitopsPath, "gitops-path", "", "path prefix inside the repo for PR files (default kprompt)")
 	root.PersistentFlags().StringVar(&gitopsBaseBranch, "gitops-base-branch", "", "PR base branch (default main)")
