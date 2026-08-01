@@ -1,4 +1,4 @@
-{{- if and .Values.agent.memory (eq (.Values.agent.memoryBackend | default "file") "configmap") -}}
+{{- if and .Values.agent.memory (eq (.Values.agent.memoryBackend | default "configmap") "configmap") -}}
 apiVersion: v1
 kind: ConfigMap
 metadata:

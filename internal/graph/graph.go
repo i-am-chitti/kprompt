@@ -21,19 +21,32 @@ const (
 	ScopeCluster   = "cluster"
 	ScopeNamespace = "namespace"
 
-	NodeService        = "Service"
-	NodePod            = "Pod"
-	NodeNetworkPolicy  = "NetworkPolicy"
-	EdgeRoutes         = "routes"
-	EdgeSelects        = "selects"
-	SourceKubernetes   = "k8s"
+	NodeService       = "Service"
+	NodePod           = "Pod"
+	NodeNetworkPolicy = "NetworkPolicy"
+	NodeIngress       = "Ingress"
+	NodePVC           = "PersistentVolumeClaim"
+	NodeSecret        = "Secret"    // name-only ref; never Secret.data (AG-064)
+	NodeConfigMap     = "ConfigMap" // name-only ref (AG-064)
+	EdgeRoutes        = "routes"
+	EdgeSelects       = "selects"
+	EdgeExposes       = "exposes" // Ingress → Service
+	EdgeMounts        = "mounts"  // Pod → PVC | Secret | ConfigMap
+	SourceKubernetes  = "k8s"
 	// SourceOTel / EdgeCalls are set in otel.go (T-060).
 )
 
 // Request configures a read-only service dependency graph.
 type Request struct {
-	Namespace             string // empty → cluster-wide
-	IncludeNetworkPolicy  bool
+	Namespace            string // empty → cluster-wide
+	IncludeNetworkPolicy bool
+	// IncludeIngress adds Ingress→Service exposes edges (AG-063; default true from callers).
+	IncludeIngress bool
+	// IncludePVC adds Pod→PVC mounts edges (AG-063; default true from callers).
+	IncludePVC bool
+	// IncludeVolumeRefs adds Pod→Secret/ConfigMap mounts from Pod specs (AG-064).
+	// Names only — never Secret.data / ConfigMap data values.
+	IncludeVolumeRefs bool
 }
 
 // Node is one graph vertex.
@@ -49,7 +62,7 @@ type Node struct {
 type Edge struct {
 	From   string `json:"from"`
 	To     string `json:"to"`
-	Type   string `json:"type"` // routes | selects | calls | allows | denies
+	Type   string `json:"type"` // routes | selects | calls | allows | denies | exposes | mounts
 	Detail string `json:"detail,omitempty"`
 	Source string `json:"source"` // k8s | otel
 }
@@ -180,6 +193,111 @@ func Build(ctx context.Context, client kubernetes.Interface, req Request) (Repor
 		notes = append(notes, "NetworkPolicy edges omitted (pass includeNetworkPolicy to enable)")
 	}
 
+	if req.IncludeIngress {
+		ings, err := client.NetworkingV1().Ingresses(ns).List(ctx, metav1.ListOptions{Limit: limit})
+		if err != nil {
+			if apierrors.IsForbidden(err) {
+				notes = append(notes, fmt.Sprintf("skipped Ingresses: %v", err))
+			} else {
+				notes = append(notes, fmt.Sprintf("Ingresses unavailable: %v", err))
+			}
+		} else {
+			for _, ing := range ings.Items {
+				ingID := nodeID(NodeIngress, ing.Namespace, ing.Name)
+				nodes[ingID] = Node{
+					ID: ingID, Kind: NodeIngress, Name: ing.Name, Namespace: ing.Namespace,
+					Labels: copyLabels(ing.Labels),
+				}
+				for _, rule := range ing.Spec.Rules {
+					if rule.HTTP == nil {
+						continue
+					}
+					for _, path := range rule.HTTP.Paths {
+						svcName := path.Backend.Service
+						if svcName == nil || strings.TrimSpace(svcName.Name) == "" {
+							continue
+						}
+						svcID := nodeID(NodeService, ing.Namespace, svcName.Name)
+						if _, ok := nodes[svcID]; !ok {
+							nodes[svcID] = Node{
+								ID: svcID, Kind: NodeService, Name: svcName.Name, Namespace: ing.Namespace,
+							}
+						}
+						detail := "path /"
+						if path.Path != "" {
+							detail = "path " + path.Path
+						}
+						if rule.Host != "" {
+							detail = rule.Host + " " + detail
+						}
+						rep.Edges = append(rep.Edges, Edge{
+							From: ingID, To: svcID, Type: EdgeExposes, Detail: detail, Source: SourceKubernetes,
+						})
+					}
+				}
+				// Default backend
+				if ing.Spec.DefaultBackend != nil && ing.Spec.DefaultBackend.Service != nil {
+					svcName := ing.Spec.DefaultBackend.Service.Name
+					if strings.TrimSpace(svcName) != "" {
+						svcID := nodeID(NodeService, ing.Namespace, svcName)
+						if _, ok := nodes[svcID]; !ok {
+							nodes[svcID] = Node{
+								ID: svcID, Kind: NodeService, Name: svcName, Namespace: ing.Namespace,
+							}
+						}
+						rep.Edges = append(rep.Edges, Edge{
+							From: ingID, To: svcID, Type: EdgeExposes, Detail: "defaultBackend", Source: SourceKubernetes,
+						})
+					}
+				}
+			}
+		}
+	} else {
+		notes = append(notes, "Ingress edges omitted (pass includeIngress to enable)")
+	}
+
+	if req.IncludePVC {
+		pvcs, err := client.CoreV1().PersistentVolumeClaims(ns).List(ctx, metav1.ListOptions{Limit: limit})
+		if err != nil {
+			if apierrors.IsForbidden(err) {
+				notes = append(notes, fmt.Sprintf("skipped PVCs: %v", err))
+			} else {
+				notes = append(notes, fmt.Sprintf("PVCs unavailable: %v", err))
+			}
+		} else {
+			for _, pvc := range pvcs.Items {
+				pvcID := nodeID(NodePVC, pvc.Namespace, pvc.Name)
+				nodes[pvcID] = Node{
+					ID: pvcID, Kind: NodePVC, Name: pvc.Name, Namespace: pvc.Namespace,
+					Labels: copyLabels(pvc.Labels),
+				}
+			}
+		}
+	} else {
+		notes = append(notes, "PVC mount edges omitted (pass includePVC to enable)")
+	}
+
+	if req.IncludePVC || req.IncludeVolumeRefs {
+		pods, err := client.CoreV1().Pods(ns).List(ctx, metav1.ListOptions{Limit: limit})
+		if err != nil {
+			if apierrors.IsForbidden(err) {
+				notes = append(notes, fmt.Sprintf("skipped Pods for volume mounts: %v", err))
+			} else {
+				notes = append(notes, fmt.Sprintf("Pods unavailable for volume mounts: %v", err))
+			}
+		} else {
+			for _, pod := range pods.Items {
+				addPodVolumeEdges(&rep, nodes, pod, req.IncludePVC, req.IncludeVolumeRefs)
+			}
+			if req.IncludeVolumeRefs {
+				notes = append(notes, "Secret/ConfigMap nodes are name-only refs from Pod specs (never Secret.data)")
+			}
+		}
+	}
+	if !req.IncludeVolumeRefs {
+		notes = append(notes, "Secret/ConfigMap volume-ref edges omitted (pass includeVolumeRefs to enable)")
+	}
+
 	// Deduplicate edges.
 	edgeSeen := map[string]struct{}{}
 	unique := make([]Edge, 0, len(rep.Edges))
@@ -237,6 +355,72 @@ func copyLabels(in map[string]string) map[string]string {
 		out[k] = v
 	}
 	return out
+}
+
+func addPodVolumeEdges(rep *Report, nodes map[string]Node, pod corev1.Pod, includePVC, includeRefs bool) {
+	if rep == nil {
+		return
+	}
+	podID := nodeID(NodePod, pod.Namespace, pod.Name)
+	ensurePod := func() {
+		if _, ok := nodes[podID]; !ok {
+			nodes[podID] = Node{
+				ID: podID, Kind: NodePod, Name: pod.Name, Namespace: pod.Namespace,
+				Labels: copyLabels(pod.Labels),
+			}
+		}
+	}
+	link := func(kind, name, detail string) {
+		name = strings.TrimSpace(name)
+		if name == "" {
+			return
+		}
+		ensurePod()
+		id := nodeID(kind, pod.Namespace, name)
+		if _, ok := nodes[id]; !ok {
+			nodes[id] = Node{ID: id, Kind: kind, Name: name, Namespace: pod.Namespace}
+		}
+		rep.Edges = append(rep.Edges, Edge{
+			From: podID, To: id, Type: EdgeMounts, Detail: detail, Source: SourceKubernetes,
+		})
+	}
+
+	for _, vol := range pod.Spec.Volumes {
+		detail := "volume " + vol.Name
+		if includePVC && vol.PersistentVolumeClaim != nil {
+			link(NodePVC, vol.PersistentVolumeClaim.ClaimName, detail)
+		}
+		if includeRefs && vol.Secret != nil {
+			link(NodeSecret, vol.Secret.SecretName, detail)
+		}
+		if includeRefs && vol.ConfigMap != nil {
+			link(NodeConfigMap, vol.ConfigMap.Name, detail)
+		}
+	}
+	if !includeRefs {
+		return
+	}
+	for _, c := range append(append([]corev1.Container{}, pod.Spec.Containers...), pod.Spec.InitContainers...) {
+		for _, ef := range c.EnvFrom {
+			if ef.SecretRef != nil {
+				link(NodeSecret, ef.SecretRef.Name, "envFrom "+c.Name)
+			}
+			if ef.ConfigMapRef != nil {
+				link(NodeConfigMap, ef.ConfigMapRef.Name, "envFrom "+c.Name)
+			}
+		}
+		for _, ev := range c.Env {
+			if ev.ValueFrom == nil {
+				continue
+			}
+			if ev.ValueFrom.SecretKeyRef != nil {
+				link(NodeSecret, ev.ValueFrom.SecretKeyRef.Name, "env "+ev.Name)
+			}
+			if ev.ValueFrom.ConfigMapKeyRef != nil {
+				link(NodeConfigMap, ev.ValueFrom.ConfigMapKeyRef.Name, "env "+ev.Name)
+			}
+		}
+	}
 }
 
 func endpointPod(ep discoveryv1.Endpoint, sliceNS string) (name, namespace string) {

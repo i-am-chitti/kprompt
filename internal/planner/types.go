@@ -27,6 +27,7 @@ const (
 	OpTraceQuery         Op = "trace-query"
 	OpGrafanaQuery       Op = "grafana-query"
 	OpOptimize           Op = "optimize"
+	OpRoast              Op = "roast"
 	OpGraph              Op = "graph"
 	OpAudit              Op = "audit"
 	OpCleanup            Op = "cleanup"

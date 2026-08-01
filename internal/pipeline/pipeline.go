@@ -114,6 +114,11 @@ func RunWith(ctx context.Context, cfg config.Resolved, out io.Writer, deps Deps)
 		return nil
 	}
 
+	// Roast / vibe-check: local health roast — no LLM key required.
+	if intent.LooksLikeRoastPrompt(cfg.Prompt) {
+		return runRoastPrompt(ctx, cfg, out, deps)
+	}
+
 	provider := deps.Provider
 	if provider == nil {
 		var err error
@@ -165,6 +170,10 @@ func RunWith(ctx context.Context, cfg config.Resolved, out io.Writer, deps Deps)
 	})
 	in = intent.NormalizeVerb(in, cfg.Prompt)
 	in = intent.ApplyOptimizeScope(in, cfg.Prompt, intent.ScopePrefs{
+		DefaultNamespace: cfg.Namespace,
+		ForceNamespace:   cfg.NamespaceFromCLI,
+	})
+	in = intent.ApplyRoastScope(in, cfg.Prompt, intent.ScopePrefs{
 		DefaultNamespace: cfg.Namespace,
 		ForceNamespace:   cfg.NamespaceFromCLI,
 	})
@@ -534,6 +543,17 @@ func RunWith(ctx context.Context, cfg config.Resolved, out io.Writer, deps Deps)
 			}
 			applied = true
 			return nil
+		case intent.KindRoast:
+			report, err := buildRoastReport(ctx, client, plan)
+			if err != nil {
+				return cluster.Friendlier(fmt.Errorf("roast: %w", err))
+			}
+			doc = doc.WithRoastResult(report)
+			if !jsonMode {
+				ui.PrintRoast(out, report)
+			}
+			applied = true
+			return nil
 		case intent.KindGraph:
 			includeNP := true
 			if v, ok := plan.Intent.Params["includeNetworkPolicy"]; ok {
@@ -547,6 +567,9 @@ func RunWith(ctx context.Context, cfg config.Resolved, out io.Writer, deps Deps)
 			report, err := graph.Build(ctx, client, graph.Request{
 				Namespace:            plan.Intent.Target.Namespace,
 				IncludeNetworkPolicy: includeNP,
+				IncludeIngress:       true,
+				IncludePVC:           true,
+				IncludeVolumeRefs:    true,
 			})
 			if err != nil {
 				return cluster.Friendlier(fmt.Errorf("service graph: %w", err))
@@ -1342,7 +1365,7 @@ func isReadOnly(plan planner.ExecutionPlan) bool {
 		return false
 	}
 	switch plan.Intent.Kind {
-	case intent.KindGet, intent.KindExplain, intent.KindInvestigate, intent.KindWhy, intent.KindTimeline, intent.KindImpact, intent.KindAudit, intent.KindCleanup, intent.KindLearn, intent.KindDrift, intent.KindLogs, intent.KindDescribe, intent.KindPerformance, intent.KindTrace, intent.KindDashboard, intent.KindOptimize, intent.KindGraph, intent.KindIstio, intent.KindGitOps:
+	case intent.KindGet, intent.KindExplain, intent.KindInvestigate, intent.KindWhy, intent.KindTimeline, intent.KindImpact, intent.KindAudit, intent.KindCleanup, intent.KindLearn, intent.KindDrift, intent.KindLogs, intent.KindDescribe, intent.KindPerformance, intent.KindTrace, intent.KindDashboard, intent.KindOptimize, intent.KindRoast, intent.KindGraph, intent.KindIstio, intent.KindGitOps:
 		return true
 	default:
 		return false

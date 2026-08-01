@@ -43,7 +43,7 @@ func CheckPrompt(prompt string) Result {
 			return Result{
 				Risk:    RiskDenied,
 				Denied:  true,
-				Message: "🚨 Intent: destructive cluster operation\n🛡️ Safe execution: denied\n😅 Your cluster lives another day",
+				Message: WipeDenyMessage(p),
 			}
 		}
 	}
@@ -164,7 +164,7 @@ func EvaluatePlan(plan planner.ExecutionPlan) Result {
 		return Result{Risk: RiskLow}
 	case intent.KindScale, intent.KindDeploy, intent.KindInstall, intent.KindUpgrade, intent.KindRollback, intent.KindPatch, intent.KindWorkflow, intent.KindTekton, intent.KindKEDA, intent.KindHPA:
 		return Result{Risk: RiskMedium, Message: "Mutation requires approval"}
-	case intent.KindGet, intent.KindExplain, intent.KindInvestigate, intent.KindWhy, intent.KindTimeline, intent.KindImpact, intent.KindAudit, intent.KindCleanup, intent.KindLogs, intent.KindDescribe, intent.KindPerformance, intent.KindTrace, intent.KindDashboard, intent.KindOptimize, intent.KindGraph, intent.KindIstio:
+	case intent.KindGet, intent.KindExplain, intent.KindInvestigate, intent.KindWhy, intent.KindTimeline, intent.KindImpact, intent.KindAudit, intent.KindCleanup, intent.KindLogs, intent.KindDescribe, intent.KindPerformance, intent.KindTrace, intent.KindDashboard, intent.KindOptimize, intent.KindRoast, intent.KindGraph, intent.KindIstio:
 		// Generic Kubernetes reads and optimize reports (including Secret) are RiskLow.
 		// Authorization is the caller's kubeconfig RBAC — no special Secret redaction or deny.
 		// Mutating unknown kinds remains denied above; generic mutate is out of scope (T-048).

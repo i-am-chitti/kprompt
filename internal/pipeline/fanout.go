@@ -26,7 +26,7 @@ func fanOutContexts(cfg config.Resolved) []string {
 
 func supportsReadFanOut(kind intent.Kind) bool {
 	switch kind {
-	case intent.KindGet, intent.KindExplain, intent.KindInvestigate, intent.KindWhy, intent.KindTimeline, intent.KindImpact, intent.KindAudit, intent.KindCleanup, intent.KindLearn, intent.KindDrift, intent.KindLogs, intent.KindDescribe, intent.KindOptimize:
+	case intent.KindGet, intent.KindExplain, intent.KindInvestigate, intent.KindWhy, intent.KindTimeline, intent.KindImpact, intent.KindAudit, intent.KindCleanup, intent.KindLearn, intent.KindDrift, intent.KindLogs, intent.KindDescribe, intent.KindOptimize, intent.KindRoast:
 		return true
 	default:
 		return false

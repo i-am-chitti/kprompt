@@ -84,3 +84,67 @@ func TestHandleAndHTTP(t *testing.T) {
 		t.Fatalf("%+v", got)
 	}
 }
+
+func TestSummarizeKnowledge(t *testing.T) {
+	svc := New()
+	_, _ = svc.Handle(context.Background(), handoff.New("payments", "platform", "dep", sampleReport("payments", "timeout")))
+	_, _ = svc.Handle(context.Background(), handoff.New("payments", "platform", "dep", sampleReport("payments", "again")))
+	_, _ = svc.Handle(context.Background(), handoff.New("checkout", "payments", "dep", sampleReport("checkout", "latency")))
+
+	sum := Summarize(svc.Recent(), false)
+	if sum.Kind != kindKnowledge || sum.Durable {
+		t.Fatalf("%+v", sum)
+	}
+	if sum.HandoffCount != 3 {
+		t.Fatalf("handoffs=%d", sum.HandoffCount)
+	}
+	if len(sum.Namespaces) != 3 {
+		t.Fatalf("namespaces=%v", sum.Namespaces)
+	}
+	if len(sum.Edges) == 0 || sum.Edges[0].From != "payments" || sum.Edges[0].Suspect != "platform" || sum.Edges[0].Count != 2 {
+		t.Fatalf("edges=%+v", sum.Edges)
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/v1/knowledge", nil)
+	rr := httptest.NewRecorder()
+	(&Handler{Service: svc}).routes().ServeHTTP(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", rr.Code, rr.Body.String())
+	}
+	var got KnowledgeSummary
+	if err := json.Unmarshal(rr.Body.Bytes(), &got); err != nil {
+		t.Fatal(err)
+	}
+	if got.HandoffCount != 3 {
+		t.Fatalf("%+v", got)
+	}
+	text := FormatKnowledge(got)
+	if !strings.Contains(text, "payments") || !strings.Contains(text, "platform") {
+		t.Fatalf("format=%q", text)
+	}
+
+	br := BlastRadius(svc.Recent(), false, "payments")
+	if br.Kind != kindBlastRadius || len(br.Hops) == 0 {
+		t.Fatalf("%+v", br)
+	}
+	if br.Hops[0].From != "payments" || br.Hops[0].To != "platform" {
+		t.Fatalf("hops=%+v", br.Hops)
+	}
+	req2 := httptest.NewRequest(http.MethodGet, "/v1/blast-radius?namespace=payments", nil)
+	rr2 := httptest.NewRecorder()
+	(&Handler{Service: svc}).routes().ServeHTTP(rr2, req2)
+	if rr2.Code != http.StatusOK {
+		t.Fatalf("blast-radius status=%d body=%s", rr2.Code, rr2.Body.String())
+	}
+	var gotBR BlastRadiusReport
+	if err := json.Unmarshal(rr2.Body.Bytes(), &gotBR); err != nil {
+		t.Fatal(err)
+	}
+	if len(gotBR.Hops) < 1 {
+		t.Fatalf("%+v", gotBR)
+	}
+	out := FormatBlastRadius(gotBR)
+	if !strings.Contains(out, "payments") {
+		t.Fatalf("format=%q", out)
+	}
+}

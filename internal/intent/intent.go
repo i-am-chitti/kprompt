@@ -37,6 +37,7 @@ const (
 	KindTrace       Kind = "trace"
 	KindDashboard   Kind = "dashboard"
 	KindOptimize    Kind = "optimize"
+	KindRoast       Kind = "roast"
 	KindGraph       Kind = "graph"
 	KindDelete      Kind = "delete"
 	KindPatch       Kind = "patch"
@@ -52,7 +53,7 @@ var ExtractKinds = map[Kind]struct{}{
 	KindImpact: {}, KindAudit: {}, KindCleanup: {}, KindLearn: {}, KindDrift: {},
 	KindLogs: {}, KindDescribe: {}, KindWorkflow: {}, KindTekton: {}, KindKEDA: {},
 	KindHPA: {}, KindIstio: {}, KindCrossplane: {}, KindGitOps: {}, KindPerformance: {},
-	KindTrace: {}, KindDashboard: {}, KindOptimize: {}, KindGraph: {}, KindDelete: {},
+	KindTrace: {}, KindDashboard: {}, KindOptimize: {}, KindRoast: {}, KindGraph: {}, KindDelete: {},
 	KindDeny: {}, KindUnknown: {},
 }
 
@@ -92,7 +93,7 @@ const SchemaJSON = `{
   "properties": {
     "kind": {
       "type": "string",
-      "enum": ["deploy", "install", "upgrade", "scale", "rollback", "get", "explain", "investigate", "why", "timeline", "impact", "audit", "cleanup", "learn", "drift", "logs", "describe", "workflow", "tekton", "keda", "hpa", "istio", "crossplane", "gitops", "performance", "trace", "dashboard", "optimize", "graph", "delete", "deny", "unknown"]
+      "enum": ["deploy", "install", "upgrade", "scale", "rollback", "get", "explain", "investigate", "why", "timeline", "impact", "audit", "cleanup", "learn", "drift", "logs", "describe", "workflow", "tekton", "keda", "hpa", "istio", "crossplane", "gitops", "performance", "trace", "dashboard", "optimize", "roast", "graph", "delete", "deny", "unknown"]
     },
     "target": {
       "type": "object",
