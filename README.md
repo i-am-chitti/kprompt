@@ -159,6 +159,23 @@ go build -o bin/kprompt ./cmd/kprompt
 ./bin/kprompt version
 ```
 
+### Shell autocompletion
+
+To enable autocompletions for your shell:
+
+```bash
+# Bash
+source <(kprompt completion bash)
+
+# Zsh
+source <(kprompt completion zsh)
+
+# Fish
+kprompt completion fish > ~/.config/fish/completions/kprompt.fish
+```
+
+See `kprompt completion --help` for details on how to persist completions.
+
 ## Transparent metrics
 
 The Free CLI does **not** phone home. Adoption signals stay public and passive:
