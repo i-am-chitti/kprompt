@@ -274,6 +274,8 @@ Override API with `KPROMPT_API_URL` / `KPROMPT_API_TOKEN` if needed. The `kp_…
 
 Use `--output json` for a versioned PlanResult (see [docs/ci.md](./docs/ci.md)). Multi-context reads/optimizes emit `MultiContextResult` (see [docs/multi-cluster.md](./docs/multi-cluster.md)).
 
+This repo’s Actions can optionally upload a stub PlanResult to Team (`KPROMPT_ORG_TOKEN` secret) — see [docs/ci.md § Team org ingest](./docs/ci.md#team-org-ingest-this-repos-actions). No cluster apply.
+
 Cluster / kubeconfig failures print short actionable hints (missing config, bad context, RBAC deny, unreachable API) and point at the [Usage guide](https://kprompt.ai/#usage) when helpful.
 
 ## Flags

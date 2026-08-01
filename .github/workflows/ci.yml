@@ -17,3 +17,45 @@ jobs:
         run: go test ./...
       - name: Build
         run: go build -o bin/kprompt ./cmd/kprompt
+
+  # Team SCM demo (A-065 / A-069): stub PlanResult upload when org token is set.
+  # Never applies to a cluster. Skips cleanly without KPROMPT_ORG_TOKEN.
+  report-plan:
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - name: Upload PlanResult to kprompt Team
+        env:
+          KPROMPT_ORG_TOKEN: ${{ secrets.KPROMPT_ORG_TOKEN }}
+          API_URL: ${{ vars.KPROMPT_API_URL || 'https://api.kprompt.ai' }}
+        run: |
+          if [ -z "${KPROMPT_ORG_TOKEN}" ]; then
+            echo "KPROMPT_ORG_TOKEN not set — skip Team PlanResult upload"
+            exit 0
+          fi
+          BODY=$(jq -n \
+            --arg repo "${GITHUB_REPOSITORY}" \
+            --arg sha "${GITHUB_SHA}" \
+            --arg summary "ci stub plan (${GITHUB_WORKFLOW})" \
+            '{
+              repo_full_name: $repo,
+              head_sha: $sha,
+              summary: $summary,
+              risk: "low",
+              prompt: "ci: kprompt workflow stub",
+              pipeline_kind: "github_actions",
+              pipeline_ref: ".github/workflows/ci.yml",
+              plan_result: {
+                schema: "kprompt.planresult.stub/v1",
+                intent: "report",
+                risk: "low",
+                summary: $summary,
+                mutating: false,
+                source: "github-actions"
+              }
+            }')
+          curl -fsS -X POST "${API_URL}/v1/ci/planresults" \
+            -H "Authorization: Bearer ${KPROMPT_ORG_TOKEN}" \
+            -H "Content-Type: application/json" \
+            -d "${BODY}"
+          echo "uploaded PlanResult for ${GITHUB_REPOSITORY}@${GITHUB_SHA}"

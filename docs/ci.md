@@ -65,3 +65,18 @@ echo "$json" | jq -e '(.blastRadius.namespaces // []) | length <= 1'
 # After --approve --wait, require verify ok
 echo "$json" | jq -e '.verify.status == "ok"'
 ```
+
+## Team org ingest (this repo’s Actions)
+
+GitHub Actions on `kprompt/kprompt` can upload a **stub** PlanResult to Team after tests pass (optional job `report-plan` in [`.github/workflows/ci.yml`](../.github/workflows/ci.yml)). This does **not** apply anything to a cluster.
+
+| Requirement | Notes |
+|-------------|--------|
+| GitHub App | Install the kprompt App on the **`kprompt` org** (not only a personal account), then bind that installation in [Integrations](https://app.kprompt.ai/integrations) |
+| Bound repo | Bind `kprompt/kprompt` (and pipeline metadata for `.github/workflows/ci.yml` if you want status timestamps) |
+| Repo secret | `KPROMPT_ORG_TOKEN` = org API token (`kp_…` from Team after `kprompt login` / org tokens UI) |
+| Optional var | `KPROMPT_API_URL` (default `https://api.kprompt.ai`) |
+
+Without the secret, CI still passes and skips the upload. With it: Audit `reported`, app `/ci` artifact, and (when App JWT + Checks write are configured) a Check Run named `kprompt` via optional `head_sha`.
+
+See also: [GitOps PR mode](./gitops-pr.md) (CLI laptop lane; separate from Team org connect).
