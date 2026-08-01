@@ -91,6 +91,7 @@ func Login(ctx context.Context, opt LoginOptions) (Credentials, error) {
 			}
 			if poll.Member != nil {
 				creds.MemberEmail = poll.Member.Email
+				creds.MemberRole = poll.Member.Role
 			}
 			if err := SaveCredentials(creds); err != nil {
 				return Credentials{}, err

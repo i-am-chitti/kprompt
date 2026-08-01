@@ -146,6 +146,10 @@ func runMultiContextMutates(
 		fmt.Fprintf(human, "Multi-context mutate across %d contexts — approval is per context.\n", len(contexts))
 	}
 
+	if msg := orgRoleApproveDeny(risk); msg != "" && !deps.SkipOrgPolicy {
+		return denyFanOut(out, deps, cfg, plan, jsonMode, msg)
+	}
+
 	result, err := fanOutSteps(ctx, cfg, human, deps, provider, plan, contexts, true)
 	if err != nil {
 		return err

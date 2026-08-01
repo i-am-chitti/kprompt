@@ -21,8 +21,9 @@ type Policy struct {
 	DenyIntents     []string       `json:"deny_intents" yaml:"deny_intents"`
 	AllowNamespaces []string       `json:"allow_namespaces" yaml:"allow_namespaces"`
 	DenyNamespaces  []string       `json:"deny_namespaces" yaml:"deny_namespaces"`
-	RequireApprove  bool           `json:"require_approve" yaml:"require_approve"`
-	ChangeWindows   []ChangeWindow `json:"change_windows,omitempty" yaml:"change_windows,omitempty"`
+	RequireApprove  bool                `json:"require_approve" yaml:"require_approve"`
+	ChangeWindows   []ChangeWindow      `json:"change_windows,omitempty" yaml:"change_windows,omitempty"`
+	ApproveByRole   map[string][]string `json:"approve_by_role,omitempty" yaml:"approve_by_role,omitempty"`
 }
 
 // ChangeWindow is a time-bound mutate rule from the Team control plane (A-070).
@@ -110,6 +111,13 @@ func PullPolicy(ctx context.Context) (Policy, error) {
 		return Policy{}, fmt.Errorf("not enrolled — run: kprompt login")
 	}
 	client := NewClient(ResolveAPIURL(creds), token)
+	if me, err := client.Me(ctx); err == nil {
+		creds.OrgID = me.Org.ID
+		creds.OrgName = me.Org.Name
+		creds.MemberEmail = me.Member.Email
+		creds.MemberRole = me.Member.Role
+		_ = SaveCredentials(creds)
+	}
 	pol, err := client.Policy(ctx)
 	if err != nil {
 		return Policy{}, err

@@ -20,6 +20,7 @@ type OrgPolicy struct {
 	DenyNamespaces  []string
 	RequireApprove  bool
 	ChangeWindows   []ChangeWindow
+	ApproveByRole   map[string][]string
 }
 
 // ChangeWindow restricts mutating plans for matching kube contexts (A-070).
@@ -273,4 +274,42 @@ func nsMatch(pattern, ns string) bool {
 		return true
 	}
 	return strings.EqualFold(pattern, ns)
+}
+
+// RoleMayApprove reports whether role may approve a plan at the given risk (A-071).
+// Empty matrix = no role×risk constraint (allow).
+func RoleMayApprove(matrix map[string][]string, role string, risk Risk) bool {
+	if len(matrix) == 0 {
+		return true
+	}
+	if risk == RiskDenied || risk == "" {
+		return false
+	}
+	role = strings.ToLower(strings.TrimSpace(role))
+	if role == "" {
+		return false
+	}
+	allowed, ok := matrix[role]
+	if !ok {
+		return false
+	}
+	want := strings.ToLower(string(risk))
+	for _, a := range allowed {
+		if strings.EqualFold(strings.TrimSpace(a), want) {
+			return true
+		}
+	}
+	return false
+}
+
+// RoleApproveDenyMessage returns a deny message when the member role cannot approve risk.
+func RoleApproveDenyMessage(matrix map[string][]string, role string, risk Risk) string {
+	if RoleMayApprove(matrix, role, risk) {
+		return ""
+	}
+	role = strings.ToLower(strings.TrimSpace(role))
+	if role == "" {
+		role = "(unknown)"
+	}
+	return fmt.Sprintf("🛡️ Org policy: role %q may not approve risk %s", role, risk)
 }

@@ -68,7 +68,7 @@ func runRoute(
 			}
 			return nil
 		}
-		approved, err := resolveApproval(cfg.Approve, human, deps)
+		approved, err := resolveApproval(cfg.Approve, human, deps, aggregateRouteRisk(prepared.Risks))
 		if err != nil {
 			return err
 		}

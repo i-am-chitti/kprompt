@@ -64,5 +64,16 @@ func formatPolicy(p team.Policy) string {
 	fmt.Fprintf(&b, "allow_namespaces:  %s\n", strings.Join(p.AllowNamespaces, ", "))
 	fmt.Fprintf(&b, "deny_namespaces:   %s\n", strings.Join(p.DenyNamespaces, ", "))
 	fmt.Fprintf(&b, "require_approve:   %v\n", p.RequireApprove)
+	if len(p.ChangeWindows) > 0 {
+		fmt.Fprintf(&b, "change_windows:    %d\n", len(p.ChangeWindows))
+	}
+	if len(p.ApproveByRole) > 0 {
+		fmt.Fprintf(&b, "approve_by_role:\n")
+		for _, role := range []string{"viewer", "operator", "admin"} {
+			if risks, ok := p.ApproveByRole[role]; ok {
+				fmt.Fprintf(&b, "  %s: [%s]\n", role, strings.Join(risks, ", "))
+			}
+		}
+	}
 	return b.String()
 }

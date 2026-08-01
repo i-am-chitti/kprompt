@@ -123,6 +123,11 @@ func newWhoamiCmd() *cobra.Command {
 			if me.Token != nil {
 				fmt.Fprintf(cmd.OutOrStdout(), "token:  %s…\n", me.Token.Prefix)
 			}
+			creds.OrgID = me.Org.ID
+			creds.OrgName = me.Org.Name
+			creds.MemberEmail = me.Member.Email
+			creds.MemberRole = me.Member.Role
+			_ = team.SaveCredentials(creds)
 			return nil
 		},
 	}

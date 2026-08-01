@@ -132,3 +132,29 @@ func TestChangeWindowDeniesOutsideHours(t *testing.T) {
 		t.Fatalf("reads should pass outside window: %+v", r)
 	}
 }
+
+func TestRoleMayApprove(t *testing.T) {
+	matrix := map[string][]string{
+		"viewer":   {},
+		"operator": {"low", "medium"},
+		"admin":    {"low", "medium", "high"},
+	}
+	if RoleMayApprove(matrix, "viewer", RiskMedium) {
+		t.Fatal("viewer must not approve medium")
+	}
+	if !RoleMayApprove(matrix, "operator", RiskMedium) {
+		t.Fatal("operator may approve medium")
+	}
+	if RoleMayApprove(matrix, "operator", RiskHigh) {
+		t.Fatal("operator must not approve high")
+	}
+	if !RoleMayApprove(matrix, "admin", RiskHigh) {
+		t.Fatal("admin may approve high")
+	}
+	if !RoleMayApprove(nil, "viewer", RiskHigh) {
+		t.Fatal("empty matrix = no constraint")
+	}
+	if msg := RoleApproveDenyMessage(matrix, "viewer", RiskLow); msg == "" {
+		t.Fatal("expected deny message for viewer/low")
+	}
+}

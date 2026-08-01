@@ -23,6 +23,7 @@ type Credentials struct {
 	OrgID       string `yaml:"org_id,omitempty"`
 	OrgName     string `yaml:"org_name,omitempty"`
 	MemberEmail string `yaml:"member_email,omitempty"`
+	MemberRole  string `yaml:"member_role,omitempty"`
 	TokenHint   string `yaml:"token_hint,omitempty"`
 }
 

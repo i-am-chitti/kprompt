@@ -523,7 +523,7 @@ func RunWith(ctx context.Context, cfg config.Resolved, out io.Writer, deps Deps)
 			planner.EnrichBlastRadius(ctx, client, &fix)
 			ui.PrintPlan(out, fix, fixRisk)
 			// Never treat the parent optimize --approve flag as consent to mutate.
-			approved, err := resolveApproval(false, out, deps)
+			approved, err := resolveApproval(false, out, deps, fixRisk)
 			if err != nil {
 				return err
 			}
@@ -668,7 +668,7 @@ func RunWith(ctx context.Context, cfg config.Resolved, out io.Writer, deps Deps)
 			}
 			fmt.Fprintln(out, "Suggested fix (requires approval):")
 			ui.PrintPlan(out, patch, patchRisk)
-			approved, err := resolveApproval(cfg.Approve, out, deps)
+			approved, err := resolveApproval(cfg.Approve, out, deps, patchRisk)
 			if err != nil {
 				return err
 			}
@@ -719,7 +719,7 @@ func RunWith(ctx context.Context, cfg config.Resolved, out io.Writer, deps Deps)
 			}
 			fmt.Fprintln(out, "Suggested fix (requires approval):")
 			ui.PrintPlan(out, patch, patchRisk)
-			approved, err := resolveApproval(cfg.Approve, out, deps)
+			approved, err := resolveApproval(cfg.Approve, out, deps, patchRisk)
 			if err != nil {
 				return err
 			}
@@ -770,7 +770,7 @@ func RunWith(ctx context.Context, cfg config.Resolved, out io.Writer, deps Deps)
 			}
 			fmt.Fprintln(out, "Suggested fix (requires approval):")
 			ui.PrintPlan(out, patch, patchRisk)
-			approved, err := resolveApproval(cfg.Approve, out, deps)
+			approved, err := resolveApproval(cfg.Approve, out, deps, patchRisk)
 			if err != nil {
 				return err
 			}
@@ -853,7 +853,7 @@ func RunWith(ctx context.Context, cfg config.Resolved, out io.Writer, deps Deps)
 			}
 			fmt.Fprintln(out, "Suggested hardening (requires approval):")
 			ui.PrintPlan(out, patch, patchRisk)
-			approved, err := resolveApproval(cfg.Approve, out, deps)
+			approved, err := resolveApproval(cfg.Approve, out, deps, patchRisk)
 			if err != nil {
 				return err
 			}
@@ -922,7 +922,7 @@ func RunWith(ctx context.Context, cfg config.Resolved, out io.Writer, deps Deps)
 				}
 				fmt.Fprintln(out, "Suggested GitOps sync (requires approval):")
 				ui.PrintPlan(out, patch, patchRisk)
-				approved, err := resolveApproval(cfg.Approve, out, deps)
+				approved, err := resolveApproval(cfg.Approve, out, deps, patchRisk)
 				if err != nil {
 					return err
 				}
@@ -981,7 +981,7 @@ func RunWith(ctx context.Context, cfg config.Resolved, out io.Writer, deps Deps)
 				if suggest.IsCleanupOrphanPlan(patch) {
 					approved, err = resolveOrphanApproval(cfg.Approve, out, deps)
 				} else {
-					approved, err = resolveApproval(cfg.Approve, out, deps)
+					approved, err = resolveApproval(cfg.Approve, out, deps, patchRisk)
 				}
 				if err != nil {
 					return err
@@ -1075,7 +1075,7 @@ func RunWith(ctx context.Context, cfg config.Resolved, out io.Writer, deps Deps)
 		}
 	}
 
-	approved, err := resolveApprovalMode(cfg.Approve, human, deps, gitopsSettings.Enabled())
+	approved, err := resolveApprovalMode(cfg.Approve, human, deps, gitopsSettings.Enabled(), risk)
 	if err != nil {
 		return err
 	}
@@ -1279,11 +1279,25 @@ func deploymentWaitTargets(plan planner.ExecutionPlan) []planner.ObjectRef {
 	return out
 }
 
-func resolveApproval(flagApprove bool, out io.Writer, deps Deps) (bool, error) {
-	return resolveApprovalMode(flagApprove, out, deps, false)
+func resolveApproval(flagApprove bool, out io.Writer, deps Deps, risk safety.Result) (bool, error) {
+	return resolveApprovalMode(flagApprove, out, deps, false, risk)
 }
 
-func resolveApprovalMode(flagApprove bool, out io.Writer, deps Deps, prMode bool) (bool, error) {
+func resolveApprovalMode(flagApprove bool, out io.Writer, deps Deps, prMode bool, risk safety.Result) (bool, error) {
+	ok, err := resolveApprovalConsent(flagApprove, out, deps, prMode)
+	if err != nil || !ok {
+		return ok, err
+	}
+	if !deps.SkipOrgPolicy {
+		if msg := orgRoleApproveDeny(risk); msg != "" {
+			ui.PrintDenied(out, msg)
+			return false, nil
+		}
+	}
+	return true, nil
+}
+
+func resolveApprovalConsent(flagApprove bool, out io.Writer, deps Deps, prMode bool) (bool, error) {
 	if flagApprove {
 		return true, nil
 	}
@@ -1325,10 +1339,42 @@ func resolveApprovalMode(flagApprove bool, out io.Writer, deps Deps, prMode bool
 	return ok, nil
 }
 
+func orgRoleApproveDeny(risk safety.Result) string {
+	org := loadOrgPolicy()
+	if org == nil || len(org.ApproveByRole) == 0 {
+		return ""
+	}
+	role := loadMemberRole()
+	return safety.RoleApproveDenyMessage(org.ApproveByRole, role, risk.Risk)
+}
+
+func loadMemberRole() string {
+	creds, ok, err := team.LoadCredentials()
+	if err != nil || !ok {
+		return ""
+	}
+	return strings.TrimSpace(creds.MemberRole)
+}
+
 // resolveOrphanApproval gates ConfigMap/Secret orphan deletes. Interactive
 // sessions must type DELETE-ORPHANS; --approve is enough when the original
 // prompt already contained a confirm-orphans phrase (otherwise no orphan plan).
 func resolveOrphanApproval(flagApprove bool, out io.Writer, deps Deps) (bool, error) {
+	ok, err := resolveOrphanConsent(flagApprove, out, deps)
+	if err != nil || !ok {
+		return ok, err
+	}
+	if !deps.SkipOrgPolicy {
+		high := safety.Result{Risk: safety.RiskHigh}
+		if msg := orgRoleApproveDeny(high); msg != "" {
+			ui.PrintDenied(out, msg)
+			return false, nil
+		}
+	}
+	return true, nil
+}
+
+func resolveOrphanConsent(flagApprove bool, out io.Writer, deps Deps) (bool, error) {
 	if flagApprove {
 		return true, nil
 	}
@@ -1710,6 +1756,7 @@ func loadOrgPolicy() *safety.OrgPolicy {
 		DenyNamespaces:  pol.DenyNamespaces,
 		RequireApprove:  pol.RequireApprove,
 		ChangeWindows:   toSafetyWindows(pol.ChangeWindows),
+		ApproveByRole:   pol.ApproveByRole,
 	}
 }
 
