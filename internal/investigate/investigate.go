@@ -1,6 +1,7 @@
-// Package investigate builds multi-hop RCA documents (S-002 · T-080).
+// Package investigate builds multi-hop RCA documents (S-002 · T-080 · T-090).
 //
 // MVP hops: Service → Endpoints → Deployment → ReplicaSet → Pods → Events → Logs.
+// Independent hops fan out in parallel (S-019); sequential only where a real data edge exists.
 // Ingress / mesh / Prometheus are listed in Investigation.Degraded until later slices.
 package investigate
 
@@ -8,6 +9,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"sync"
 
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -33,6 +35,8 @@ type Investigator struct {
 }
 
 // Run performs the multi-hop walk and returns a validated Investigation.
+// Explain (workload chain) and Service/Endpoints discovery fan out when both only need
+// the target identity — no data edge between them (S-019 / T-090).
 func (inv *Investigator) Run(ctx context.Context, req Request) (incident.Investigation, cluster.ExplainReport, error) {
 	if inv == nil || inv.Client == nil {
 		return incident.Investigation{}, cluster.ExplainReport{}, fmt.Errorf("investigate: client required")
@@ -51,11 +55,35 @@ func (inv *Investigator) Run(ctx context.Context, req Request) (incident.Investi
 	}
 
 	explainer := &cluster.Explainer{Client: inv.Client}
-	rep, err := explainer.Explain(ctx, cluster.ExplainRequest{
-		Name: name, Namespace: ns, Kind: kind,
-	})
-	if err != nil {
-		return incident.Investigation{}, rep, err
+
+	var (
+		rep        cluster.ExplainReport
+		explainErr error
+		svcHops    []cluster.ChainStep
+		svcFindings []incident.Finding
+		svcEvidence []incident.EvidenceRef
+	)
+
+	var wg sync.WaitGroup
+	wg.Add(2)
+	go func() {
+		defer wg.Done()
+		rep, explainErr = explainer.Explain(ctx, cluster.ExplainRequest{
+			Name: name, Namespace: ns, Kind: kind,
+		})
+	}()
+	go func() {
+		defer wg.Done()
+		podLabels, err := inv.workloadSelector(ctx, ns, kind, name)
+		if err != nil || len(podLabels) == 0 {
+			return
+		}
+		svcHops, svcFindings, svcEvidence = inv.serviceHops(ctx, ns, podLabels)
+	}()
+	wg.Wait()
+
+	if explainErr != nil {
+		return incident.Investigation{}, rep, explainErr
 	}
 
 	out := incident.NewInvestigation(req.Prompt, ns)
@@ -63,8 +91,6 @@ func (inv *Investigator) Run(ctx context.Context, req Request) (incident.Investi
 	out.Summary = firstNonEmpty(rep.Summary, fmt.Sprintf("%s/%s status: %s", rep.Kind, rep.Target, rep.Status))
 	out.Degraded = []string{"ingress", "mesh", "prometheus"} // honest MVP gaps
 
-	// Service → Endpoints ahead of the Deployment chain when we can resolve them.
-	svcHops, svcFindings, svcEvidence := inv.serviceHops(ctx, ns, rep)
 	prependChain(&rep, svcHops...)
 
 	out.Findings = append(out.Findings, svcFindings...)
@@ -85,13 +111,12 @@ func (inv *Investigator) Run(ctx context.Context, req Request) (incident.Investi
 	return out, rep, nil
 }
 
-func (inv *Investigator) serviceHops(ctx context.Context, ns string, rep cluster.ExplainReport) (
+func (inv *Investigator) serviceHops(ctx context.Context, ns string, podLabels map[string]string) (
 	hops []cluster.ChainStep,
 	findings []incident.Finding,
 	evidence []incident.EvidenceRef,
 ) {
-	podLabels, err := inv.workloadSelector(ctx, ns, rep)
-	if err != nil || len(podLabels) == 0 {
+	if len(podLabels) == 0 {
 		return nil, nil, nil
 	}
 
@@ -106,6 +131,10 @@ func (inv *Investigator) serviceHops(ctx context.Context, ns string, rep cluster
 		return hops, findings, evidence
 	}
 
+	type match struct {
+		svc corev1.Service
+	}
+	var matched []match
 	for _, svc := range svcs.Items {
 		if svc.Spec.Selector == nil || len(svc.Spec.Selector) == 0 {
 			continue
@@ -113,78 +142,109 @@ func (inv *Investigator) serviceHops(ctx context.Context, ns string, rep cluster
 		if !selectorMatches(svc.Spec.Selector, podLabels) {
 			continue
 		}
-		ports := formatPorts(svc.Spec.Ports)
-		hops = append(hops, cluster.ChainStep{
-			Level:  "Service",
-			Name:   svc.Name,
-			Detail: firstNonEmpty(ports, "selector matches workload"),
-		})
-		evidence = append(evidence, incident.EvidenceRef{
-			Type: incident.EvidenceObject,
-			Resource: &incident.ResourceRef{
-				Kind: "Service", Name: svc.Name, Namespace: ns,
-			},
-			Reason:  "Selected",
-			Message: "Service selector matches workload pod labels",
-			Source:  "kubernetes",
-		})
+		matched = append(matched, match{svc: svc})
+	}
+	if len(matched) == 0 {
+		return nil, nil, nil
+	}
 
-		ep, err := inv.Client.CoreV1().Endpoints(ns).Get(ctx, svc.Name, metav1.GetOptions{})
-		if err != nil {
-			hops = append(hops, cluster.ChainStep{
+	// Endpoints Gets are independent per Service — fan out (S-019).
+	type epOut struct {
+		hops     []cluster.ChainStep
+		findings []incident.Finding
+		evidence []incident.EvidenceRef
+	}
+	outs := make([]epOut, len(matched))
+	var wg sync.WaitGroup
+	for i, m := range matched {
+		wg.Add(1)
+		go func(i int, svc corev1.Service) {
+			defer wg.Done()
+			ports := formatPorts(svc.Spec.Ports)
+			local := epOut{
+				hops: []cluster.ChainStep{{
+					Level:  "Service",
+					Name:   svc.Name,
+					Detail: firstNonEmpty(ports, "selector matches workload"),
+				}},
+				evidence: []incident.EvidenceRef{{
+					Type: incident.EvidenceObject,
+					Resource: &incident.ResourceRef{
+						Kind: "Service", Name: svc.Name, Namespace: ns,
+					},
+					Reason:  "Selected",
+					Message: "Service selector matches workload pod labels",
+					Source:  "kubernetes",
+				}},
+			}
+			ep, err := inv.Client.CoreV1().Endpoints(ns).Get(ctx, svc.Name, metav1.GetOptions{})
+			if err != nil {
+				local.hops = append(local.hops, cluster.ChainStep{
+					Level:  "Endpoints",
+					Name:   svc.Name,
+					Detail: "unavailable: " + err.Error(),
+				})
+				local.findings = append(local.findings, incident.Finding{
+					Code:      "EndpointsUnavailable",
+					Severity:  incident.SeverityMedium,
+					Title:     "Endpoints missing for Service/" + svc.Name,
+					Message:   err.Error(),
+					Namespace: ns,
+				})
+				outs[i] = local
+				return
+			}
+			ready, notReady := countAddresses(ep)
+			detail := fmt.Sprintf("ready=%d notReady=%d", ready, notReady)
+			local.hops = append(local.hops, cluster.ChainStep{
 				Level:  "Endpoints",
 				Name:   svc.Name,
-				Detail: "unavailable: " + err.Error(),
+				Detail: detail,
 			})
-			findings = append(findings, incident.Finding{
-				Code:      "EndpointsUnavailable",
-				Severity:  incident.SeverityMedium,
-				Title:     "Endpoints missing for Service/" + svc.Name,
-				Message:   err.Error(),
-				Namespace: ns,
+			local.evidence = append(local.evidence, incident.EvidenceRef{
+				Type: incident.EvidenceObject,
+				Resource: &incident.ResourceRef{
+					Kind: "Endpoints", Name: svc.Name, Namespace: ns,
+				},
+				Reason:  "Addresses",
+				Message: detail,
+				Source:  "kubernetes",
 			})
-			continue
-		}
-		ready, notReady := countAddresses(ep)
-		detail := fmt.Sprintf("ready=%d notReady=%d", ready, notReady)
-		hops = append(hops, cluster.ChainStep{
-			Level:  "Endpoints",
-			Name:   svc.Name,
-			Detail: detail,
-		})
-		evidence = append(evidence, incident.EvidenceRef{
-			Type: incident.EvidenceObject,
-			Resource: &incident.ResourceRef{
-				Kind: "Endpoints", Name: svc.Name, Namespace: ns,
-			},
-			Reason:  "Addresses",
-			Message: detail,
-			Source:  "kubernetes",
-		})
-		if ready == 0 {
-			sev := incident.SeverityHigh
-			findings = append(findings, incident.Finding{
-				Code:      "NoReadyEndpoints",
-				Severity:  sev,
-				Title:     "Service/" + svc.Name + " has no ready endpoints",
-				Message:   "No ready backend addresses — traffic to this Service will fail",
-				Namespace: ns,
-			})
-		}
+			if ready == 0 {
+				local.findings = append(local.findings, incident.Finding{
+					Code:      "NoReadyEndpoints",
+					Severity:  incident.SeverityHigh,
+					Title:     "Service/" + svc.Name + " has no ready endpoints",
+					Message:   "No ready backend addresses — traffic to this Service will fail",
+					Namespace: ns,
+				})
+			}
+			outs[i] = local
+		}(i, m.svc)
+	}
+	wg.Wait()
+
+	for _, o := range outs {
+		hops = append(hops, o.hops...)
+		findings = append(findings, o.findings...)
+		evidence = append(evidence, o.evidence...)
 	}
 	return hops, findings, evidence
 }
 
-func (inv *Investigator) workloadSelector(ctx context.Context, ns string, rep cluster.ExplainReport) (map[string]string, error) {
-	switch rep.Kind {
+func (inv *Investigator) workloadSelector(ctx context.Context, ns, kind, name string) (map[string]string, error) {
+	switch kind {
 	case "Deployment":
-		dep, err := inv.Client.AppsV1().Deployments(ns).Get(ctx, rep.Target, metav1.GetOptions{})
+		dep, err := inv.Client.AppsV1().Deployments(ns).Get(ctx, name, metav1.GetOptions{})
 		if err != nil {
 			return nil, err
 		}
+		if dep.Spec.Selector == nil {
+			return nil, nil
+		}
 		return dep.Spec.Selector.MatchLabels, nil
 	case "Pod":
-		pod, err := inv.Client.CoreV1().Pods(ns).Get(ctx, rep.Target, metav1.GetOptions{})
+		pod, err := inv.Client.CoreV1().Pods(ns).Get(ctx, name, metav1.GetOptions{})
 		if err != nil {
 			return nil, err
 		}

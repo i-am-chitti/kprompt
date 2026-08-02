@@ -13,14 +13,16 @@ kprompt "investigate api" -n payments -o json
 
 Walks (MVP):
 
-1. **Service** (selectors matching the workload)
-2. **Endpoints** (ready / notReady counts)
+1. **Service** (selectors matching the workload) — in **parallel** with the Explain chain (T-090)
+2. **Endpoints** (ready / notReady counts) — fan-out per matching Service
 3. **Deployment → ReplicaSet → Pods** (T-024 explain chain)
-4. **Events + Logs** (worst pod)
+4. **Events ∥ Logs** on the worst pod (independent after pods are known)
 
 Root cause + confidence come from findings (CrashLoop / ImagePull / OOM / no ready endpoints). Optional suggested fix still goes through PlanResult → approve (never auto-apply).
 
 Prefer a **loop** (this sequential walk) for one Service/workload. Prefer graph width (fan-out / Coordinator) when signals or namespaces are independent — see [investigation-graph.md](./investigation-graph.md#loop-vs-graph). Confidence and suggested fixes are still bound by [reality anchors](./reality-anchors.md) (hard deny, EvidenceRef, PlanResult — not chat vibes). **Pre-trust (T-089):** after the walk, `internal/pretrust` clamps high confidence without EvidenceRef / contradicting re-read and can withhold approve UX for suggested fixes.
+
+**Edge audit (S-019):** hops with no data edge run concurrently (Explain ∥ Service discovery; Endpoints per Service; Events ∥ Logs). True chains (Deployment → RS → Pods) stay sequential.
 
 ## Honest gaps (`degraded`)
 
@@ -33,7 +35,7 @@ MVP lists `ingress`, `mesh`, and `prometheus` in `Investigation.degraded` — th
 | Focus | Deployment → Pods → Events → Logs | Cause tree on one pod/workload | + Service / Endpoints ahead of that chain |
 | Artifact | explain-lite JSON | `Investigation` (`kprompt.io/v1`) | `Investigation` (`kprompt.io/v1`) |
 | Trigger | generic diagnosis | “why is X pending/crashing” | “investigate X” / root cause / RCA |
-| Shape | short chain | **loop** (usually) | chain today; graph when fan-out lands (T-090) |
+| Shape | short chain | **loop** (usually) | chain + independent fan-out (T-090) |
 
 See also [docs/why.md](./why.md) · [investigation-graph.md](./investigation-graph.md).
 

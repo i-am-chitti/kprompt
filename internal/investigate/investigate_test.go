@@ -169,6 +169,72 @@ func TestRunImagePullRootCause(t *testing.T) {
 	}
 }
 
+func TestRunParallelServiceEndpoints(t *testing.T) {
+	ns := "payments"
+	labels := map[string]string{"app": "api"}
+	var replicas int32 = 1
+	client := fake.NewSimpleClientset(
+		&appsv1.Deployment{
+			ObjectMeta: metav1.ObjectMeta{Name: "api", Namespace: ns, UID: "dep1"},
+			Spec: appsv1.DeploymentSpec{
+				Replicas: &replicas,
+				Selector: &metav1.LabelSelector{MatchLabels: labels},
+				Template: corev1.PodTemplateSpec{
+					ObjectMeta: metav1.ObjectMeta{Labels: labels},
+					Spec:       corev1.PodSpec{Containers: []corev1.Container{{Name: "api", Image: "busybox"}}},
+				},
+			},
+			Status: appsv1.DeploymentStatus{ReadyReplicas: 1},
+		},
+		&corev1.Pod{
+			ObjectMeta: metav1.ObjectMeta{Name: "api-0", Namespace: ns, Labels: labels},
+			Status: corev1.PodStatus{
+				Phase: corev1.PodRunning,
+				ContainerStatuses: []corev1.ContainerStatus{{
+					Name: "api", Ready: true,
+					State: corev1.ContainerState{Running: &corev1.ContainerStateRunning{}},
+				}},
+			},
+		},
+		&corev1.Service{
+			ObjectMeta: metav1.ObjectMeta{Name: "api", Namespace: ns},
+			Spec:       corev1.ServiceSpec{Selector: labels, Ports: []corev1.ServicePort{{Port: 80}}},
+		},
+		&corev1.Service{
+			ObjectMeta: metav1.ObjectMeta{Name: "api-headless", Namespace: ns},
+			Spec:       corev1.ServiceSpec{Selector: labels, Ports: []corev1.ServicePort{{Port: 8080}}},
+		},
+		&corev1.Endpoints{
+			ObjectMeta: metav1.ObjectMeta{Name: "api", Namespace: ns},
+			Subsets: []corev1.EndpointSubset{{
+				Addresses: []corev1.EndpointAddress{{IP: "10.0.0.1"}},
+			}},
+		},
+		&corev1.Endpoints{
+			ObjectMeta: metav1.ObjectMeta{Name: "api-headless", Namespace: ns},
+			Subsets:    []corev1.EndpointSubset{},
+		},
+	)
+	doc, rep, err := (&Investigator{Client: client}).Run(context.Background(), Request{
+		Name: "api", Namespace: ns, Kind: "Deployment", Prompt: "investigate api",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !chainHas(rep, "Service", "api") || !chainHas(rep, "Service", "api-headless") {
+		t.Fatalf("expected both services in chain: %+v", rep.Chain)
+	}
+	if !chainHas(rep, "Endpoints", "api") || !chainHas(rep, "Endpoints", "api-headless") {
+		t.Fatalf("expected both endpoints hops: %+v", rep.Chain)
+	}
+	if !hasFinding(doc, "NoReadyEndpoints") {
+		t.Fatalf("expected NoReadyEndpoints for headless empty: %+v", doc.Findings)
+	}
+	if err := incident.ValidateInvestigation(doc); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func hasFinding(doc incident.Investigation, code string) bool {
 	for _, f := range doc.Findings {
 		if f.Code == code {

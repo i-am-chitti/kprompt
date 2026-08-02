@@ -170,6 +170,7 @@ Forcing a graph onto a true chain only adds coordination cost.
 | Worker isolation checklist + tests (AG-069) | Shipped |
 | Reality anchors registry (S-020 / AG-070) | Shipped |
 | Pre-trust independent verify hooks (T-089) | Shipped (`internal/pretrust`) |
+| Investigate hop parallelization (T-090) | Shipped |
 | Investigate hop parallelization (T-090) | Building |
 | Anchors registry (S-020 / AG-070) | Building |
 

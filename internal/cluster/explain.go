@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
@@ -90,24 +91,51 @@ func (e *Explainer) explainPod(ctx context.Context, ns, name string) (ExplainRep
 	}
 	rep.Status = string(pod.Status.Phase)
 	rep.Findings = diagnosePod(*pod)
-	rep.Events = e.recentEvents(ctx, ns, "Pod", name)
 	rep.Chain = []ChainStep{{
 		Level:  "Pod",
 		Name:   name,
 		Detail: fmt.Sprintf("phase=%s", pod.Status.Phase),
 	}}
+
+	// Events ∥ Logs when both apply — no data edge (S-019 / T-090).
+	var (
+		wg      sync.WaitGroup
+		events  []string
+		logStep *ChainStep
+		logPod  string
+		logCont string
+		logTail string
+	)
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		events = e.recentEvents(ctx, ns, "Pod", name)
+	}()
 	if problemScore(*pod) > 0 {
-		if tail, container, err := e.tailPodLogs(ctx, ns, pod.Name, "", explainLogTail); err == nil && strings.TrimSpace(tail) != "" {
-			rep.LogPod = pod.Name
-			rep.LogContainer = container
-			rep.LogTail = tail
-			rep.Chain = append(rep.Chain, ChainStep{
-				Level:  "Logs",
-				Name:   pod.Name,
-				Detail: fmt.Sprintf("last %d lines (container=%s)", explainLogTail, firstNonEmpty(container, "(default)")),
-			})
-		}
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			if tail, container, err := e.tailPodLogs(ctx, ns, pod.Name, "", explainLogTail); err == nil && strings.TrimSpace(tail) != "" {
+				logPod = pod.Name
+				logCont = container
+				logTail = tail
+				logStep = &ChainStep{
+					Level:  "Logs",
+					Name:   pod.Name,
+					Detail: fmt.Sprintf("last %d lines (container=%s)", explainLogTail, firstNonEmpty(container, "(default)")),
+				}
+			}
+		}()
 	}
+	wg.Wait()
+	rep.Events = events
+	if logStep != nil {
+		rep.LogPod = logPod
+		rep.LogContainer = logCont
+		rep.LogTail = logTail
+		rep.Chain = append(rep.Chain, *logStep)
+	}
+
 	rep.Findings = dedupeFindings(rep.Findings)
 	rep.Summary = summarize(rep)
 	return rep, nil

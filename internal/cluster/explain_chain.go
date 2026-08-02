@@ -6,6 +6,7 @@ import (
 	"io"
 	"sort"
 	"strings"
+	"sync"
 
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -52,7 +53,6 @@ func (e *Explainer) explainDeployment(ctx context.Context, ns, name string) (Exp
 			Name:   rs.Name,
 			Detail: fmt.Sprintf("ready %d/%d", rs.Status.ReadyReplicas, rsDesired),
 		})
-		rep.Events = append(rep.Events, e.recentEvents(ctx, ns, "ReplicaSet", rs.Name)...)
 	}
 
 	pods, err := e.Client.CoreV1().Pods(ns).List(ctx, metav1.ListOptions{
@@ -68,28 +68,67 @@ func (e *Explainer) explainDeployment(ctx context.Context, ns, name string) (Exp
 			Detail: podChainDetail(pod),
 		})
 		rep.Findings = append(rep.Findings, diagnosePod(pod)...)
-		rep.Events = append(rep.Events, e.recentEvents(ctx, ns, "Pod", pod.Name)...)
 	}
 
-	rep.Events = append(e.recentEvents(ctx, ns, "Deployment", name), rep.Events...)
+	// Events for Deployment / RS / Pods and worst-pod Logs have no data edge — fan out (S-019 / T-090).
+	type eventTarget struct {
+		kind, name string
+	}
+	targets := make([]eventTarget, 0, 1+len(replicaSets)+len(pods.Items))
+	targets = append(targets, eventTarget{"Deployment", name})
+	for _, rs := range replicaSets {
+		targets = append(targets, eventTarget{"ReplicaSet", rs.Name})
+	}
+	for _, pod := range pods.Items {
+		targets = append(targets, eventTarget{"Pod", pod.Name})
+	}
+	evParts := make([][]string, len(targets))
+	var (
+		wg       sync.WaitGroup
+		logPod   string
+		logCont  string
+		logTail  string
+		logStep  *ChainStep
+	)
+	for i, t := range targets {
+		wg.Add(1)
+		go func(i int, t eventTarget) {
+			defer wg.Done()
+			evParts[i] = e.recentEvents(ctx, ns, t.kind, t.name)
+		}(i, t)
+	}
+	if worst := worstPod(pods.Items); worst != nil && (problemScore(*worst) > 0 || dep.Status.ReadyReplicas < desired) {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			container := pickLogContainer(*worst)
+			if tail, c, err := e.tailPodLogs(ctx, ns, worst.Name, container, explainLogTail); err == nil && strings.TrimSpace(tail) != "" {
+				logPod = worst.Name
+				logCont = c
+				logTail = tail
+				logStep = &ChainStep{
+					Level:  "Logs",
+					Name:   worst.Name,
+					Detail: fmt.Sprintf("last %d lines (container=%s)", explainLogTail, firstNonEmpty(c, "(default)")),
+				}
+			}
+		}()
+	}
+	wg.Wait()
+
+	for _, part := range evParts {
+		rep.Events = append(rep.Events, part...)
+	}
 	rep.Events = dedupeStrings(rep.Events)
 	const maxEvents = 16
 	if len(rep.Events) > maxEvents {
 		rep.Events = rep.Events[:maxEvents]
 	}
-
-	if worst := worstPod(pods.Items); worst != nil && (problemScore(*worst) > 0 || dep.Status.ReadyReplicas < desired) {
-		container := pickLogContainer(*worst)
-		if tail, c, err := e.tailPodLogs(ctx, ns, worst.Name, container, explainLogTail); err == nil && strings.TrimSpace(tail) != "" {
-			rep.LogPod = worst.Name
-			rep.LogContainer = c
-			rep.LogTail = tail
-			rep.Chain = append(rep.Chain, ChainStep{
-				Level:  "Logs",
-				Name:   worst.Name,
-				Detail: fmt.Sprintf("last %d lines (container=%s)", explainLogTail, firstNonEmpty(c, "(default)")),
-			})
-		}
+	if logStep != nil {
+		rep.LogPod = logPod
+		rep.LogContainer = logCont
+		rep.LogTail = logTail
+		rep.Chain = append(rep.Chain, *logStep)
 	}
 
 	rep.Findings = dedupeFindings(rep.Findings)
