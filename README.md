@@ -266,7 +266,9 @@ Filters are case-insensitive exact matches, and `--namespace` and `--kind` can b
 Explore setup, the learn profile, and built-in recipes:
 
 ```bash
-kprompt setup
+kprompt setup                                 # dry-run plan (platform profile)
+kprompt setup --profile minimal --approve     # host Helm only
+kprompt setup --only prometheus --approve     # filter within profile
 kprompt learn
 kprompt recipe list
 ```

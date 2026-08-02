@@ -14,7 +14,7 @@ func TestBuildPlanPlatformNeeded(t *testing.T) {
 		{ID: tools.IDArgoWorkflows, Status: tools.StatusUnavailable, Detail: "Workflow CRD missing"},
 		{ID: tools.IDPrometheus, Status: tools.StatusUnavailable, Detail: "URL not set"},
 	})
-	plan, err := BuildPlan(reg, Options{Profile: ProfilePlatform})
+	plan, err := BuildPlan(reg, Options{Profile: ProfilePlatform, DryRun: true})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -90,3 +90,65 @@ func TestNormalizeProfile(t *testing.T) {
 		t.Fatal("expected error")
 	}
 }
+
+func TestBuildPlanOnlyFilter(t *testing.T) {
+	reg := tools.NewRegistry([]tools.Result{
+		{ID: tools.IDKubernetes, Status: tools.StatusAvailable, Detail: "ok"},
+		{ID: tools.IDHelm, Status: tools.StatusUnavailable, Detail: "missing"},
+		{ID: tools.IDArgoWorkflows, Status: tools.StatusUnavailable, Detail: "missing"},
+		{ID: tools.IDPrometheus, Status: tools.StatusUnavailable, Detail: "missing"},
+	})
+	plan, err := BuildPlan(reg, Options{
+		Profile: ProfilePlatform,
+		Only:    []string{"prom", "helm"},
+		DryRun:  true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(plan.Steps) != 2 || plan.Needed != 2 {
+		t.Fatalf("%+v", plan)
+	}
+	if plan.Steps[0].ID != "prometheus" || plan.Steps[1].ID != "helm" {
+		t.Fatalf("order/ids=%+v", plan.Steps)
+	}
+	if len(plan.Only) != 2 {
+		t.Fatalf("only=%v", plan.Only)
+	}
+}
+
+func TestBuildPlanOnlyOutsideProfile(t *testing.T) {
+	reg := tools.NewRegistry([]tools.Result{
+		{ID: tools.IDHelm, Status: tools.StatusAvailable, Detail: "ok"},
+	})
+	_, err := BuildPlan(reg, Options{Profile: ProfileMinimal, Only: []string{"grafana"}})
+	if err == nil || !strings.Contains(err.Error(), "not in the selected profile") {
+		t.Fatalf("err=%v", err)
+	}
+}
+
+func TestNormalizeOnly(t *testing.T) {
+	got, err := NormalizeOnly([]string{"argo", "prom,helm", "helm"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 3 || got[0] != "argo-workflows" || got[1] != "prometheus" || got[2] != "helm" {
+		t.Fatalf("%v", got)
+	}
+	_, err = NormalizeOnly([]string{"nope"})
+	if err == nil {
+		t.Fatal("expected error")
+	}
+}
+
+func TestProfilesCatalog(t *testing.T) {
+	ps := Profiles()
+	if len(ps) != 3 {
+		t.Fatalf("%d", len(ps))
+	}
+	doc := ProfilesDoc()
+	if !strings.Contains(doc, "minimal") || !strings.Contains(doc, "helm, argo-workflows, prometheus") {
+		t.Fatalf("%s", doc)
+	}
+}
+

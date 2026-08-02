@@ -15,27 +15,31 @@ import (
 
 func newSetupCmd() *cobra.Command {
 	var (
-		kubeCtx string
-		profile string
-		dryRun  bool
-		approve bool
-		jsonOut bool
+		kubeCtx   string
+		profile   string
+		only      []string
+		dryRun    bool
+		approve   bool
+		jsonOut   bool
+		argoNS    string
+		promNS    string
+		promRel   string
 	)
 
 	cmd := &cobra.Command{
 		Use:   "setup",
 		Short: "Detect gaps; dry-run plan or approve host/cluster installs",
-		Long: `Builds a bootstrap plan from tools.Detect.
+		Long: `Builds a bootstrap plan from tools.Detect (ADR-0018).
 
 Default is dry-run. With --approve (or interactive confirm):
   • Host: Helm via brew / get-helm-3
   • Cluster: Argo Workflows + kube-prometheus-stack — plan → safety → apply
 Never silent. Wipe-class uninstalls are denied.
 
-Profiles:
-  minimal   Helm CLI only
-  platform  Helm + Argo Workflows + Prometheus stack (default)
-  full      platform + Grafana + OpenTelemetry URL config (config lane)
+` + setup.ProfilesDoc() + `
+
+--only filters the selected profile (comma-separated or repeatable):
+  helm · argo-workflows · prometheus · grafana · opentelemetry
 
 ` + setup.OSMatrixDoc() + "\n" + setup.NamespaceDefaultsDoc(),
 		Example: `  # Detect missing tools and print dry-run installation plan
@@ -43,6 +47,9 @@ Profiles:
 
   # Approve setup with minimal profile
   kprompt setup --profile minimal --approve
+
+  # Platform profile, Prometheus only
+  kprompt setup --profile platform --only prometheus --approve
 
   # Approve setup with platform profile on a specific kube context
   kprompt setup --profile platform --approve --context kind-dev
@@ -65,8 +72,11 @@ Profiles:
 			if err != nil {
 				return err
 			}
+
+			// Printed plan is always dry-run; apply is a separate approve/TTY phase.
 			plan, err := setup.BuildPlan(reg, setup.Options{
 				Profile: profile,
+				Only:    only,
 				DryRun:  true,
 			})
 			if err != nil {
@@ -129,6 +139,9 @@ Profiles:
 			if len(clusterSteps) > 0 {
 				crep, err := setup.ApplyCluster(cmd.Context(), plan, setup.ClusterApplyOptions{
 					KubeContext: ctxName,
+					ArgoNS:      argoNS,
+					PromNS:      promNS,
+					PromRelease: promRel,
 					Runner:      setup.DefaultRunner{},
 				}, out)
 				setup.FormatClusterApply(out, crep)
@@ -143,8 +156,12 @@ Profiles:
 
 	cmd.Flags().StringVar(&kubeCtx, "context", "", "kubeconfig context for cluster / CRD checks")
 	cmd.Flags().StringVar(&profile, "profile", setup.ProfilePlatform, "setup profile: minimal|platform|full")
+	cmd.Flags().StringSliceVar(&only, "only", nil, "limit to components (helm,argo-workflows,prometheus,grafana,opentelemetry)")
 	cmd.Flags().BoolVar(&dryRun, "dry-run", true, "print plan only (default); apply needs --approve or TTY confirm")
 	cmd.Flags().BoolVar(&approve, "approve", false, "apply host + cluster installs from the plan (never silent)")
+	cmd.Flags().StringVar(&argoNS, "argo-namespace", setup.DefaultArgoNamespace, "namespace for Argo Workflows install")
+	cmd.Flags().StringVar(&promNS, "prometheus-namespace", setup.DefaultPrometheusNamespace, "namespace for kube-prometheus-stack")
+	cmd.Flags().StringVar(&promRel, "prometheus-release", setup.DefaultPrometheusRelease, "Helm release name for kube-prometheus-stack")
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "emit JSON plan")
 	return cmd
 }

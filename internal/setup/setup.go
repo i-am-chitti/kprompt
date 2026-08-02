@@ -1,5 +1,5 @@
 // Package setup builds bootstrap plans from tools.Detect and applies
-// approve-gated host/cluster installs (ADR-0018 · T-062…T-064).
+// approve-gated host/cluster installs (ADR-0018 · T-062…T-065).
 //
 // Never mutates silently. Cluster path is install-only (wipe-class denied).
 package setup
@@ -13,7 +13,7 @@ import (
 	"github.com/kprompt/kprompt/internal/tools"
 )
 
-// Profiles (T-065 will deepen flags; T-062 uses these to select plan components).
+// Profiles (ADR-0018 · T-065).
 const (
 	ProfileMinimal  = "minimal"  // Helm CLI
 	ProfilePlatform = "platform" // Helm + Argo Workflows + Prometheus
@@ -30,15 +30,19 @@ const (
 // Step status values.
 const (
 	StatusReady   = "ready"   // already available
-	StatusNeeded  = "needed"  // gap; would install/configure on approve (later tasks)
+	StatusNeeded  = "needed"  // gap; would install/configure on approve
 	StatusBlocked = "blocked" // cannot propose (e.g. no kube for cluster lane)
-	StatusSkipped = "skipped" // outside selected profile
+	StatusSkipped = "skipped" // outside selected profile / --only
 )
 
-// Options configures plan generation.
+// Options configures plan generation (T-065).
 type Options struct {
 	Profile string
-	DryRun  bool // always true for T-062 apply path; kept for JSON honesty
+	// Only limits the plan to these component ids (helm, argo-workflows, …).
+	// Empty = all components in the profile. Values outside the profile error.
+	Only []string
+	// DryRun is recorded on the plan JSON (true when printing only).
+	DryRun bool
 }
 
 // Step is one proposed bootstrap action (or ready confirmation).
@@ -51,13 +55,14 @@ type Step struct {
 	Detail     string   `json:"detail,omitempty"`
 	Risk       string   `json:"risk,omitempty"` // none | low | medium | high
 	ActionHint string   `json:"actionHint,omitempty"`
-	Commands   []string `json:"commands,omitempty"` // illustrative — not executed in T-062
+	Commands   []string `json:"commands,omitempty"` // illustrative when dry-run
 }
 
 // Plan is the stable human + JSON contract for `kprompt setup`.
 type Plan struct {
 	Type       string   `json:"type"`
 	Profile    string   `json:"profile"`
+	Only       []string `json:"only,omitempty"`
 	DryRun     bool     `json:"dryRun"`
 	Summary    string   `json:"summary"`
 	Needed     int      `json:"needed"`
@@ -65,6 +70,47 @@ type Plan struct {
 	Steps      []Step   `json:"steps"`
 	Notes      []string `json:"notes,omitempty"`
 	DetectHint string   `json:"detectHint,omitempty"`
+}
+
+// ProfileInfo describes one curated profile for help / docs (T-065).
+type ProfileInfo struct {
+	ID         string
+	Summary    string
+	Components []string // tool ids
+}
+
+// Profiles lists curated OSS setup profiles.
+func Profiles() []ProfileInfo {
+	return []ProfileInfo{
+		{
+			ID: ProfileMinimal, Summary: "Helm CLI only (host lane)",
+			Components: []string{string(tools.IDHelm)},
+		},
+		{
+			ID: ProfilePlatform, Summary: "Helm + Argo Workflows + Prometheus stack (default)",
+			Components: []string{
+				string(tools.IDHelm), string(tools.IDArgoWorkflows), string(tools.IDPrometheus),
+			},
+		},
+		{
+			ID: ProfileFull, Summary: "platform + Grafana/OTel URL config steps (config lane; no auto-write)",
+			Components: []string{
+				string(tools.IDHelm), string(tools.IDArgoWorkflows), string(tools.IDPrometheus),
+				string(tools.IDGrafana), string(tools.IDOpenTelemetry),
+			},
+		},
+	}
+}
+
+// ProfilesDoc is embedded in CLI Long help.
+func ProfilesDoc() string {
+	var b strings.Builder
+	b.WriteString("Profiles:\n")
+	for _, p := range Profiles() {
+		fmt.Fprintf(&b, "  %-8s  %s\n", p.ID, p.Summary)
+		fmt.Fprintf(&b, "            components: %s\n", strings.Join(p.Components, ", "))
+	}
+	return strings.TrimRight(b.String(), "\n")
 }
 
 // NormalizeProfile returns a known profile or an error.
@@ -81,25 +127,80 @@ func NormalizeProfile(p string) (string, error) {
 	}
 }
 
-// BuildPlan turns a detect registry into a dry-run setup plan.
+// NormalizeOnly parses --only values into canonical tool ids.
+func NormalizeOnly(raw []string) ([]string, error) {
+	if len(raw) == 0 {
+		return nil, nil
+	}
+	seen := map[string]struct{}{}
+	out := make([]string, 0, len(raw))
+	for _, item := range raw {
+		for _, part := range strings.Split(item, ",") {
+			id, err := normalizeComponentID(part)
+			if err != nil {
+				return nil, err
+			}
+			if _, ok := seen[id]; ok {
+				continue
+			}
+			seen[id] = struct{}{}
+			out = append(out, id)
+		}
+	}
+	return out, nil
+}
+
+func normalizeComponentID(raw string) (string, error) {
+	switch strings.ToLower(strings.TrimSpace(raw)) {
+	case "":
+		return "", fmt.Errorf("empty --only component")
+	case "helm":
+		return string(tools.IDHelm), nil
+	case "argo", "argo-workflows", "workflows":
+		return string(tools.IDArgoWorkflows), nil
+	case "prometheus", "prom":
+		return string(tools.IDPrometheus), nil
+	case "grafana":
+		return string(tools.IDGrafana), nil
+	case "otel", "opentelemetry", "jaeger", "tempo":
+		return string(tools.IDOpenTelemetry), nil
+	default:
+		return "", fmt.Errorf(
+			"unknown --only component %q (want helm|argo-workflows|prometheus|grafana|opentelemetry)",
+			raw,
+		)
+	}
+}
+
+// BuildPlan turns a detect registry into a setup plan.
 func BuildPlan(reg *tools.Registry, opts Options) (Plan, error) {
 	profile, err := NormalizeProfile(opts.Profile)
 	if err != nil {
 		return Plan{}, err
 	}
+	only, err := NormalizeOnly(opts.Only)
+	if err != nil {
+		return Plan{}, err
+	}
+	dryRun := opts.DryRun
 	plan := Plan{
 		Type:    "setup",
 		Profile: profile,
-		DryRun:  true, // T-062 never applies
+		Only:    only,
+		DryRun:  dryRun,
 		Steps:   make([]Step, 0, 8),
 		Notes: []string{
 			"Plan from tools.Detect (ADR-0018). Default is dry-run.",
 			"Apply with --approve / TTY: host Helm + cluster Argo/Prom stack.",
 			"Wipe-class uninstalls denied. Re-check: kprompt tools · kprompt doctor",
+			"Config-lane (Grafana/OTel) is never auto-written — use kprompt config set.",
 		},
 	}
 
-	want := componentsForProfile(profile)
+	want, err := filterComponents(componentsForProfile(profile), only)
+	if err != nil {
+		return Plan{}, err
+	}
 	kube, _ := reg.Get(tools.IDKubernetes)
 	kubeOK := kube.Available()
 
@@ -114,16 +215,24 @@ func BuildPlan(reg *tools.Registry, opts Options) (Plan, error) {
 		}
 	}
 
+	onlyNote := ""
+	if len(only) > 0 {
+		onlyNote = fmt.Sprintf(" (--only %s)", strings.Join(only, ","))
+	}
 	switch {
 	case plan.Needed == 0:
 		plan.Summary = fmt.Sprintf(
-			"Profile %q: all %d components ready — nothing to install or configure.",
-			profile, plan.Ready,
+			"Profile %q%s: all %d components ready — nothing to install or configure.",
+			profile, onlyNote, plan.Ready,
 		)
 	default:
+		mode := "dry-run plan — approve/apply not run"
+		if !dryRun {
+			mode = "plan ready for approve/apply"
+		}
 		plan.Summary = fmt.Sprintf(
-			"Profile %q: %d needed, %d ready (dry-run plan — approve/apply not run).",
-			profile, plan.Needed, plan.Ready,
+			"Profile %q%s: %d needed, %d ready (%s).",
+			profile, onlyNote, plan.Needed, plan.Ready, mode,
 		)
 	}
 	if !kubeOK {
@@ -133,6 +242,28 @@ func BuildPlan(reg *tools.Registry, opts Options) (Plan, error) {
 	}
 	plan.DetectHint = "Source: tools.Detect (same inventory as kprompt tools)"
 	return plan, nil
+}
+
+func filterComponents(all []componentSpec, only []string) ([]componentSpec, error) {
+	if len(only) == 0 {
+		return all, nil
+	}
+	byID := map[string]componentSpec{}
+	for _, c := range all {
+		byID[string(c.ID)] = c
+	}
+	out := make([]componentSpec, 0, len(only))
+	for _, id := range only {
+		c, ok := byID[id]
+		if !ok {
+			return nil, fmt.Errorf(
+				"component %q is not in the selected profile (use a broader --profile or drop it from --only)",
+				id,
+			)
+		}
+		out = append(out, c)
+	}
+	return out, nil
 }
 
 type componentSpec struct {
@@ -279,7 +410,11 @@ func buildStep(reg *tools.Registry, c componentSpec, kubeOK bool) Step {
 
 // FormatText prints a human-readable dry-run plan.
 func FormatText(w io.Writer, plan Plan) error {
-	fmt.Fprintf(w, "Setup plan (profile=%s, dry-run=%v)\n", plan.Profile, plan.DryRun)
+	only := ""
+	if len(plan.Only) > 0 {
+		only = ", only=" + strings.Join(plan.Only, ",")
+	}
+	fmt.Fprintf(w, "Setup plan (profile=%s%s, dry-run=%v)\n", plan.Profile, only, plan.DryRun)
 	fmt.Fprintf(w, "Summary: %s\n\n", plan.Summary)
 
 	tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
