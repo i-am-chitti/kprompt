@@ -2,6 +2,29 @@
 
 All notable changes to kprompt are documented here. Versions follow [GitHub Releases](https://github.com/kprompt/kprompt/releases).
 
+## [v0.8.0](https://github.com/kprompt/kprompt/releases/tag/v0.8.0) — 2026-08-02
+
+AI SRE intelligence pack + laptop AI Native surfaces.
+
+### Features
+
+- **`search`** — NL inventory query → `SearchReport` hits (S-010)
+- **`score`** — reliability / security / cost scorecard; cost skipped without Prometheus (S-011)
+- **`explain architecture`** — narrative from learn + graph + heuristic deps (S-012)
+- **`watch`** — opt-in laptop proactive scan; suggests investigate; never mutates (S-014 · ADR-0022)
+- **`remember` / `forget`** — local operator memory (`~/.kprompt/memory.json`); planning bias (S-015)
+- **`session`** — today’s history day digest (S-016)
+- Setup profiles / honesty (T-065 · T-066) and prior SRE MVPs already on `main`
+
+### Docs
+
+- `docs/search.md` · `docs/score.md` · `docs/architecture.md` · `docs/watch.md` · `docs/remember.md` · `docs/session.md`
+- Architecture [ADR-0022](https://github.com/kprompt/kprompt-architecture/blob/main/decisions/ADR-0022-laptop-ai-native.md)
+
+### Notes
+
+Experimental — prefer non-production clusters. Autopilot remains propose-only by default. Laptop `watch` is not a required daemon; always-on Observe stays on `kprompt agent`.
+
 ## [v0.7.0](https://github.com/kprompt/kprompt/releases/tag/v0.7.0) — 2026-07-28
 
 Community-powered patch-plus release: first-wave contributor PRs, plus day-2 CLI features shipped on `main` since v0.6.0.

@@ -33,6 +33,7 @@ import (
 	"github.com/kprompt/kprompt/internal/planner"
 	"github.com/kprompt/kprompt/internal/pretrust"
 	"github.com/kprompt/kprompt/internal/recipe"
+	"github.com/kprompt/kprompt/internal/remember"
 	"github.com/kprompt/kprompt/internal/safety"
 	"github.com/kprompt/kprompt/internal/score"
 	"github.com/kprompt/kprompt/internal/search"
@@ -124,6 +125,15 @@ func RunWith(ctx context.Context, cfg config.Resolved, out io.Writer, deps Deps)
 	// Roast / vibe-check: local health roast — no LLM key required.
 	if intent.LooksLikeRoastPrompt(cfg.Prompt) {
 		return runRoastPrompt(ctx, cfg, out, deps)
+	}
+	if intent.LooksLikeSessionPrompt(cfg.Prompt) {
+		return runSessionPrompt(ctx, cfg, out, deps)
+	}
+	if intent.LooksLikeRememberPrompt(cfg.Prompt) {
+		return runRememberPrompt(ctx, cfg, out, deps)
+	}
+	if intent.LooksLikeWatchPrompt(cfg.Prompt) {
+		return runWatchOncePrompt(ctx, cfg, out, deps)
 	}
 
 	provider := deps.Provider
@@ -1531,11 +1541,17 @@ func isReadOnly(plan planner.ExecutionPlan) bool {
 }
 
 func learnProfileHint(kubeCtx string) string {
-	p, ok := learn.LoadBestEffort(kubeCtx)
-	if !ok {
-		return ""
+	var b strings.Builder
+	if p, ok := learn.LoadBestEffort(kubeCtx); ok {
+		b.WriteString(p.PromptBias())
 	}
-	return p.PromptBias()
+	if mem := remember.PromptBias(); mem != "" {
+		if b.Len() > 0 {
+			b.WriteByte('\n')
+		}
+		b.WriteString(mem)
+	}
+	return b.String()
 }
 
 func resolveCfgContext(cfg *config.Resolved) {
