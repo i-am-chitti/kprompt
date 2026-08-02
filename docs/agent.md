@@ -14,7 +14,7 @@ This is **Observe Mode** by default — it never applies, patches, or deletes cl
 
 Explicit non-claims: no silent remediations, no ClusterRole-by-default on namespace agents, no “we host your fleet agent” SaaS. Autopilot **apply** is opt-in (`policyAuto` + allowlist + explicit approve/`--autopilot-apply`) — never LLM-said-so.
 
-**Modes table (Observe vs Namespace Agent vs Coordinator):** [namespace-agent.md](./namespace-agent.md) · **Ops runbook (cost/RBAC):** [agent-ops.md](./agent-ops.md).
+**Modes table (Observe vs Namespace Agent vs Coordinator):** [namespace-agent.md](./namespace-agent.md) · **Investigation Graph (gated fan-out + verify):** [investigation-graph.md](./investigation-graph.md) · **Ops runbook (cost/RBAC):** [agent-ops.md](./agent-ops.md).
 
 ## Where files live
 

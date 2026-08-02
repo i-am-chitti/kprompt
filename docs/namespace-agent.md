@@ -41,6 +41,26 @@ Contracts: [ADR-0013](https://github.com/kprompt/kprompt-architecture/blob/main/
 | Intelligence brief (AG-065) | `kprompt agent status -n <ns>` |
 | Apply / patch / delete workloads | Autopilot **policyAuto** only (AG-042+), never silent |
 
+## Investigation Graph (runtime)
+
+Always-on intelligence is the same **gated graph** as CLI investigate — not a free-form multi-agent fleet.
+
+```text
+ Observe / NA (one ns)          Coordinator              Gate
+ ─────────────────────          ───────────              ────
+ Signal → Detect → RCA ──handoff──► probe / merge ──► notify
+      │                                              │
+      └── optional Autopilot propose ──► PlanResult ──approve──► apply ──verify
+```
+
+| Prefer a **loop** | Prefer a **graph** |
+|-------------------|--------------------|
+| Single-ns, one incident you are steering | Cross-ns suspect + Coordinator verify |
+| Slack ask `why` on one object | Independent signal fan-in before merge |
+| Tight hop-by-hop oversight | Width with Role-scoped workers |
+
+**Verify edge:** Coordinator merge must rest on fresh EvidenceRef / probe (or honest Unknowns) — not the origin analyzer’s narrative alone. Full contract: [investigation-graph.md](./investigation-graph.md) ([AG-067](https://github.com/kprompt/kprompt-architecture/issues/213)).
+
 ## Non-claims (do not market these)
 
 - Silent or default LLM-said-so remediations
@@ -50,6 +70,7 @@ Contracts: [ADR-0013](https://github.com/kprompt/kprompt-architecture/blob/main/
 - Fabricated Prom / OTel / GitOps values when backends are missing (we **degrade** instead)
 - Memory or patterns as sole proof of root cause
 - Feature parity with K8sGPT (analyzer) or Kagent (multi-agent framework)
+- “1000 agents in one window” / general dynamic-workflow orchestration
 
 ## Feature → mode map
 
@@ -68,6 +89,7 @@ Contracts: [ADR-0013](https://github.com/kprompt/kprompt-architecture/blob/main/
 
 ## Related docs
 
+- Investigation Graph (loop vs graph, verify edges): [investigation-graph.md](./investigation-graph.md)
 - Install & pipeline flags: [agent.md](./agent.md)
 - Cost / RBAC / ops runbook: [agent-ops.md](./agent-ops.md)
 - Demo scenarios: [kprompt-examples](https://github.com/kprompt/kprompt-examples) · [NA loop walkthrough](https://github.com/kprompt/kprompt-examples/blob/main/docs/namespace-agent-loop.md)
