@@ -19,3 +19,8 @@ coverage.out
 .env
 .env.*
 !.env.example
+
+# VS Code extension (A-076)
+ide/vscode/node_modules/
+ide/vscode/out/
+ide/vscode/*.vsix

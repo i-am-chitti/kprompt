@@ -1,0 +1,83 @@
+{
+  "name": "kprompt",
+  "displayName": "kprompt PlanResult",
+  "description": "Review kprompt PlanResult JSON — risk, action diffs, approve via CLI. Not a chat REPL.",
+  "version": "0.1.0",
+  "publisher": "kprompt",
+  "license": "Apache-2.0",
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "keywords": [
+    "kubernetes",
+    "kprompt",
+    "PlanResult",
+    "approval"
+  ],
+  "activationEvents": [
+    "onCommand:kprompt.openPlanResult",
+    "onCommand:kprompt.approvePlanViaCLI"
+  ],
+  "main": "./out/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "kprompt.openPlanResult",
+        "title": "kprompt: Open PlanResult",
+        "icon": "$(shield)"
+      },
+      {
+        "command": "kprompt.approvePlanViaCLI",
+        "title": "kprompt: Approve plan via CLI"
+      }
+    ],
+    "menus": {
+      "editor/title": [
+        {
+          "command": "kprompt.openPlanResult",
+          "when": "resourceExtname == .json || resourceLangId == json",
+          "group": "navigation"
+        }
+      ],
+      "explorer/context": [
+        {
+          "command": "kprompt.openPlanResult",
+          "when": "resourceExtname == .json",
+          "group": "navigation"
+        }
+      ],
+      "commandPalette": [
+        {
+          "command": "kprompt.openPlanResult"
+        },
+        {
+          "command": "kprompt.approvePlanViaCLI"
+        }
+      ]
+    },
+    "configuration": {
+      "title": "kprompt",
+      "properties": {
+        "kprompt.cliPath": {
+          "type": "string",
+          "default": "kprompt",
+          "description": "Path to the kprompt CLI binary used for approve."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run compile",
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./",
+    "package": "npx @vscode/vsce package --no-dependencies"
+  },
+  "devDependencies": {
+    "@types/node": "^20.11.0",
+    "@types/vscode": "^1.85.0",
+    "typescript": "^5.3.3"
+  }
+}
