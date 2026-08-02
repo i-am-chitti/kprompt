@@ -27,6 +27,8 @@ Stdout is a single JSON object (plus newline). Human confirmations / wait status
 
 Manifests and API keys are never included.
 
+**Reality anchors:** `risk.denied`, schemaVersion, and `verify` are frozen gates the model cannot waive — [reality-anchors.md](./reality-anchors.md).
+
 ## Multi-context (`MultiContextResult`)
 
 When `--contexts a,b` (or NL “across …”) fans out a **read** (or optimize):

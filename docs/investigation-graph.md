@@ -91,7 +91,7 @@ Verify edges must rest on **anchors** the optimizer cannot invent:
 
 **Coordinator Merge (AG-068):** a suspect report without probe EvidenceRef or honest kube-probe Unknowns is treated as soft-agree — confidence capped at **0.4**, Unknown stamped, no evidence promotion. Fresh probe anchors use the probe confidence as the ceiling.
 
-Full anchor inventory: [S-020](https://github.com/kprompt/kprompt-architecture/issues/212) · [AG-070](https://github.com/kprompt/kprompt-architecture/issues/216) (building).
+**Full registry:** [reality-anchors.md](./reality-anchors.md) ([S-020](https://github.com/kprompt/kprompt-architecture/issues/212) · [AG-070](https://github.com/kprompt/kprompt-architecture/issues/216)).
 
 ---
 
@@ -168,6 +168,7 @@ Forcing a graph onto a true chain only adds coordination cost.
 | Named Investigation Graph contract (this doc) | Shipped (docs) |
 | Coordinator independent verify edge (AG-068) | Shipped |
 | Worker isolation checklist + tests (AG-069) | Shipped |
+| Reality anchors registry (S-020 / AG-070) | Shipped |
 | Pre-trust independent verify hooks (T-089) | Building |
 | Investigate hop parallelization (T-090) | Building |
 | Anchors registry (S-020 / AG-070) | Building |

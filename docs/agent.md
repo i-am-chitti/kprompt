@@ -312,4 +312,6 @@ kprompt agent autopilot apply-proposal --file proposal.json --approve --policy .
 
 **Apply (AG-042):** only when RemediationPolicy `mode=policyAuto` **and** `apply=true`, plus `--autopilot-apply` (in-loop) or `apply-proposal --approve`. Helm defaults keep both false.
 
+**Reality anchors:** policy allowlist + deny pack + schemas the model cannot tune — [reality-anchors.md](./reality-anchors.md).
+
 **Not shipped:** silent LLM-said-so apply.

@@ -20,7 +20,7 @@ Walks (MVP):
 
 Root cause + confidence come from findings (CrashLoop / ImagePull / OOM / no ready endpoints). Optional suggested fix still goes through PlanResult → approve (never auto-apply).
 
-Prefer a **loop** (this sequential walk) for one Service/workload. Prefer graph width (fan-out / Coordinator) when signals or namespaces are independent — see [investigation-graph.md](./investigation-graph.md#loop-vs-graph).
+Prefer a **loop** (this sequential walk) for one Service/workload. Prefer graph width (fan-out / Coordinator) when signals or namespaces are independent — see [investigation-graph.md](./investigation-graph.md#loop-vs-graph). Confidence and suggested fixes are still bound by [reality anchors](./reality-anchors.md) (hard deny, EvidenceRef, PlanResult — not chat vibes).
 
 ## Honest gaps (`degraded`)
 
