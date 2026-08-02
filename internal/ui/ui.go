@@ -8,6 +8,7 @@ import (
 	"text/tabwriter"
 	"time"
 
+	"github.com/kprompt/kprompt/internal/architecture"
 	"github.com/kprompt/kprompt/internal/cluster"
 	"github.com/kprompt/kprompt/internal/gitopspr"
 	"github.com/kprompt/kprompt/internal/graph"
@@ -1017,6 +1018,33 @@ func PrintScorecard(w io.Writer, report score.Report) {
 		}
 		if len(evidence) > limit {
 			fmt.Fprintf(w, "%s\n", t.Muted(fmt.Sprintf("  … %d more", len(evidence)-limit)))
+		}
+	}
+	if len(report.Degraded) > 0 {
+		fmt.Fprintf(w, "%s %s\n", t.Muted("degraded:"), strings.Join(report.Degraded, "; "))
+	}
+}
+
+// PrintArchitecture prints a high-level architecture narrative (S-012).
+func PrintArchitecture(w io.Writer, report architecture.Report) {
+	t := themeFor(w)
+	fmt.Fprintf(w, "%s %s\n", t.Heading("Architecture:"), t.Accent(report.Summary))
+	fmt.Fprintf(w, "%s %s\n", t.Heading("Confidence:"), report.Confidence)
+	fmt.Fprintf(w, "%s %s\n", t.Heading("Narrative:"), report.Narrative)
+	if len(report.Components) > 0 {
+		fmt.Fprintln(w, t.Heading("Components:"))
+		tw := tabwriter.NewWriter(w, 0, 4, 2, ' ', 0)
+		fmt.Fprintln(tw, t.tabHeading("CATEGORY\tNAME\tSOURCE\tDETAIL"))
+		for _, c := range report.Components {
+			fmt.Fprintf(tw, "%s\t%s\t%s\t%s\n",
+				c.Category, c.Name, c.Source, strings.ReplaceAll(c.Detail, "\t", " "))
+		}
+		_ = tw.Flush()
+	}
+	if len(report.Hints) > 0 {
+		fmt.Fprintln(w, t.Heading("Hints:"))
+		for _, h := range report.Hints {
+			fmt.Fprintf(w, "  - %s\n", h)
 		}
 	}
 	if len(report.Degraded) > 0 {

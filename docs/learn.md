@@ -43,5 +43,5 @@ Extends `kprompt tools` / `tools.Detect`:
 
 - Profile is evidence of CRDs / PATH / config URLs, not proof the controllers are
   healthy or that operators use them.
-- Architecture narrative (`explain architecture`, S-012) is a separate deferred task.
+- Architecture narrative (`explain architecture`, S-012) — [architecture.md](./architecture.md).
 - Re-run `kprompt learn` after installing controllers.

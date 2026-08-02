@@ -320,6 +320,19 @@ func TestBuildScore(t *testing.T) {
 	}
 }
 
+func TestBuildArchitecture(t *testing.T) {
+	plan, err := Build(intent.Intent{
+		Kind:   intent.KindArchitecture,
+		Target: intent.Target{Namespace: "payments", Kind: "Namespace"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if plan.RequiresApproval || len(plan.Actions) != 1 || plan.Actions[0].Op != OpArchitecture {
+		t.Fatalf("plan=%+v", plan)
+	}
+}
+
 func TestBuildLearn(t *testing.T) {
 	plan, err := Build(intent.Intent{Kind: intent.KindLearn})
 	if err != nil {

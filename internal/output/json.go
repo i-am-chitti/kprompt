@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"io"
 
+	"github.com/kprompt/kprompt/internal/architecture"
 	"github.com/kprompt/kprompt/internal/cluster"
 	"github.com/kprompt/kprompt/internal/gitopspr"
 	"github.com/kprompt/kprompt/internal/graph"
@@ -45,9 +46,9 @@ type PlanResult struct {
 	Plan           PlanPayload          `json:"plan"`
 	Risk           RiskPayload          `json:"risk"`
 	Applied        bool                 `json:"applied"`
-	BlastRadius    *planner.BlastRadius  `json:"blastRadius,omitempty"`
-	Verify         *verify.Report        `json:"verify,omitempty"`
-	Result         json.RawMessage       `json:"result,omitempty"`
+	BlastRadius    *planner.BlastRadius `json:"blastRadius,omitempty"`
+	Verify         *verify.Report       `json:"verify,omitempty"`
+	Result         json.RawMessage      `json:"result,omitempty"`
 }
 
 // RouteResult is a stable CI-facing sequence of per-step plan results.
@@ -395,19 +396,19 @@ func (r PlanResult) WithPerformanceResult(report toolprometheus.PerformanceRepor
 // WithOptimizeResult attaches a read-only cluster optimize report (T-052+).
 func (r PlanResult) WithOptimizeResult(report optimize.Report) PlanResult {
 	payload := map[string]any{
-		"type":             report.Type,
-		"scope":            report.Scope,
-		"namespace":        report.Namespace,
-		"cluster_context":  report.ClusterContext,
-		"window":           report.Window,
-		"summary":          report.Summary,
-		"findings":         report.Findings,
-		"suggestions":      report.Suggestions,
-		"workloads":        report.Workloads,
-		"idle":             report.Idle,
-		"rightsizing":      report.Rightsizing,
-		"hpa":              report.HPA,
-		"sections":         report.Sections,
+		"type":            report.Type,
+		"scope":           report.Scope,
+		"namespace":       report.Namespace,
+		"cluster_context": report.ClusterContext,
+		"window":          report.Window,
+		"summary":         report.Summary,
+		"findings":        report.Findings,
+		"suggestions":     report.Suggestions,
+		"workloads":       report.Workloads,
+		"idle":            report.Idle,
+		"rightsizing":     report.Rightsizing,
+		"hpa":             report.HPA,
+		"sections":        report.Sections,
 	}
 	raw, _ := json.Marshal(payload)
 	r.Result = raw
@@ -430,6 +431,13 @@ func (r PlanResult) WithSearchResult(report search.Report) PlanResult {
 
 // WithScoreResult attaches a reliability/security/cost scorecard (S-011).
 func (r PlanResult) WithScoreResult(report score.Report) PlanResult {
+	raw, _ := json.Marshal(report)
+	r.Result = raw
+	return r
+}
+
+// WithArchitectureResult attaches an architecture narrative (S-012).
+func (r PlanResult) WithArchitectureResult(report architecture.Report) PlanResult {
 	raw, _ := json.Marshal(report)
 	r.Result = raw
 	return r

@@ -42,7 +42,7 @@ cd kprompt-examples && make walkthrough
 
 Prefer one failure at a time? `make up && make break SCENARIO=01-crashloop && make agent`.
 
-![Observe agent on a deliberately broken kind cluster — incidents, health score, propose-only Autopilot, zero LLM spend](./.github/assets/kprompt-observe-demo.gif)
+![Observe agent: watch → Incident → gated alert — propose only, never silent mutate](./.github/assets/kprompt-observe-demo.gif)
 
 If the plan-before-apply contract is what you want in your own cluster workflow, a ⭐ helps other SREs find it.
 
@@ -106,6 +106,7 @@ kprompt "impact of deployment checkout" -n payments
 kprompt "audit payments namespace" -n payments
 kprompt "find every Deployment using redis" -n payments
 kprompt "score payments namespace" -n payments
+kprompt "explain architecture" -n payments
 kprompt "how's my cluster"
 kprompt "roast my namespace" -n payments
 kprompt "cleanup unused resources" -n payments
@@ -117,7 +118,7 @@ kprompt login
 
 </details>
 
-Multi-hop RCA: [docs/investigate.md](./docs/investigate.md) · Investigation Graph: [docs/investigation-graph.md](./docs/investigation-graph.md) · Reality anchors: [docs/reality-anchors.md](./docs/reality-anchors.md) · Causal why: [docs/why.md](./docs/why.md) · Timeline: [docs/timeline.md](./docs/timeline.md) · Reverse dependencies: [docs/impact.md](./docs/impact.md) · Knowledge Graph MVP: [docs/graph.md](./docs/graph.md) · Simulation MVP: [docs/simulation.md](./docs/simulation.md) · Security hygiene: [docs/audit.md](./docs/audit.md) · Cleanup: [docs/cleanup.md](./docs/cleanup.md) · Inventory search: [docs/search.md](./docs/search.md) · Scorecard: [docs/score.md](./docs/score.md) · Learn profile: [docs/learn.md](./docs/learn.md) · Drift: [docs/drift.md](./docs/drift.md) · GitOps PR: [docs/gitops-pr.md](./docs/gitops-pr.md) · Recipes: [docs/recipes.md](./docs/recipes.md) · Cost Intelligence / Optimize: [docs/optimize.md](./docs/optimize.md) · Setup: [docs/setup.md](./docs/setup.md) · Doctor: [docs/doctor.md](./docs/doctor.md) · Tools: [docs/tools.md](./docs/tools.md) · History: [docs/history.md](./docs/history.md) · IDE PlanResult: [docs/ide.md](./docs/ide.md).
+Multi-hop RCA: [docs/investigate.md](./docs/investigate.md) · Investigation Graph: [docs/investigation-graph.md](./docs/investigation-graph.md) · Reality anchors: [docs/reality-anchors.md](./docs/reality-anchors.md) · Causal why: [docs/why.md](./docs/why.md) · Timeline: [docs/timeline.md](./docs/timeline.md) · Reverse dependencies: [docs/impact.md](./docs/impact.md) · Knowledge Graph MVP: [docs/graph.md](./docs/graph.md) · Simulation MVP: [docs/simulation.md](./docs/simulation.md) · Security hygiene: [docs/audit.md](./docs/audit.md) · Cleanup: [docs/cleanup.md](./docs/cleanup.md) · Inventory search: [docs/search.md](./docs/search.md) · Scorecard: [docs/score.md](./docs/score.md) · Architecture narrative: [docs/architecture.md](./docs/architecture.md) · Learn profile: [docs/learn.md](./docs/learn.md) · Drift: [docs/drift.md](./docs/drift.md) · GitOps PR: [docs/gitops-pr.md](./docs/gitops-pr.md) · Recipes: [docs/recipes.md](./docs/recipes.md) · Cost Intelligence / Optimize: [docs/optimize.md](./docs/optimize.md) · Setup: [docs/setup.md](./docs/setup.md) · Doctor: [docs/doctor.md](./docs/doctor.md) · Tools: [docs/tools.md](./docs/tools.md) · History: [docs/history.md](./docs/history.md) · IDE PlanResult: [docs/ide.md](./docs/ide.md).
 In-cluster Observe agent (Helm): [docs/agent.md](./docs/agent.md) · modes: [docs/namespace-agent.md](./docs/namespace-agent.md) · ops: [docs/agent-ops.md](./docs/agent-ops.md) · [`charts/kprompt-agent`](./charts/kprompt-agent) · Coordinator: [`charts/kprompt-coordinator`](./charts/kprompt-coordinator).
 
 Generic get/list works for discoverable built-ins and CRDs (Node, ConfigMap, Secret, …). See [docs/kubernetes-reads.md](./docs/kubernetes-reads.md).

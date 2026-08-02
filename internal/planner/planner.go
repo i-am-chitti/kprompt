@@ -81,6 +81,8 @@ func Build(in intent.Intent) (ExecutionPlan, error) {
 		return buildSearch(in)
 	case intent.KindScore:
 		return buildScore(in)
+	case intent.KindArchitecture:
+		return buildArchitecture(in)
 	case intent.KindLearn:
 		return buildLearn(in)
 	case intent.KindDrift:

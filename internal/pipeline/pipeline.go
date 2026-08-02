@@ -13,6 +13,7 @@ import (
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
 
+	"github.com/kprompt/kprompt/internal/architecture"
 	"github.com/kprompt/kprompt/internal/audit"
 	"github.com/kprompt/kprompt/internal/cleanup"
 	"github.com/kprompt/kprompt/internal/cluster"
@@ -200,6 +201,10 @@ func RunWith(ctx context.Context, cfg config.Resolved, out io.Writer, deps Deps)
 		ForceNamespace:   cfg.NamespaceFromCLI,
 	})
 	in = intent.ApplyScoreScope(in, cfg.Prompt, intent.ScopePrefs{
+		DefaultNamespace: cfg.Namespace,
+		ForceNamespace:   cfg.NamespaceFromCLI,
+	})
+	in = intent.ApplyArchitectureScope(in, cfg.Prompt, intent.ScopePrefs{
 		DefaultNamespace: cfg.Namespace,
 		ForceNamespace:   cfg.NamespaceFromCLI,
 	})
@@ -1088,6 +1093,21 @@ func RunWith(ctx context.Context, cfg config.Resolved, out io.Writer, deps Deps)
 			}
 			applied = true
 			return nil
+		case intent.KindArchitecture:
+			req, err := architectureFromPlan(plan, cfg)
+			if err != nil {
+				return err
+			}
+			rep, err := (&architecture.Analyzer{Client: client}).Run(ctx, req)
+			if err != nil {
+				return cluster.Friendlier(fmt.Errorf("architecture: %w", err))
+			}
+			doc = doc.WithArchitectureResult(rep)
+			if !jsonMode {
+				ui.PrintArchitecture(out, rep)
+			}
+			applied = true
+			return nil
 		case intent.KindLogs:
 			req, err := logsFromPlan(plan)
 			if err != nil {
@@ -1503,7 +1523,7 @@ func isReadOnly(plan planner.ExecutionPlan) bool {
 		return false
 	}
 	switch plan.Intent.Kind {
-	case intent.KindGet, intent.KindExplain, intent.KindInvestigate, intent.KindWhy, intent.KindTimeline, intent.KindImpact, intent.KindAudit, intent.KindCleanup, intent.KindSearch, intent.KindScore, intent.KindLearn, intent.KindDrift, intent.KindLogs, intent.KindDescribe, intent.KindPerformance, intent.KindTrace, intent.KindDashboard, intent.KindOptimize, intent.KindRoast, intent.KindGraph, intent.KindIstio, intent.KindGitOps:
+	case intent.KindGet, intent.KindExplain, intent.KindInvestigate, intent.KindWhy, intent.KindTimeline, intent.KindImpact, intent.KindAudit, intent.KindCleanup, intent.KindSearch, intent.KindScore, intent.KindArchitecture, intent.KindLearn, intent.KindDrift, intent.KindLogs, intent.KindDescribe, intent.KindPerformance, intent.KindTrace, intent.KindDashboard, intent.KindOptimize, intent.KindRoast, intent.KindGraph, intent.KindIstio, intent.KindGitOps:
 		return true
 	default:
 		return false
@@ -1799,6 +1819,19 @@ func scoreFromPlan(plan planner.ExecutionPlan, prompt string) (score.Request, er
 		Namespace: a.Object.Namespace,
 		Prompt:    prompt,
 		Window:    window,
+	}, nil
+}
+
+func architectureFromPlan(plan planner.ExecutionPlan, cfg config.Resolved) (architecture.Request, error) {
+	if len(plan.Actions) == 0 {
+		return architecture.Request{}, fmt.Errorf("architecture plan has no actions")
+	}
+	a := plan.Actions[0]
+	return architecture.Request{
+		Namespace: a.Object.Namespace,
+		Prompt:    cfg.Prompt,
+		Context:   cfg.Context,
+		File:      config.File{Context: cfg.Context, Tools: cfg.Tools},
 	}, nil
 }
 

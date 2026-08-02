@@ -1591,6 +1591,32 @@ func TestPipelineScoreEmitsScorecard(t *testing.T) {
 	}
 }
 
+func TestPipelineArchitectureEmitsNarrative(t *testing.T) {
+	ns := "payments"
+	client := fake.NewSimpleClientset(
+		&corev1.Service{ObjectMeta: metav1.ObjectMeta{Name: "redis", Namespace: ns}},
+		&corev1.Service{ObjectMeta: metav1.ObjectMeta{Name: "api", Namespace: ns}},
+	)
+	var out bytes.Buffer
+	var got output.PlanResult
+	err := RunWith(context.Background(), config.Resolved{
+		Namespace: ns,
+		Prompt:    "explain architecture",
+		Output:    "json",
+	}, &out, Deps{
+		Provider: llm.ArchitectureStub(ns, false),
+		Client:   client,
+		OnResult: func(r output.PlanResult) { got = r },
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Contains(got.Result, []byte(`"type":"ArchitectureNarrative"`)) ||
+		!bytes.Contains(got.Result, []byte(`"narrative"`)) {
+		t.Fatalf("expected architecture narrative: %s", string(got.Result))
+	}
+}
+
 func deployment(name, ns string, replicas int32) *appsv1.Deployment {
 	return &appsv1.Deployment{
 		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: ns},

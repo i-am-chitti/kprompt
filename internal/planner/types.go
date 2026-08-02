@@ -33,6 +33,7 @@ const (
 	OpCleanup            Op = "cleanup"
 	OpSearch             Op = "search"
 	OpScore              Op = "score"
+	OpArchitecture       Op = "architecture"
 	OpLearn              Op = "learn"
 	OpDrift              Op = "drift"
 )
