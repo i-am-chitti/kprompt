@@ -255,6 +255,27 @@ func CleanupStub(namespace string, clusterScope bool) *Stub {
 	return &Stub{Structured: payload}
 }
 
+// SearchStub returns a Stub that classifies an inventory search (S-010).
+func SearchStub(namespace, query, resourceKind string, clusterScope bool) *Stub {
+	params := map[string]any{"query": query}
+	target := map[string]any{"kind": resourceKind}
+	if resourceKind == "" {
+		target["kind"] = "Deployment"
+	}
+	if clusterScope {
+		params["scope"] = "cluster"
+	} else if namespace != "" {
+		target["namespace"] = namespace
+	}
+	payload, _ := json.Marshal(map[string]any{
+		"kind":       "search",
+		"target":     target,
+		"params":     params,
+		"confidence": 1.0,
+	})
+	return &Stub{Structured: payload}
+}
+
 // PerformanceStub returns a Stub that classifies a metrics-backed diagnosis.
 func PerformanceStub(name, namespace, window string) *Stub {
 	params := map[string]any{}

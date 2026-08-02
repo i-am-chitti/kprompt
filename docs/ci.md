@@ -41,7 +41,7 @@ When `--contexts a,b` (or NL “across …”) fans out a **read** (or optimize)
 | `fleetSummary` | optimize only: ok/failed contexts + merged findings |
 | `applied` | false if any step failed or was skipped |
 
-Mutating multi-context runs still use per-context approval (or `--approve-each-context`). Plain `--approve` across multiple contexts is refused. Read fan-out covers get/list, explain, investigate, why, timeline, impact, audit, cleanup, logs, describe, and optimize. See [multi-cluster.md](./multi-cluster.md).
+Mutating multi-context runs still use per-context approval (or `--approve-each-context`). Plain `--approve` across multiple contexts is refused. Read fan-out covers get/list, explain, investigate, why, timeline, impact, audit, cleanup, search, logs, describe, and optimize. See [multi-cluster.md](./multi-cluster.md).
 
 ## Gate on risk (example)
 

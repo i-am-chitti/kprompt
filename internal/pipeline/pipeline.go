@@ -33,6 +33,7 @@ import (
 	"github.com/kprompt/kprompt/internal/pretrust"
 	"github.com/kprompt/kprompt/internal/recipe"
 	"github.com/kprompt/kprompt/internal/safety"
+	"github.com/kprompt/kprompt/internal/search"
 	"github.com/kprompt/kprompt/internal/suggest"
 	"github.com/kprompt/kprompt/internal/team"
 	"github.com/kprompt/kprompt/internal/timeline"
@@ -190,6 +191,10 @@ func RunWith(ctx context.Context, cfg config.Resolved, out io.Writer, deps Deps)
 		ForceNamespace:   cfg.NamespaceFromCLI,
 	})
 	in = intent.ApplyCleanupScope(in, cfg.Prompt, intent.ScopePrefs{
+		DefaultNamespace: cfg.Namespace,
+		ForceNamespace:   cfg.NamespaceFromCLI,
+	})
+	in = intent.ApplySearchScope(in, cfg.Prompt, intent.ScopePrefs{
 		DefaultNamespace: cfg.Namespace,
 		ForceNamespace:   cfg.NamespaceFromCLI,
 	})
@@ -1038,6 +1043,21 @@ func RunWith(ctx context.Context, cfg config.Resolved, out io.Writer, deps Deps)
 			}
 			applied = true
 			return nil
+		case intent.KindSearch:
+			req, err := searchFromPlan(plan, cfg.Prompt)
+			if err != nil {
+				return err
+			}
+			rep, err := (&search.Analyzer{Client: client}).Run(ctx, req)
+			if err != nil {
+				return cluster.Friendlier(fmt.Errorf("search: %w", err))
+			}
+			doc = doc.WithSearchResult(rep)
+			if !jsonMode {
+				ui.PrintSearch(out, rep)
+			}
+			applied = true
+			return nil
 		case intent.KindLogs:
 			req, err := logsFromPlan(plan)
 			if err != nil {
@@ -1453,7 +1473,7 @@ func isReadOnly(plan planner.ExecutionPlan) bool {
 		return false
 	}
 	switch plan.Intent.Kind {
-	case intent.KindGet, intent.KindExplain, intent.KindInvestigate, intent.KindWhy, intent.KindTimeline, intent.KindImpact, intent.KindAudit, intent.KindCleanup, intent.KindLearn, intent.KindDrift, intent.KindLogs, intent.KindDescribe, intent.KindPerformance, intent.KindTrace, intent.KindDashboard, intent.KindOptimize, intent.KindRoast, intent.KindGraph, intent.KindIstio, intent.KindGitOps:
+	case intent.KindGet, intent.KindExplain, intent.KindInvestigate, intent.KindWhy, intent.KindTimeline, intent.KindImpact, intent.KindAudit, intent.KindCleanup, intent.KindSearch, intent.KindLearn, intent.KindDrift, intent.KindLogs, intent.KindDescribe, intent.KindPerformance, intent.KindTrace, intent.KindDashboard, intent.KindOptimize, intent.KindRoast, intent.KindGraph, intent.KindIstio, intent.KindGitOps:
 		return true
 	default:
 		return false
@@ -1710,6 +1730,25 @@ func cleanupFromPlan(plan planner.ExecutionPlan, prompt string) (cleanup.Request
 	return cleanup.Request{
 		Namespace: a.Object.Namespace,
 		Prompt:    prompt,
+	}, nil
+}
+
+func searchFromPlan(plan planner.ExecutionPlan, prompt string) (search.Request, error) {
+	if len(plan.Actions) == 0 {
+		return search.Request{}, fmt.Errorf("search plan has no actions")
+	}
+	a := plan.Actions[0]
+	query, _ := plan.Intent.StringParam("query")
+	if strings.TrimSpace(query) == "" {
+		query = intent.InferSearchQuery(prompt)
+	}
+	match, _ := plan.Intent.StringParam("match")
+	return search.Request{
+		Namespace: a.Object.Namespace,
+		Prompt:    prompt,
+		Query:     query,
+		Kind:      a.Object.Kind,
+		Match:     match,
 	}, nil
 }
 

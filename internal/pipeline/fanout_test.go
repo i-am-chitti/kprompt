@@ -201,7 +201,7 @@ func TestSupportsReadFanOut(t *testing.T) {
 	ok := []intent.Kind{
 		intent.KindGet, intent.KindExplain, intent.KindInvestigate, intent.KindWhy,
 		intent.KindTimeline, intent.KindImpact, intent.KindAudit, intent.KindCleanup,
-		intent.KindLearn, intent.KindDrift, intent.KindLogs, intent.KindDescribe, intent.KindOptimize,
+		intent.KindSearch, intent.KindLearn, intent.KindDrift, intent.KindLogs, intent.KindDescribe, intent.KindOptimize,
 	}
 	for _, k := range ok {
 		if !supportsReadFanOut(k) {

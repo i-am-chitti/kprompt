@@ -276,6 +276,26 @@ func TestBuildCleanup(t *testing.T) {
 	}
 }
 
+func TestBuildSearch(t *testing.T) {
+	plan, err := Build(intent.Intent{
+		Kind:   intent.KindSearch,
+		Target: intent.Target{Namespace: "payments", Kind: "Deployment"},
+		Params: map[string]any{"query": "redis"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if plan.RequiresApproval || len(plan.Actions) != 1 || plan.Actions[0].Op != OpSearch {
+		t.Fatalf("plan=%+v", plan)
+	}
+	if plan.Actions[0].Object.Namespace != "payments" || plan.Actions[0].Object.Kind != "Deployment" {
+		t.Fatalf("object=%+v", plan.Actions[0].Object)
+	}
+	if _, err := Build(intent.Intent{Kind: intent.KindSearch, Target: intent.Target{Namespace: "payments"}}); err == nil {
+		t.Fatal("expected error without query")
+	}
+}
+
 func TestBuildLearn(t *testing.T) {
 	plan, err := Build(intent.Intent{Kind: intent.KindLearn})
 	if err != nil {

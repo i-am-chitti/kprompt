@@ -19,6 +19,7 @@ import (
 	"github.com/kprompt/kprompt/internal/recipe"
 	"github.com/kprompt/kprompt/internal/roast"
 	"github.com/kprompt/kprompt/internal/safety"
+	"github.com/kprompt/kprompt/internal/search"
 	"github.com/kprompt/kprompt/internal/suggest"
 	"github.com/kprompt/kprompt/internal/tools/argo"
 	"github.com/kprompt/kprompt/internal/tools/crossplane"
@@ -946,6 +947,36 @@ func PrintLearnProfile(w io.Writer, p learn.Profile) {
 		fmt.Fprintf(tw, "%s\t%s\t%s\n", row.Name, row.Status, strings.ReplaceAll(row.Detail, "\t", " "))
 	}
 	_ = tw.Flush()
+}
+
+// PrintSearch prints a structured inventory search table (S-010).
+func PrintSearch(w io.Writer, report search.Report) {
+	t := themeFor(w)
+	fmt.Fprintf(w, "%s %s\n", t.Heading("Search:"), t.Accent(report.Summary))
+	if report.Query != "" {
+		fmt.Fprintf(w, "%s %s", t.Muted("query="), report.Query)
+		if report.Kind != "" {
+			fmt.Fprintf(w, "  kind=%s", report.Kind)
+		}
+		if report.Match != "" && report.Match != "all" {
+			fmt.Fprintf(w, "  match=%s", report.Match)
+		}
+		fmt.Fprintln(w)
+	}
+	if len(report.Hits) == 0 {
+		fmt.Fprintf(w, "%s\n", t.Muted("No inventory hits."))
+		return
+	}
+	tw := tabwriter.NewWriter(w, 0, 4, 2, ' ', 0)
+	fmt.Fprintln(tw, t.tabHeading("NAMESPACE\tKIND\tNAME\tFIELD\tDETAIL"))
+	for _, h := range report.Hits {
+		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\n",
+			h.Namespace, h.Kind, h.Name, h.Field, strings.ReplaceAll(h.Detail, "\t", " "))
+	}
+	_ = tw.Flush()
+	if len(report.Degraded) > 0 {
+		fmt.Fprintf(w, "%s %s\n", t.Muted("degraded:"), strings.Join(report.Degraded, ", "))
+	}
 }
 
 // PrintInvestigation prints an ADR-0014 Investigation (S-002 multi-hop RCA).

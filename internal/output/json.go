@@ -13,6 +13,7 @@ import (
 	"github.com/kprompt/kprompt/internal/planner"
 	"github.com/kprompt/kprompt/internal/roast"
 	"github.com/kprompt/kprompt/internal/safety"
+	"github.com/kprompt/kprompt/internal/search"
 	"github.com/kprompt/kprompt/internal/tools/argo"
 	"github.com/kprompt/kprompt/internal/tools/crossplane"
 	"github.com/kprompt/kprompt/internal/tools/gitops"
@@ -414,6 +415,13 @@ func (r PlanResult) WithOptimizeResult(report optimize.Report) PlanResult {
 
 // WithRoastResult attaches a witty read-only health roast.
 func (r PlanResult) WithRoastResult(report roast.Report) PlanResult {
+	raw, _ := json.Marshal(report)
+	r.Result = raw
+	return r
+}
+
+// WithSearchResult attaches a structured inventory search report (S-010).
+func (r PlanResult) WithSearchResult(report search.Report) PlanResult {
 	raw, _ := json.Marshal(report)
 	r.Result = raw
 	return r

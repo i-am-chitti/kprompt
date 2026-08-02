@@ -1511,6 +1511,43 @@ func TestPipelineCleanupEmitsCandidates(t *testing.T) {
 	}
 }
 
+func TestPipelineSearchEmitsHits(t *testing.T) {
+	ns := "payments"
+	client := fake.NewSimpleClientset(
+		&appsv1.Deployment{
+			ObjectMeta: metav1.ObjectMeta{Name: "cache", Namespace: ns},
+			Spec: appsv1.DeploymentSpec{
+				Template: corev1.PodTemplateSpec{
+					Spec: corev1.PodSpec{
+						Containers: []corev1.Container{{
+							Name:  "redis",
+							Image: "redis:7-alpine",
+						}},
+					},
+				},
+			},
+		},
+	)
+	var out bytes.Buffer
+	var got output.PlanResult
+	err := RunWith(context.Background(), config.Resolved{
+		Namespace: ns,
+		Prompt:    "find every Deployment using redis",
+		Output:    "json",
+	}, &out, Deps{
+		Provider: llm.SearchStub(ns, "redis", "Deployment", false),
+		Client:   client,
+		OnResult: func(r output.PlanResult) { got = r },
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Contains(got.Result, []byte(`"type":"SearchReport"`)) ||
+		!bytes.Contains(got.Result, []byte(`"name":"cache"`)) {
+		t.Fatalf("expected search hits: %s", string(got.Result))
+	}
+}
+
 func deployment(name, ns string, replicas int32) *appsv1.Deployment {
 	return &appsv1.Deployment{
 		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: ns},

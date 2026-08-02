@@ -31,6 +31,7 @@ const (
 	OpGraph              Op = "graph"
 	OpAudit              Op = "audit"
 	OpCleanup            Op = "cleanup"
+	OpSearch             Op = "search"
 	OpLearn              Op = "learn"
 	OpDrift              Op = "drift"
 )

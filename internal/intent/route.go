@@ -13,7 +13,7 @@ var (
 	)
 	andRouteSeparator = regexp.MustCompile(`(?i)\s+\band\b\s+`)
 	routableClause    = regexp.MustCompile(
-		`(?i)\b(?:deploy|install|upgrade|scale|rollback|undo|list|show|get|explain|investigate|why|timeline|chronolog|impact|blast\s+radius|consumes?|depends?\s+on|audit|security\s+scan|hygiene|cleanup|clean\s+up|prune|unused|orphan|stale|learn|drift|out[- ]?of[- ]?sync|logs?|describe|train|workflow|tekton|keda|scaledobject|scale[- ]to[- ]zero|event[- ]driven|hpa|horizontalpodautoscaler|horizontal\s+pod\s+autoscaler|autoscale|autoscaler|istio|virtualservice|canary|traffic\s+split|crossplane|provision|claim|gitops|flux|argocd|kustomization|sync|promote|ci\s+pipeline|pipeline|slow|latency|performance|trace|dashboards?|optimize|right\s*siz|dependenc|service\s+graph|graph|delete|remove)\b`,
+		`(?i)\b(?:deploy|install|upgrade|scale|rollback|undo|list|show|get|explain|investigate|why|timeline|chronolog|impact|blast\s+radius|consumes?|depends?\s+on|audit|security\s+scan|hygiene|cleanup|clean\s+up|prune|unused|orphan|stale|search|find\s+every|find\s+all|learn|drift|out[- ]?of[- ]?sync|logs?|describe|train|workflow|tekton|keda|scaledobject|scale[- ]to[- ]zero|event[- ]driven|hpa|horizontalpodautoscaler|horizontal\s+pod\s+autoscaler|autoscale|autoscaler|istio|virtualservice|canary|traffic\s+split|crossplane|provision|claim|gitops|flux|argocd|kustomization|sync|promote|ci\s+pipeline|pipeline|slow|latency|performance|trace|dashboards?|optimize|right\s*siz|dependenc|service\s+graph|graph|delete|remove)\b`,
 	)
 )
 
