@@ -33,6 +33,7 @@ import (
 	"github.com/kprompt/kprompt/internal/pretrust"
 	"github.com/kprompt/kprompt/internal/recipe"
 	"github.com/kprompt/kprompt/internal/safety"
+	"github.com/kprompt/kprompt/internal/score"
 	"github.com/kprompt/kprompt/internal/search"
 	"github.com/kprompt/kprompt/internal/suggest"
 	"github.com/kprompt/kprompt/internal/team"
@@ -195,6 +196,10 @@ func RunWith(ctx context.Context, cfg config.Resolved, out io.Writer, deps Deps)
 		ForceNamespace:   cfg.NamespaceFromCLI,
 	})
 	in = intent.ApplySearchScope(in, cfg.Prompt, intent.ScopePrefs{
+		DefaultNamespace: cfg.Namespace,
+		ForceNamespace:   cfg.NamespaceFromCLI,
+	})
+	in = intent.ApplyScoreScope(in, cfg.Prompt, intent.ScopePrefs{
 		DefaultNamespace: cfg.Namespace,
 		ForceNamespace:   cfg.NamespaceFromCLI,
 	})
@@ -1058,6 +1063,31 @@ func RunWith(ctx context.Context, cfg config.Resolved, out io.Writer, deps Deps)
 			}
 			applied = true
 			return nil
+		case intent.KindScore:
+			req, err := scoreFromPlan(plan, cfg.Prompt)
+			if err != nil {
+				return err
+			}
+			querier := deps.Prometheus
+			if querier == nil {
+				settings := tools.LoadSettings(config.File{Tools: cfg.Tools})
+				if promClient, err := tools.NewPrometheusClient(settings); err == nil {
+					querier = promClient
+				}
+			}
+			rep, err := (&score.Analyzer{Client: client, Prometheus: querier}).Run(ctx, req)
+			if err != nil {
+				return cluster.Friendlier(fmt.Errorf("score: %w", err))
+			}
+			if cfg.Context != "" {
+				rep.ClusterContext = cfg.Context
+			}
+			doc = doc.WithScoreResult(rep)
+			if !jsonMode {
+				ui.PrintScorecard(out, rep)
+			}
+			applied = true
+			return nil
 		case intent.KindLogs:
 			req, err := logsFromPlan(plan)
 			if err != nil {
@@ -1473,7 +1503,7 @@ func isReadOnly(plan planner.ExecutionPlan) bool {
 		return false
 	}
 	switch plan.Intent.Kind {
-	case intent.KindGet, intent.KindExplain, intent.KindInvestigate, intent.KindWhy, intent.KindTimeline, intent.KindImpact, intent.KindAudit, intent.KindCleanup, intent.KindSearch, intent.KindLearn, intent.KindDrift, intent.KindLogs, intent.KindDescribe, intent.KindPerformance, intent.KindTrace, intent.KindDashboard, intent.KindOptimize, intent.KindRoast, intent.KindGraph, intent.KindIstio, intent.KindGitOps:
+	case intent.KindGet, intent.KindExplain, intent.KindInvestigate, intent.KindWhy, intent.KindTimeline, intent.KindImpact, intent.KindAudit, intent.KindCleanup, intent.KindSearch, intent.KindScore, intent.KindLearn, intent.KindDrift, intent.KindLogs, intent.KindDescribe, intent.KindPerformance, intent.KindTrace, intent.KindDashboard, intent.KindOptimize, intent.KindRoast, intent.KindGraph, intent.KindIstio, intent.KindGitOps:
 		return true
 	default:
 		return false
@@ -1749,6 +1779,26 @@ func searchFromPlan(plan planner.ExecutionPlan, prompt string) (search.Request, 
 		Query:     query,
 		Kind:      a.Object.Kind,
 		Match:     match,
+	}, nil
+}
+
+func scoreFromPlan(plan planner.ExecutionPlan, prompt string) (score.Request, error) {
+	if len(plan.Actions) == 0 {
+		return score.Request{}, fmt.Errorf("score plan has no actions")
+	}
+	a := plan.Actions[0]
+	window := time.Hour
+	if raw, ok := plan.Intent.Window(); ok {
+		parsed, err := time.ParseDuration(raw)
+		if err != nil {
+			return score.Request{}, fmt.Errorf("params.window: %w", err)
+		}
+		window = parsed
+	}
+	return score.Request{
+		Namespace: a.Object.Namespace,
+		Prompt:    prompt,
+		Window:    window,
 	}, nil
 }
 

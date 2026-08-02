@@ -32,6 +32,7 @@ func NormalizeVerb(in Intent, prompt string) Intent {
 	in = NormalizeDashboard(in, prompt)
 	in = NormalizeOptimize(in, prompt)
 	in = NormalizeRoast(in, prompt)
+	in = NormalizeScore(in, prompt)
 	in = NormalizeInvestigate(in, prompt)
 	return NormalizeGraph(in, prompt)
 }

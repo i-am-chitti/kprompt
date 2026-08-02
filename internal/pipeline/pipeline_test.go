@@ -1548,6 +1548,49 @@ func TestPipelineSearchEmitsHits(t *testing.T) {
 	}
 }
 
+func TestPipelineScoreEmitsScorecard(t *testing.T) {
+	ns := "payments"
+	replicas := int32(1)
+	client := fake.NewSimpleClientset(
+		&appsv1.Deployment{
+			ObjectMeta: metav1.ObjectMeta{Name: "api", Namespace: ns},
+			Spec: appsv1.DeploymentSpec{
+				Replicas: &replicas,
+				Template: corev1.PodTemplateSpec{
+					Spec: corev1.PodSpec{
+						Containers: []corev1.Container{{
+							Name:  "api",
+							Image: "nginx:latest",
+						}},
+					},
+				},
+			},
+			Status: appsv1.DeploymentStatus{Replicas: 1, ReadyReplicas: 1},
+		},
+	)
+	var out bytes.Buffer
+	var got output.PlanResult
+	err := RunWith(context.Background(), config.Resolved{
+		Namespace: ns,
+		Prompt:    "score payments namespace",
+		Output:    "json",
+	}, &out, Deps{
+		Provider: llm.ScoreStub(ns, false),
+		Client:   client,
+		OnResult: func(r output.PlanResult) { got = r },
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Contains(got.Result, []byte(`"type":"Scorecard"`)) ||
+		!bytes.Contains(got.Result, []byte(`"id":"security"`)) {
+		t.Fatalf("expected scorecard: %s", string(got.Result))
+	}
+	if !bytes.Contains(got.Result, []byte(`"status":"skipped"`)) {
+		t.Fatalf("expected cost skipped without Prom: %s", string(got.Result))
+	}
+}
+
 func deployment(name, ns string, replicas int32) *appsv1.Deployment {
 	return &appsv1.Deployment{
 		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: ns},

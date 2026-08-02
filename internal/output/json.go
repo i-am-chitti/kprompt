@@ -13,6 +13,7 @@ import (
 	"github.com/kprompt/kprompt/internal/planner"
 	"github.com/kprompt/kprompt/internal/roast"
 	"github.com/kprompt/kprompt/internal/safety"
+	"github.com/kprompt/kprompt/internal/score"
 	"github.com/kprompt/kprompt/internal/search"
 	"github.com/kprompt/kprompt/internal/tools/argo"
 	"github.com/kprompt/kprompt/internal/tools/crossplane"
@@ -422,6 +423,13 @@ func (r PlanResult) WithRoastResult(report roast.Report) PlanResult {
 
 // WithSearchResult attaches a structured inventory search report (S-010).
 func (r PlanResult) WithSearchResult(report search.Report) PlanResult {
+	raw, _ := json.Marshal(report)
+	r.Result = raw
+	return r
+}
+
+// WithScoreResult attaches a reliability/security/cost scorecard (S-011).
+func (r PlanResult) WithScoreResult(report score.Report) PlanResult {
 	raw, _ := json.Marshal(report)
 	r.Result = raw
 	return r

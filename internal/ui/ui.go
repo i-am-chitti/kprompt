@@ -19,6 +19,7 @@ import (
 	"github.com/kprompt/kprompt/internal/recipe"
 	"github.com/kprompt/kprompt/internal/roast"
 	"github.com/kprompt/kprompt/internal/safety"
+	"github.com/kprompt/kprompt/internal/score"
 	"github.com/kprompt/kprompt/internal/search"
 	"github.com/kprompt/kprompt/internal/suggest"
 	"github.com/kprompt/kprompt/internal/tools/argo"
@@ -976,6 +977,50 @@ func PrintSearch(w io.Writer, report search.Report) {
 	_ = tw.Flush()
 	if len(report.Degraded) > 0 {
 		fmt.Fprintf(w, "%s %s\n", t.Muted("degraded:"), strings.Join(report.Degraded, ", "))
+	}
+}
+
+// PrintScorecard prints a reliability / security / cost scorecard (S-011).
+func PrintScorecard(w io.Writer, report score.Report) {
+	t := themeFor(w)
+	fmt.Fprintf(w, "%s %s\n", t.Heading("Scorecard:"), t.Accent(report.Summary))
+	if report.Overall != nil {
+		fmt.Fprintf(w, "%s %d/100 (%s)\n", t.Heading("Overall:"), *report.Overall, report.Verdict)
+	}
+	tw := tabwriter.NewWriter(w, 0, 4, 2, ' ', 0)
+	fmt.Fprintln(tw, t.tabHeading("DIMENSION\tSCORE\tSTATUS\tMESSAGE"))
+	for _, d := range report.Dimensions {
+		sc := "n/a"
+		if d.Score != nil {
+			sc = fmt.Sprintf("%d", *d.Score)
+		}
+		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\n",
+			d.ID, sc, d.Status, strings.ReplaceAll(d.Message, "\t", " "))
+	}
+	_ = tw.Flush()
+	var evidence []score.Evidence
+	for _, d := range report.Dimensions {
+		evidence = append(evidence, d.Evidence...)
+	}
+	if len(evidence) > 0 {
+		fmt.Fprintln(w, t.Heading("Evidence:"))
+		limit := 12
+		if len(evidence) < limit {
+			limit = len(evidence)
+		}
+		for _, e := range evidence[:limit] {
+			loc := e.Code
+			if e.Resource != "" {
+				loc += " " + e.Resource
+			}
+			fmt.Fprintf(w, "  - [%s] %s (−%d): %s\n", e.Source, t.Accent(loc), e.Impact, e.Title)
+		}
+		if len(evidence) > limit {
+			fmt.Fprintf(w, "%s\n", t.Muted(fmt.Sprintf("  … %d more", len(evidence)-limit)))
+		}
+	}
+	if len(report.Degraded) > 0 {
+		fmt.Fprintf(w, "%s %s\n", t.Muted("degraded:"), strings.Join(report.Degraded, "; "))
 	}
 }
 

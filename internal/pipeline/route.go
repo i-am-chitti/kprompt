@@ -161,6 +161,9 @@ func prepareRoute(
 		in = intent.ApplySearchScope(in, prompt, intent.ScopePrefs{
 			ForceNamespace: cfg.NamespaceFromCLI,
 		})
+		in = intent.ApplyScoreScope(in, prompt, intent.ScopePrefs{
+			ForceNamespace: cfg.NamespaceFromCLI,
+		})
 		in = intent.ApplyDriftScope(in, prompt, intent.ScopePrefs{
 			ForceNamespace: cfg.NamespaceFromCLI,
 		})
