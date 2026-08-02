@@ -24,6 +24,14 @@ const (
 	SchemaVersion = "1"
 
 	maxBody = 1 << 20 // 1 MiB
+
+	// Probe EvidenceRef.Source values (AG-050 / AG-068).
+	probeSourceKube  = "coordinator-kube-probe"
+	probeSourceMerge = "coordinator-probe"
+
+	// Confidence caps when cross-ns verify lacks independent anchors (AG-068).
+	unverifiedConfidenceCap = 0.7 // no suspect report at all
+	softAgreeConfidenceCap  = 0.4 // suspect present but narrative-only / soft-agree
 )
 
 // Reply is returned to the origin Namespace Agent after a handoff (AG-038).
@@ -179,8 +187,9 @@ func (s *Service) Recent() []Record {
 	return out
 }
 
-// Merge combines origin + optional suspect InvestigationReports (AG-038).
-// Never invents cluster facts; stamps unknowns when suspect evidence is missing.
+// Merge combines origin + optional suspect InvestigationReports (AG-038 / AG-068).
+// Never invents cluster facts. Independent verify requires fresh probe EvidenceRef
+// or honest probe Unknowns — a high-confidence narrative soft-agree does not count.
 func Merge(origin incident.InvestigationReport, suspect *incident.InvestigationReport, suspectNS string) incident.InvestigationReport {
 	out := origin
 	out.Kind = incident.KindInvestigationReport
@@ -199,15 +208,36 @@ func Merge(origin incident.InvestigationReport, suspect *incident.InvestigationR
 			note = fmt.Sprintf("Coordinator: namespace %q not verified yet — do not treat origin hypotheses as foreign-ns facts", suspectNS)
 		}
 		out.Unknowns = appendUnique(out.Unknowns, note)
-		if out.Confidence > 0.7 {
-			out.Confidence = 0.7
+		if out.Confidence > unverifiedConfidenceCap {
+			out.Confidence = unverifiedConfidenceCap
 		}
+		return out
+	}
+
+	// AG-068: narrative / same-session soft-agree is not a verify edge.
+	if !hasFreshProbeEvidence(suspect) && !hasHonestProbeUnknowns(suspect) {
+		nsLabel := firstNonEmpty(suspect.Namespace, suspectNS)
+		if suspect.Summary != "" {
+			out.Summary = strings.TrimSpace(out.Summary + "; suspect@" + nsLabel + ": " + suspect.Summary)
+		}
+		for _, u := range suspect.Unknowns {
+			out.Unknowns = appendUnique(out.Unknowns, u)
+		}
+		note := "Coordinator: independent verify failed — suspect report lacks probe EvidenceRef or honest probe Unknowns (narrative soft-agree is not verification)"
+		if nsLabel != "" {
+			note = fmt.Sprintf("Coordinator: independent verify failed for %q — suspect report lacks probe EvidenceRef or honest probe Unknowns (narrative soft-agree is not verification)", nsLabel)
+		}
+		out.Unknowns = appendUnique(out.Unknowns, note)
+		if out.Confidence > softAgreeConfidenceCap {
+			out.Confidence = softAgreeConfidenceCap
+		}
+		out.Reasoning = strings.TrimSpace(out.Reasoning + "; coordinator-merge-unverified")
 		return out
 	}
 
 	// Tag and append suspect evidence.
 	for _, e := range suspect.Evidence {
-		e.Source = firstNonEmpty(e.Source, "coordinator-probe")
+		e.Source = firstNonEmpty(e.Source, probeSourceMerge)
 		if e.Resource != nil && e.Resource.Namespace == "" && suspect.Namespace != "" {
 			cp := *e.Resource
 			cp.Namespace = suspect.Namespace
@@ -238,7 +268,7 @@ func Merge(origin incident.InvestigationReport, suspect *incident.InvestigationR
 	if suspect.Summary != "" {
 		out.Summary = strings.TrimSpace(out.Summary + "; suspect@" + firstNonEmpty(suspect.Namespace, suspectNS) + ": " + suspect.Summary)
 	}
-	// Conservative confidence: min of both, slight penalty for cross-ns merge.
+	// Probe anchors are the confidence ceiling — never keep origin LLM score above probe.
 	if suspect.Confidence > 0 && suspect.Confidence < out.Confidence {
 		out.Confidence = suspect.Confidence
 	}
@@ -248,6 +278,46 @@ func Merge(origin incident.InvestigationReport, suspect *incident.InvestigationR
 	out.Unknowns = appendUnique(out.Unknowns, "Coordinator: merged origin + suspect reports (verify before mutate)")
 	out.Reasoning = strings.TrimSpace(out.Reasoning + "; coordinator-merge")
 	return out
+}
+
+func isProbeSource(src string) bool {
+	switch strings.ToLower(strings.TrimSpace(src)) {
+	case probeSourceKube, probeSourceMerge:
+		return true
+	default:
+		return false
+	}
+}
+
+// hasFreshProbeEvidence reports whether the suspect carries cluster EvidenceRef
+// stamped by KubeProbe (or equivalently sourced for merge).
+func hasFreshProbeEvidence(suspect *incident.InvestigationReport) bool {
+	if suspect == nil {
+		return false
+	}
+	probeReasoning := strings.EqualFold(strings.TrimSpace(suspect.Reasoning), probeSourceKube)
+	for _, e := range suspect.Evidence {
+		if isProbeSource(e.Source) {
+			return true
+		}
+		// KubeProbe always sets Reasoning; accept typed cluster reads even if Source was omitted.
+		if probeReasoning {
+			switch e.Type {
+			case incident.EvidenceEvent, incident.EvidenceObject, incident.EvidenceMetric:
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// hasHonestProbeUnknowns accepts soft-fail probe reports that could not gather
+// Evidence but recorded Unknowns (e.g. RBAC / empty list) under kube-probe reasoning.
+func hasHonestProbeUnknowns(suspect *incident.InvestigationReport) bool {
+	if suspect == nil || len(suspect.Unknowns) == 0 {
+		return false
+	}
+	return strings.EqualFold(strings.TrimSpace(suspect.Reasoning), probeSourceKube)
 }
 
 // Handler serves HTTP endpoints for the Coordinator (AG-037).

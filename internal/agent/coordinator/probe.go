@@ -155,6 +155,18 @@ func (p *KubeProbe) Probe(ctx context.Context, suspectNamespace string, _ handof
 			Primary:    true,
 		}}
 	}
+	// AG-068: every successful probe must leave a fresh EvidenceRef (or Unknowns above)
+	// so Merge never treats a healthy narrative-only report as soft-agree.
+	if len(rep.Evidence) == 0 && len(rep.Unknowns) == 0 {
+		rep.Evidence = append(rep.Evidence, incident.EvidenceRef{
+			Type:     incident.EvidenceObject,
+			Resource: &incident.ResourceRef{Kind: "Namespace", Name: ns, Namespace: ns, APIVersion: "v1"},
+			Reason:   "ProbeSnapshot",
+			Message:  rep.Facts,
+			Source:   "coordinator-kube-probe",
+			Timestamp: &at,
+		})
+	}
 	return &rep, nil
 }
 

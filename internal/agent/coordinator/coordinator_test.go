@@ -38,8 +38,11 @@ func TestMergeWithoutSuspectKeepsUnknown(t *testing.T) {
 func TestMergeWithSuspect(t *testing.T) {
 	origin := sampleReport("payments", "timeout")
 	suspect := sampleReport("platform", "redis down")
+	suspect.Reasoning = probeSourceKube
+	suspect.Confidence = 0.55
 	suspect.Evidence = []incident.EvidenceRef{{
 		Type: incident.EvidenceEvent, Reason: "Unhealthy", Message: "redis not ready",
+		Source:   probeSourceKube,
 		Resource: &incident.ResourceRef{Kind: "Pod", Name: "redis-0"},
 	}}
 	got := Merge(origin, &suspect, "platform")
@@ -51,6 +54,52 @@ func TestMergeWithSuspect(t *testing.T) {
 	}
 	if got.Confidence >= 0.8 {
 		t.Fatalf("expected confidence penalty, got %v", got.Confidence)
+	}
+	if got.Confidence > 0.55 {
+		t.Fatalf("probe must ceiling confidence, got %v", got.Confidence)
+	}
+	if !strings.Contains(got.Reasoning, "coordinator-merge") {
+		t.Fatalf("reasoning=%q", got.Reasoning)
+	}
+}
+
+func TestMergeSoftAgreeNoEvidenceCaps(t *testing.T) {
+	origin := sampleReport("payments", "timeout to redis")
+	origin.Confidence = 0.9
+	suspect := sampleReport("platform", "looks fine to me")
+	suspect.Confidence = 0.9
+	suspect.Reasoning = "llm-agree" // not a kube probe
+	// No Evidence — classic soft-agree.
+	got := Merge(origin, &suspect, "platform")
+	if got.Confidence > softAgreeConfidenceCap {
+		t.Fatalf("soft-agree must not keep high confidence, got %v", got.Confidence)
+	}
+	blob := strings.Join(got.Unknowns, " ")
+	if !strings.Contains(blob, "independent verify failed") {
+		t.Fatalf("unknowns=%v", got.Unknowns)
+	}
+	if !strings.Contains(got.Reasoning, "coordinator-merge-unverified") {
+		t.Fatalf("reasoning=%q", got.Reasoning)
+	}
+	if len(got.Evidence) != 0 {
+		t.Fatalf("unverified merge must not promote narrative as evidence, got %d", len(got.Evidence))
+	}
+}
+
+func TestMergeProbeUnknownsAllowed(t *testing.T) {
+	origin := sampleReport("payments", "timeout")
+	origin.Confidence = 0.85
+	suspect := sampleReport("platform", "partial probe")
+	suspect.Reasoning = probeSourceKube
+	suspect.Confidence = 0.2
+	suspect.Unknowns = []string{"probe: list pods in platform: forbidden"}
+	suspect.Degraded = []string{"pods"}
+	got := Merge(origin, &suspect, "platform")
+	if got.Confidence > 0.2 {
+		t.Fatalf("honest probe unknowns path should use probe ceiling, got %v", got.Confidence)
+	}
+	if !strings.Contains(got.Reasoning, "coordinator-merge") || strings.Contains(got.Reasoning, "unverified") {
+		t.Fatalf("expected verified merge with unknowns, reasoning=%q", got.Reasoning)
 	}
 }
 

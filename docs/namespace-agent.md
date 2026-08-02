@@ -59,7 +59,7 @@ Always-on intelligence is the same **gated graph** as CLI investigate — not a 
 | Slack ask `why` on one object | Independent signal fan-in before merge |
 | Tight hop-by-hop oversight | Width with Role-scoped workers |
 
-**Verify edge:** Coordinator merge must rest on fresh EvidenceRef / probe (or honest Unknowns) — not the origin analyzer’s narrative alone. Full contract: [investigation-graph.md](./investigation-graph.md) ([AG-067](https://github.com/kprompt/kprompt-architecture/issues/213)).
+**Verify edge:** Coordinator merge requires fresh EvidenceRef (`coordinator-kube-probe`) or honest probe Unknowns — origin analyzer narrative alone caps confidence (AG-068). Full contract: [investigation-graph.md](./investigation-graph.md) ([AG-067](https://github.com/kprompt/kprompt-architecture/issues/213)).
 
 ## Non-claims (do not market these)
 

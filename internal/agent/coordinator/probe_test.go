@@ -66,3 +66,36 @@ func TestKubeProbeEmptyNS(t *testing.T) {
 		t.Fatal("expected error")
 	}
 }
+
+func TestKubeProbeHealthyEmitsEvidence(t *testing.T) {
+	client := fake.NewSimpleClientset(
+		&corev1.Pod{
+			ObjectMeta: metav1.ObjectMeta{Name: "api-0", Namespace: "platform"},
+			Status: corev1.PodStatus{
+				Phase: corev1.PodRunning,
+				Conditions: []corev1.PodCondition{
+					{Type: corev1.PodReady, Status: corev1.ConditionTrue},
+				},
+			},
+		},
+	)
+	rep, err := (&KubeProbe{Client: client}).Probe(context.Background(), "platform", handoff.Envelope{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rep.Evidence) == 0 {
+		t.Fatal("healthy probe must stamp at least one EvidenceRef (AG-068)")
+	}
+	if rep.Evidence[0].Source != "coordinator-kube-probe" {
+		t.Fatalf("source=%q", rep.Evidence[0].Source)
+	}
+	origin := sampleReport("payments", "timeout")
+	origin.Confidence = 0.9
+	got := Merge(origin, rep, "platform")
+	if got.Confidence > 0.45 {
+		t.Fatalf("merged conf should be bounded by healthy probe, got %v", got.Confidence)
+	}
+	if strings.Contains(got.Reasoning, "unverified") {
+		t.Fatalf("healthy probe evidence must verify, reasoning=%q", got.Reasoning)
+	}
+}
