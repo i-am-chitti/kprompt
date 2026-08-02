@@ -164,7 +164,7 @@ func waitForDecision(
 			continue
 		}
 		switch job.Status {
-		case "awaiting_approve":
+		case "awaiting_approve", "awaiting_second_approve":
 			sleep(interval)
 			continue
 		default:
