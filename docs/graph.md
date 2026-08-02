@@ -40,8 +40,9 @@ Helm / laptop Observe agents do **not** upload topology to `api.kprompt.ai`.
 
 - Reading or indexing Secret/ConfigMap **values**
 - Always-on cluster-wide external APIs / Kafka as first-class product nodes
-- Interactive topology UI / Team `/graph` viewer
 - Complete mesh call graph without OTel
+
+~~Interactive topology UI / Team `/graph` viewer~~ — shipped (A-021).
 
 ## Non-goals
 
