@@ -54,6 +54,38 @@ kprompt agent run -n payments --analyze --fetch-logs --health --heuristic
 kprompt agent run -n payments --slack --fetch-logs   # needs Slack env
 ```
 
+### Why it only prints `watching…`
+
+`agent run` is a **live watch**. Without new Pod/Event traffic it stays quiet.
+Already-broken workloads may not emit until the next `BackOff` / restart.
+
+For demos, emit the current namespace state first and stay offline ($0):
+
+```bash
+kprompt agent run -n payments \
+  --emit-initial \
+  --analyze --fetch-logs --health --heuristic \
+  --memory --patterns --autopilot-propose
+```
+
+| Flag | Effect |
+|------|--------|
+| `--emit-initial` | Treat current Pods/Events as Added before the live stream |
+| `--heuristic` | Deterministic analysis — no LLM key / no cloud spend |
+| `--health` | Namespace score from open incidents + pod readiness/restarts |
+| `--analyze` | Gated AgentAlert (heuristic or LLM) |
+
+**Health vs incidents:** `ready=4/5` can drop the score while `open=0` if the
+correlator has not opened an Incident yet (needs problem Events such as
+`BackOff`). Score ≠ alert.
+
+Break something on purpose with [kprompt-examples](https://github.com/kprompt/kprompt-examples), then run the agent:
+
+```bash
+make break SCENARIO=01-crashloop && make verify
+kprompt agent run -n payments --emit-initial --analyze --health --heuristic --fetch-logs
+```
+
 Need a namespace that actually misbehaves? [kprompt-examples](https://github.com/kprompt/kprompt-examples) provisions a kind cluster plus seven failure scenarios (crashloop, image pull, OOM, stalled rollout, unbound PVC, failing CronJob, missing dependency), each documenting what the agent is expected to conclude:
 
 ```bash
@@ -67,7 +99,7 @@ Or step by step:
 make up
 make break SCENARIO=01-crashloop
 make verify
-kprompt agent run -n payments --analyze --health --heuristic
+kprompt agent run -n payments --emit-initial --analyze --health --heuristic
 ```
 
 ## Helm install (AG-012)

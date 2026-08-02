@@ -81,6 +81,36 @@ Audit / run detail **Queue drill run** re-queues the same prompt as `plan_only`
 with a staging-ish context hint (prod-like hints blocked). Still needs a live
 `run listen` worker.
 
+**Gotcha:** drill defaults `context_hint` to something like `staging`. If that
+name is not a local kubeconfig context or alias, the bridge fails after claim.
+Map it first (`kprompt config alias set staging kind-kprompt-demo`) or queue a
+fresh run with an empty / real context hint.
+
+## Why status is `failed` (after claim)
+
+`queued` → `running` → **`failed`** means the laptop claimed the job but the
+local plan pipeline errored before a PlanResult existed. Check:
+
+1. **Run detail in the app** — red `error` field (authoritative).
+2. **Bridge terminal** — recent builds log `Posted run_… → failed: <message>`.
+3. **`kprompt doctor`** on the same machine as `run listen`.
+
+| Error (typical) | Cause | Fix |
+|-----------------|-------|-----|
+| missing API key / provider | No BYOK key for configured provider | `export KPROMPT_GEMINI_API_KEY=…` (or Ollama) · or `kprompt secrets pull` |
+| kube context `"staging"` not found | Drill / compose hint ≠ local contexts | Empty hint, real context name, or `config alias set` |
+| 429 / quota exceeded | Gemini (or other) free-tier limit | Wait for reset, switch model, or use Ollama — [Providers](https://kprompt.ai/docs/providers) |
+| Org policy max_risk … exceeds | Plan risk above cached org ceiling | Soften org `max_risk`, or use a read-only / lower-risk prompt |
+| unknown intent | Prompt outside supported ops (e.g. “create a cluster”) | Rephrase to a supported intent — [Commands](https://kprompt.ai/docs/commands) |
+
+Local sanity check (same kube + provider as the bridge):
+
+```bash
+kprompt doctor
+kprompt --context kind-kprompt-demo "list pods" -n default
+# then re-queue in the app and keep: kprompt run listen
+```
+
 ## Not this
 
 - Not a hosted cluster browser
@@ -90,4 +120,5 @@ with a staging-ish context hint (prod-like hints blocked). Still needs a live
 ## Related
 
 - CLI: `kprompt run listen --help`
-- [docs/safety.md](./safety.md) · README Team enrollment section
+- [docs/providers.md](./providers.md) · [docs/safety.md](./safety.md) · README Team enrollment section
+- Website: [kprompt.ai/docs/runs](https://kprompt.ai/docs/runs)
