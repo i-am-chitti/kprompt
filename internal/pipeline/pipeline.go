@@ -30,6 +30,7 @@ import (
 	"github.com/kprompt/kprompt/internal/optimize"
 	"github.com/kprompt/kprompt/internal/output"
 	"github.com/kprompt/kprompt/internal/planner"
+	"github.com/kprompt/kprompt/internal/pretrust"
 	"github.com/kprompt/kprompt/internal/recipe"
 	"github.com/kprompt/kprompt/internal/safety"
 	"github.com/kprompt/kprompt/internal/suggest"
@@ -714,6 +715,20 @@ func RunWith(ctx context.Context, cfg config.Resolved, out io.Writer, deps Deps)
 				return nil
 			}
 			patch := *actionable[0].Plan
+			prePlan := pretrust.SuggestedPlan(ctx, client, invDoc, patch)
+			if prePlan.Denied {
+				ui.PrintDenied(out, prePlan.DenyMessage)
+				applied = true
+				return nil
+			}
+			if !prePlan.OK {
+				fmt.Fprintln(out, "Suggested fix withheld — Investigation failed independent verify (pretrust).")
+				for _, n := range prePlan.Notes {
+					fmt.Fprintln(out, " ", n)
+				}
+				applied = true
+				return nil
+			}
 			patchRisk := safety.EvaluatePlanWithOrg(patch, orgPolicy(deps), cfg.Context)
 			if patchRisk.Denied {
 				ui.PrintDenied(out, patchRisk.Message)
@@ -735,6 +750,11 @@ func RunWith(ctx context.Context, cfg config.Resolved, out io.Writer, deps Deps)
 				return cluster.Friendlier(fmt.Errorf("apply suggested patch: %w", err))
 			}
 			ui.PrintApplied(out, patch)
+			vrep := verify.Plan(ctx, client, patch)
+			ui.PrintVerify(out, vrep)
+			if vrep.Status == verify.Failed {
+				return fmt.Errorf("verify failed: %s", vrep.Message)
+			}
 			applied = true
 			return nil
 		case intent.KindWhy:
@@ -765,6 +785,20 @@ func RunWith(ctx context.Context, cfg config.Resolved, out io.Writer, deps Deps)
 				return nil
 			}
 			patch := *actionable[0].Plan
+			prePlan := pretrust.SuggestedPlan(ctx, client, invDoc, patch)
+			if prePlan.Denied {
+				ui.PrintDenied(out, prePlan.DenyMessage)
+				applied = true
+				return nil
+			}
+			if !prePlan.OK {
+				fmt.Fprintln(out, "Suggested fix withheld — Investigation failed independent verify (pretrust).")
+				for _, n := range prePlan.Notes {
+					fmt.Fprintln(out, " ", n)
+				}
+				applied = true
+				return nil
+			}
 			patchRisk := safety.EvaluatePlanWithOrg(patch, orgPolicy(deps), cfg.Context)
 			if patchRisk.Denied {
 				ui.PrintDenied(out, patchRisk.Message)
@@ -786,6 +820,11 @@ func RunWith(ctx context.Context, cfg config.Resolved, out io.Writer, deps Deps)
 				return cluster.Friendlier(fmt.Errorf("apply suggested patch: %w", err))
 			}
 			ui.PrintApplied(out, patch)
+			vrep := verify.Plan(ctx, client, patch)
+			ui.PrintVerify(out, vrep)
+			if vrep.Status == verify.Failed {
+				return fmt.Errorf("verify failed: %s", vrep.Message)
+			}
 			applied = true
 			return nil
 		case intent.KindTimeline:

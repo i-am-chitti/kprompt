@@ -13,6 +13,7 @@ Related: [investigation-graph.md](./investigation-graph.md) · [ci.md](./ci.md) 
 | Anchor | What it freezes | Who may change it | LLM / agent may… |
 |--------|-----------------|-------------------|------------------|
 | **Hard deny / safety policy** | Wipe-class, delete-namespace, cluster destroy intents | Humans via `internal/safety` + ADR-0003; optional org deny lists | Never waive; denied plans do not apply |
+| **CLI pre-trust verify (T-089)** | EvidenceRef + optional re-read before high confidence / approve UX | Humans via `internal/pretrust` | Never raise confidence; soft-agree caps at 0.4 |
 | **PlanResult schema** | `apiVersion` / `kind` / `schemaVersion` / risk / actions | Humans via product schema bumps | Emit into schema; not redefine fields mid-run |
 | **Investigation / InvestigationReport schema** | Findings, EvidenceRef, Unknowns, confidence | Humans via ADR-0014 / schemaVersion | Fill fields; not drop Unknowns to fake certainty |
 | **EvidenceRef kinds** | event / object / metric / trace / gitops — cluster-backed pointers | Humans via `internal/incident` | Cite refs; not fabricate Prom/OTel/GitOps when degraded |
@@ -54,7 +55,7 @@ If an improvement loop can rewrite both the solution **and** the evaluator, Good
 | **Coordinator** | AG-068 probe Evidence / Unknowns, `mutateAttempted=false`, optional probe RBAC |
 | **Autopilot** | RemediationPolicy + AG-044 deny pack + explicit approve / `--autopilot-apply` |
 
-Pre-trust CLI hooks that re-read before high confidence (T-089) are **building** — until then, treat Investigation confidence as a hint gated by the anchors above, not as apply permission.
+Pre-trust CLI hooks that re-read before high confidence ([T-089](https://github.com/kprompt/kprompt-architecture/issues/217) · `internal/pretrust`) are **shipped** — high confidence without EvidenceRef or a contradicting re-read is capped; suggested approve UX is withheld until anchors pass.
 
 ---
 

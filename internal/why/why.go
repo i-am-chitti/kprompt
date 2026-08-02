@@ -17,6 +17,7 @@ import (
 
 	"github.com/kprompt/kprompt/internal/cluster"
 	"github.com/kprompt/kprompt/internal/incident"
+	"github.com/kprompt/kprompt/internal/pretrust"
 )
 
 // Request identifies a workload or pod to explain causally.
@@ -77,6 +78,9 @@ func (a *Analyzer) Run(ctx context.Context, req Request) (incident.Investigation
 	out.Confidence = confidenceFor(steps)
 	out.Summary = summarizeTree(targetKind, targetName, pod, steps)
 	out.SuggestedPlanHint = planHint(steps, targetName)
+
+	pre := pretrust.Investigation(ctx, a.Client, out)
+	pretrust.Apply(&out, pre)
 
 	if err := incident.ValidateInvestigation(out); err != nil {
 		return out, err

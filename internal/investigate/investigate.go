@@ -16,6 +16,7 @@ import (
 
 	"github.com/kprompt/kprompt/internal/cluster"
 	"github.com/kprompt/kprompt/internal/incident"
+	"github.com/kprompt/kprompt/internal/pretrust"
 )
 
 // Request identifies a workload to investigate.
@@ -74,6 +75,9 @@ func (inv *Investigator) Run(ctx context.Context, req Request) (incident.Investi
 
 	out.RootCause, out.Confidence = rootCauseFrom(rep, out.Findings)
 	out.SuggestedPlanHint = planHintFrom(rep)
+
+	pre := pretrust.Investigation(ctx, inv.Client, out)
+	pretrust.Apply(&out, pre)
 
 	if err := incident.ValidateInvestigation(out); err != nil {
 		return out, rep, err
