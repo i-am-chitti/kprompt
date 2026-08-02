@@ -92,3 +92,37 @@ func TestNeverUploadsMarker(t *testing.T) {
 		t.Fatal("unexpected control plane reference")
 	}
 }
+
+func TestMemorySaveScopedToSnapshotNS(t *testing.T) {
+	dir := t.TempDir()
+	m := New(FileStore{Dir: dir})
+	if _, err := m.Upsert("payments", Fact{Kind: KindDependency, Key: "redis", Value: "svc/redis"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := m.Upsert("platform", Fact{Kind: KindDependency, Key: "redis", Value: "svc/redis-master"}); err != nil {
+		t.Fatal(err)
+	}
+	pay, err := m.List("payments")
+	if err != nil {
+		t.Fatal(err)
+	}
+	plat, err := m.List("platform")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if pay.Namespace != "payments" || plat.Namespace != "platform" {
+		t.Fatalf("namespace stamps: pay=%q plat=%q", pay.Namespace, plat.Namespace)
+	}
+	if len(pay.Facts) != 1 || pay.Facts[0].Value != "svc/redis" {
+		t.Fatalf("payments polluted: %+v", pay.Facts)
+	}
+	if len(plat.Facts) != 1 || plat.Facts[0].Value != "svc/redis-master" {
+		t.Fatalf("platform polluted: %+v", plat.Facts)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "payments.json")); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "platform.json")); err != nil {
+		t.Fatal(err)
+	}
+}

@@ -104,7 +104,7 @@ Full anchor inventory: [S-020](https://github.com/kprompt/kprompt-architecture/i
 | Cross-ns truth | Travels only via `CoordinatorHandoff` / reply merge |
 | CLI contexts | Multi-context reads sectioned; mutate stays gated per plan |
 
-Two writers sharing one mutable workspace is an anti-pattern ([AG-069](https://github.com/kprompt/kprompt-architecture/issues/215)).
+Two writers sharing one mutable workspace is an anti-pattern ([AG-069](https://github.com/kprompt/kprompt-architecture/issues/215)). Acceptance checklist + tests live with AG-069; RBAC honesty baseline is [AG-039](https://github.com/kprompt/kprompt-architecture/issues/197). Ops: [agent-ops.md](./agent-ops.md#worker-isolation-ag-069).
 
 ---
 
@@ -167,6 +167,7 @@ Forcing a graph onto a true chain only adds coordination cost.
 | Coordinator handoff + merge + optional probe | Shipped (thin) |
 | Named Investigation Graph contract (this doc) | Shipped (docs) |
 | Coordinator independent verify edge (AG-068) | Shipped |
+| Worker isolation checklist + tests (AG-069) | Shipped |
 | Pre-trust independent verify hooks (T-089) | Building |
 | Investigate hop parallelization (T-090) | Building |
 | Anchors registry (S-020 / AG-070) | Building |

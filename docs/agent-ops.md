@@ -103,6 +103,21 @@ helm upgrade --install kprompt-coordinator ./charts/kprompt-coordinator \
 | Probe RBAC | With `probe.enabled` + `rbac.probeNamespaces`: Pods/Events `get/list` in listed ns only |
 | Ns agents | Stay Role-scoped; point `--coordinator-url` at the Service `/v1/handoff` |
 
+### Worker isolation (AG-069)
+
+Extends AG-039 RBAC honesty. Checklist operators / reviewers should treat as invariants:
+
+| # | Invariant | How we enforce it |
+|---|-----------|-------------------|
+| 1 | Namespace agents are **Role-scoped** | Helm `kprompt-agent` + operator `BuildDesired` emit `Role`/`RoleBinding` only — never ClusterRole-by-default |
+| 2 | Coordinator **never mutates** by default | `CoordinatorReply.mutateAttempted` is always `false`; no Apply path on the service |
+| 3 | No shared write of foreign-ns “facts” | Namespace memory ConfigMap / file key is per watch ns; agents must not invent foreign root cause |
+| 4 | **Only** `CoordinatorHandoff` / reply is the cross-ns edge | Suspect outside ns → handoff; local report stamps Unknowns and waits for probe merge |
+
+**Failure mode (anti-pattern):** two writers sharing one mutable workspace (two agents with overlapping mutate RBAC, or a ns agent with ClusterRole inventing peer-ns state). That is how parallel workers race — forbid it structurally, do not “prompt” around it.
+
+Contract: [investigation-graph.md](./investigation-graph.md#worker-isolation) · chart: [kprompt-coordinator README](../charts/kprompt-coordinator/README.md).
+
 Handoff errors on the ns agent: URL wrong, report validation failed, or Coordinator down — Observe loop continues.
 
 ## Escalation path

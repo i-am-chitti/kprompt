@@ -142,3 +142,37 @@ func mustJSON(v any) json.RawMessage {
 	}
 	return b
 }
+
+func TestAnnotateCrossNamespaceStampsUnknown(t *testing.T) {
+	rep := incident.NewInvestigationReport("payments", time.Now().UTC())
+	rep.Summary = "timeout calling redis"
+	rep.Hypotheses = []incident.Hypothesis{{
+		Statement: "local CrashLoop", Primary: true, Confidence: 0.8,
+	}}
+	rep.Evidence = []incident.EvidenceRef{{
+		Type:    incident.EvidenceEvent,
+		Message: "dial tcp redis.platform.svc.cluster.local:6379: i/o timeout",
+	}}
+	annotateCrossNamespace(&rep, ctxbuild.AgentContext{Namespace: "payments"})
+	if len(rep.Unknowns) == 0 {
+		t.Fatal("expected cross-ns Unknown for Coordinator verification")
+	}
+	blob := strings.Join(rep.Unknowns, " ")
+	if !strings.Contains(blob, "platform") || !strings.Contains(strings.ToLower(blob), "coordinator") {
+		t.Fatalf("unknowns=%v", rep.Unknowns)
+	}
+	if len(rep.Hypotheses) != 1 || strings.Contains(strings.ToLower(rep.Hypotheses[0].Statement), "platform") {
+		t.Fatalf("must not rewrite primary hypothesis as foreign-ns fact: %+v", rep.Hypotheses)
+	}
+}
+
+func TestAnnotateCrossNamespaceNoForeignNoise(t *testing.T) {
+	rep := incident.NewInvestigationReport("payments", time.Now().UTC())
+	rep.Evidence = []incident.EvidenceRef{{
+		Type: incident.EvidenceEvent, Message: "CrashLoopBackOff on payment-api",
+	}}
+	annotateCrossNamespace(&rep, ctxbuild.AgentContext{Namespace: "payments"})
+	if len(rep.Unknowns) != 0 {
+		t.Fatalf("unexpected unknowns=%v", rep.Unknowns)
+	}
+}

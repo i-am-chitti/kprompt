@@ -72,6 +72,8 @@ Always-on intelligence is the same **gated graph** as CLI investigate — not a 
 - Feature parity with K8sGPT (analyzer) or Kagent (multi-agent framework)
 - “1000 agents in one window” / general dynamic-workflow orchestration
 
+Worker isolation checklist (Role-scoped ns agents, Coordinator no mutate, handoff-only cross-ns edge): [agent-ops.md](./agent-ops.md#worker-isolation-ag-069) · [investigation-graph.md](./investigation-graph.md#worker-isolation).
+
 ## Feature → mode map
 
 | Capability | Flag / surface | Mode |

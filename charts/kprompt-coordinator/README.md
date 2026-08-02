@@ -45,6 +45,19 @@ Ns agents point at the Service:
 
 Do not grant the Coordinator `create/update/patch/delete` on workloads.
 
+## Isolation invariants (AG-069)
+
+Extends the AG-039 RBAC matrix:
+
+1. **Ns agents stay Role-scoped** — ClusterRole-by-default is a non-goal.
+2. **Coordinator mutate stays off** — `mutateAttempted: false` on every reply; probe is read-only.
+3. **No shared write of foreign-ns facts** — each Namespace Agent owns memory in its watch ns only.
+4. **Handoff envelope is the only cross-ns edge** — never invent peer-ns root cause locally.
+
+**Anti-pattern:** two writers in one mutable workspace (overlapping mutate Roles / god-mode SA). Isolate workers; merge only through Coordinator.
+
+Ops checklist: [docs/agent-ops.md](../../docs/agent-ops.md#worker-isolation-ag-069).
+
 ## Values
 
 | Key | Default | Notes |

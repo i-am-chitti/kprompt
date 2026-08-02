@@ -134,6 +134,26 @@ func TestHandleAndHTTP(t *testing.T) {
 	}
 }
 
+func TestIsolationMutateAttemptedAlwaysFalse(t *testing.T) {
+	svc := New()
+	reply, err := svc.Handle(context.Background(), handoff.New("payments", "platform", "dep", sampleReport("payments", "timeout")))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if reply.MutateAttempted {
+		t.Fatal("AG-069: Coordinator must never set mutateAttempted")
+	}
+	found := false
+	for _, r := range reply.Routing {
+		if strings.Contains(r, "mutateAttempted=false") {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("routing should advertise mutateAttempted=false, got %v", reply.Routing)
+	}
+}
+
 func TestSummarizeKnowledge(t *testing.T) {
 	svc := New()
 	_, _ = svc.Handle(context.Background(), handoff.New("payments", "platform", "dep", sampleReport("payments", "timeout")))

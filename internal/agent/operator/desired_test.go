@@ -42,6 +42,43 @@ func TestBuildDesiredObserve(t *testing.T) {
 	}
 }
 
+func TestBuildDesiredRoleNotClusterRole(t *testing.T) {
+	cr := &agentv1.KpromptAgent{
+		ObjectMeta: metav1.ObjectMeta{Name: "demo", Namespace: "payments", UID: "uid-2"},
+		Spec: agentv1.KpromptAgentSpec{
+			Mode:    agentv1.ModeObserve,
+			LLM:     agentv1.LLMSpec{Heuristic: true},
+			Watches: []string{"pods", "events", "deployments"},
+		},
+	}
+	d, err := BuildDesired(cr, Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if d.Role == nil {
+		t.Fatal("expected Role")
+	}
+	if d.RoleBinding == nil || d.RoleBinding.RoleRef.Kind != "Role" {
+		t.Fatalf("expected RoleBinding→Role, got %+v", d.RoleBinding)
+	}
+	if d.Role.Namespace != "payments" || d.RoleBinding.Namespace != "payments" {
+		t.Fatalf("Role must stay in watch ns: role=%q rb=%q", d.Role.Namespace, d.RoleBinding.Namespace)
+	}
+	mutate := map[string]bool{"create": true, "update": true, "patch": true, "delete": true}
+	for _, rule := range d.Role.Rules {
+		for _, res := range rule.Resources {
+			r := strings.ToLower(res)
+			if r == "pods" || r == "deployments" || r == "services" || r == "secrets" {
+				for _, v := range rule.Verbs {
+					if mutate[strings.ToLower(v)] {
+						t.Fatalf("observe Role must not mutate %s via %s: %+v", res, v, rule)
+					}
+				}
+			}
+		}
+	}
+}
+
 func TestRejectAutopilot(t *testing.T) {
 	cr := &agentv1.KpromptAgent{
 		ObjectMeta: metav1.ObjectMeta{Name: "x", Namespace: "ns"},
