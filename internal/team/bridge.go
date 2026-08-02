@@ -105,7 +105,11 @@ func Listen(ctx context.Context, client *Client, opt BridgeOptions) error {
 			log(fmt.Sprintf("result post error: %v", postErr))
 			continue
 		}
-		log(fmt.Sprintf("Posted %s → %s", job.ID, result.Status))
+		if result.Status == "failed" && strings.TrimSpace(result.Error) != "" {
+			log(fmt.Sprintf("Posted %s → failed: %s", job.ID, truncate(result.Error, 200)))
+		} else {
+			log(fmt.Sprintf("Posted %s → %s", job.ID, result.Status))
+		}
 
 		if result.Status != "awaiting_approve" || opt.ExecuteApply == nil {
 			continue
@@ -133,6 +137,8 @@ func Listen(ctx context.Context, client *Client, opt BridgeOptions) error {
 			}
 			if _, postErr := post(ctx, job.ID, applied); postErr != nil {
 				log(fmt.Sprintf("apply result post error: %v", postErr))
+			} else if applied.Status == "failed" && strings.TrimSpace(applied.Error) != "" {
+				log(fmt.Sprintf("Posted %s → failed: %s", job.ID, truncate(applied.Error, 200)))
 			} else {
 				log(fmt.Sprintf("Posted %s → %s", job.ID, applied.Status))
 			}

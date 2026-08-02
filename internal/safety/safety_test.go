@@ -156,3 +156,42 @@ func TestCheckPromptAllowsShowSecrets(t *testing.T) {
 		t.Fatal("listing secrets must not be hard-denied")
 	}
 }
+
+func TestEvaluatePlanDriftAndLearnAreRiskLow(t *testing.T) {
+	drift := EvaluatePlan(planner.ExecutionPlan{
+		Intent: intent.Intent{Kind: intent.KindDrift},
+		Actions: []planner.Action{{
+			Op:     planner.OpDrift,
+			Object: planner.ObjectRef{Kind: "Cluster"},
+		}},
+	})
+	if drift.Denied || drift.Risk != RiskLow {
+		t.Fatalf("drift should be RiskLow (read-only), got %+v", drift)
+	}
+
+	learn := EvaluatePlan(planner.ExecutionPlan{
+		Intent: intent.Intent{Kind: intent.KindLearn},
+		Actions: []planner.Action{{
+			Op:     planner.OpLearn,
+			Object: planner.ObjectRef{Kind: "Cluster"},
+		}},
+	})
+	if learn.Denied || learn.Risk != RiskLow {
+		t.Fatalf("learn should be RiskLow (read-only), got %+v", learn)
+	}
+}
+
+func TestOrgPolicyMaxRiskMediumAllowsDrift(t *testing.T) {
+	plan := planner.ExecutionPlan{
+		Intent: intent.Intent{Kind: intent.KindDrift},
+		Actions: []planner.Action{{
+			Op:     planner.OpDrift,
+			Object: planner.ObjectRef{Kind: "Cluster"},
+		}},
+	}
+	base := EvaluatePlan(plan)
+	r := ApplyOrgPolicy(base, plan, &OrgPolicy{MaxRisk: "medium"}, "")
+	if r.Denied || r.Risk != RiskLow {
+		t.Fatalf("drift must pass max_risk=medium org policy, got %+v (base=%+v)", r, base)
+	}
+}

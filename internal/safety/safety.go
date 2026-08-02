@@ -164,12 +164,13 @@ func EvaluatePlan(plan planner.ExecutionPlan) Result {
 		return Result{Risk: RiskLow}
 	case intent.KindScale, intent.KindDeploy, intent.KindInstall, intent.KindUpgrade, intent.KindRollback, intent.KindPatch, intent.KindWorkflow, intent.KindTekton, intent.KindKEDA, intent.KindHPA:
 		return Result{Risk: RiskMedium, Message: "Mutation requires approval"}
-	case intent.KindGet, intent.KindExplain, intent.KindInvestigate, intent.KindWhy, intent.KindTimeline, intent.KindImpact, intent.KindAudit, intent.KindCleanup, intent.KindSearch, intent.KindScore, intent.KindArchitecture, intent.KindLogs, intent.KindDescribe, intent.KindPerformance, intent.KindTrace, intent.KindDashboard, intent.KindOptimize, intent.KindRoast, intent.KindGraph, intent.KindIstio:
-		// Generic Kubernetes reads and optimize reports (including Secret) are RiskLow.
+	case intent.KindGet, intent.KindExplain, intent.KindInvestigate, intent.KindWhy, intent.KindTimeline, intent.KindImpact, intent.KindAudit, intent.KindCleanup, intent.KindSearch, intent.KindScore, intent.KindArchitecture, intent.KindLearn, intent.KindDrift, intent.KindLogs, intent.KindDescribe, intent.KindPerformance, intent.KindTrace, intent.KindDashboard, intent.KindOptimize, intent.KindRoast, intent.KindGraph, intent.KindIstio:
+		// Generic Kubernetes reads, learn/drift reports, and optimize (including Secret) are RiskLow.
 		// Authorization is the caller's kubeconfig RBAC — no special Secret redaction or deny.
 		// Mutating unknown kinds remains denied above; generic mutate is out of scope (T-048).
 		// Optimize reports are RiskLow. Optional follow-up scale/patch plans from T-057
 		// are evaluated as their own KindScale/KindPatch plans (RiskMedium) when offered.
+		// Drift/learn scans are read-only; approve-gated sync follow-ups are separate KindGitOps plans.
 		return Result{Risk: RiskLow}
 	default:
 		return Result{Risk: RiskHigh, Message: fmt.Sprintf("Unknown or unsupported intent %q", plan.Intent.Kind)}
