@@ -6,6 +6,10 @@ and current cluster.
 It probes local binaries, configured HTTP backends, and Kubernetes CRDs. The
 command is **read-only** and does not call an LLM.
 
+When a tool is missing, the `DETAIL` / hint column points at **`kprompt setup`**
+for components that setup can plan (Helm, Argo Workflows, Prometheus) or at
+config URLs for Grafana / OTel. See [setup.md](./setup.md).
+
 ## What it detects
 
 The current CLI reports tools such as:
@@ -32,6 +36,23 @@ kprompt tools
 kprompt tools --json
 kprompt tools --context staging
 ```
+
+## Closing gaps with setup
+
+```bash
+# Dry-run plan for the default platform profile
+kprompt setup
+
+# Host Helm only
+kprompt setup --profile minimal --approve
+
+# Prometheus stack only (within platform)
+kprompt setup --profile platform --only prometheus --approve
+```
+
+Honest limits: setup does **not** install Tekton/KEDA/Istio/Crossplane/GitOps,
+does **not** create clusters, and does **not** auto-write Grafana/OTel config
+(those are config-lane hints only).
 
 ## Output
 

@@ -77,4 +77,4 @@ kprompt config set tools.prometheus.url http://kprompt-prom-kube-prometheus-stac
 ## Related
 
 - `kprompt tools` · `kprompt doctor` · `kprompt learn`
-- Website honesty / missing-tool hints: T-066
+- Product docs mirror: [kprompt.ai/docs/setup](https://kprompt.ai/docs/setup)

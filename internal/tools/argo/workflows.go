@@ -65,7 +65,7 @@ func DetailLabel(av Availability) string {
 
 // InstallHint is the actionable install guidance for operators.
 func InstallHint() string {
-	return "Install Argo Workflows in the cluster (https://argo-workflows.readthedocs.io/en/latest/quick-start/) or pick a Kubernetes-only prompt."
+	return "Install Argo Workflows (https://argo-workflows.readthedocs.io/en/latest/quick-start/) or plan via kprompt setup --profile platform --only argo-workflows (approve-gated). Or pick a Kubernetes-only prompt."
 }
 
 // NotInstalledError is returned when workflow operations are requested without Argo.

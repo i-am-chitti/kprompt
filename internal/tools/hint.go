@@ -16,7 +16,7 @@ import (
 func MissingHint(id ID) string {
 	switch id {
 	case IDHelm:
-		return "Helm is not available. Install Helm (https://helm.sh/docs/intro/install/) or use the Kubernetes shortcut: kprompt \"deploy redis\""
+		return "Helm is not available. Plan host install: kprompt setup --profile minimal (or https://helm.sh/docs/intro/install/). Kubernetes shortcut: kprompt \"deploy redis\""
 	case IDArgoWorkflows:
 		return argo.InstallHint()
 	case IDTekton:
@@ -36,13 +36,13 @@ func MissingHint(id ID) string {
 	case IDGitOps:
 		return gitops.InstallHint()
 	case IDPrometheus:
-		return "Prometheus is not configured. Set KPROMPT_PROMETHEUS_URL or tools.prometheus.url in ~/.kprompt/config.yaml"
+		return "Prometheus is not configured. Point at an existing URL (KPROMPT_PROMETHEUS_URL / tools.prometheus.url) or plan a stack install: kprompt setup --profile platform --only prometheus"
 	case IDGrafana:
-		return "Grafana is not configured. Set KPROMPT_GRAFANA_URL (and KPROMPT_GRAFANA_API_KEY when the API requires it)"
+		return "Grafana is not configured. Set KPROMPT_GRAFANA_URL (and API key when required), or see config steps: kprompt setup --profile full --only grafana (config-lane only — never auto-writes)"
 	case IDOpenTelemetry:
-		return "Trace backend is not configured. Set KPROMPT_OTEL_ENDPOINT to a Jaeger/Tempo query URL and KPROMPT_OTEL_BACKEND=jaeger|tempo (or tools.otel.* in ~/.kprompt/config.yaml)"
+		return "Trace backend is not configured. Set KPROMPT_OTEL_ENDPOINT + KPROMPT_OTEL_BACKEND=jaeger|tempo (or tools.otel.*), or see: kprompt setup --profile full --only opentelemetry (config-lane only)"
 	case IDKubernetes:
-		return "Kubernetes is not reachable. Check kubeconfig and context (kubectl config current-context)."
+		return "Kubernetes is not reachable. Check kubeconfig and context (kubectl config current-context). setup does not create clusters."
 	default:
 		return "Requested tool integration is not available."
 	}
