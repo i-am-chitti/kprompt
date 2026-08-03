@@ -15,7 +15,7 @@ func TestBuildDesiredObserve(t *testing.T) {
 		Spec: agentv1.KpromptAgentSpec{
 			Mode:      agentv1.ModeObserve,
 			LLM:       agentv1.LLMSpec{Provider: "openai", Heuristic: true},
-			Notify:    agentv1.NotifySpec{Slack: true},
+			Notify:    agentv1.NotifySpec{Slack: true, Discord: true},
 			SecretRef: &agentv1.SecretRef{Name: "kprompt-agent"},
 			Watches:   []string{"pods", "events", "deployments"},
 		},
@@ -32,7 +32,7 @@ func TestBuildDesiredObserve(t *testing.T) {
 	for _, a := range args {
 		joined += a + " "
 	}
-	for _, want := range []string{"--in-cluster", "--heuristic", "--slack", "--watch", "--agent-cr"} {
+	for _, want := range []string{"--in-cluster", "--heuristic", "--slack", "--discord", "--watch", "--agent-cr"} {
 		if !strings.Contains(joined, want) {
 			t.Fatalf("args missing %s: %v", want, args)
 		}
