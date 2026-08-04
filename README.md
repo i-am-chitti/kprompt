@@ -137,7 +137,7 @@ Generic get/list works for discoverable built-ins and CRDs (Node, ConfigMap, Sec
 
 ## Status
 
-**v0.8.0 (experimental)** — Search / score / architecture, plus laptop `watch` · `remember` · `session` (ADR-0022). Builds on setup, GitOps PR, learn/drift/recipes, and the Namespace Agent pack. Autopilot stays **propose-only by default**. See [CHANGELOG.md](./CHANGELOG.md) · [docs/agent.md](./docs/agent.md).
+**v0.9.0 (experimental)** — Day-0 onboarding (`init` · `demo` · coach · help groups), plus Cerebras and Discord notify. Builds on search/score/architecture and laptop `watch` · `remember` · `session`. Autopilot stays **propose-only by default**. See [CHANGELOG.md](./CHANGELOG.md) · [docs/init.md](./docs/init.md).
 
 ## Install
 
@@ -156,7 +156,7 @@ brew install kprompt/tap/kprompt
 Fallback (pinned release script on jsDelivr):
 
 ```bash
-curl -fsSL https://cdn.jsdelivr.net/gh/kprompt/kprompt@v0.8.0/install/install.sh | bash
+curl -fsSL https://cdn.jsdelivr.net/gh/kprompt/kprompt@v0.9.0/install/install.sh | bash
 ```
 
 ### From source (dev)
