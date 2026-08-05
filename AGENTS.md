@@ -55,10 +55,11 @@ Prefer the smallest package test while iterating; full `./...` before PR.
 | `internal/safety/**` | `.cursor/rules/safety.mdc` — hard-deny + corpus |
 | `internal/agent/**` | `.cursor/rules/agent-observe.mdc` — propose-first Observe |
 | `internal/{pipeline,planner,intent,executor,verify,pretrust}/**` | `.cursor/rules/pipeline.mdc` — plan → approve → apply |
+| `charts/**`, `deploy/crd/**` | `.cursor/rules/helm-charts.mdc` — Observe defaults / RBAC |
 
 Always-on defaults: `.cursor/rules/project.mdc`.
 
-Skills: `cli-feature` (new surfaces / pipeline / agent) · `docs-sync` (flags → docs/--help).
+Skills: `cli-feature` · `docs-sync` · `kind-e2e` (live apiserver tests).
 
 ## Working rules
 
@@ -69,6 +70,7 @@ Skills: `cli-feature` (new surfaces / pipeline / agent) · `docs-sync` (flags �
 5. No secrets, API keys, or kubeconfigs in the tree.
 6. Commit / PR only when the user asks.
 7. For new CLI surfaces or pipeline/agent work, follow the `cli-feature` skill.
+8. For kind coverage, follow the `kind-e2e` skill.
 
 ## Out of scope here
 
