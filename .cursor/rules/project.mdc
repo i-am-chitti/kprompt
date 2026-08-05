@@ -30,6 +30,7 @@ Prefer package-scoped tests while iterating.
 ## Style
 
 - `gofmt`; packages under `internal/`; Cobra commands under `cmd/kprompt`.
+- Agent edits to `*.go` are auto-formatted by the project `afterFileEdit` hook when enabled.
 - Match existing error/UI patterns in `internal/ui` and neighboring packages.
 - Update `docs/*.md` when flags or behavior change.
 - No drive-by refactors; keep PRs focused.

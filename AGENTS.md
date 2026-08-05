@@ -56,10 +56,13 @@ Prefer the smallest package test while iterating; full `./...` before PR.
 | `internal/agent/**` | `.cursor/rules/agent-observe.mdc` — propose-first Observe |
 | `internal/{pipeline,planner,intent,executor,verify,pretrust}/**` | `.cursor/rules/pipeline.mdc` — plan → approve → apply |
 | `charts/**`, `deploy/crd/**` | `.cursor/rules/helm-charts.mdc` — Observe defaults / RBAC |
+| `internal/llm/**` | `.cursor/rules/llm.mdc` — BYOK / multi-provider / stub |
 
 Always-on defaults: `.cursor/rules/project.mdc`.
 
 Skills: `cli-feature` · `docs-sync` · `kind-e2e` (live apiserver tests).
+
+Hook: `.cursor/hooks.json` → `afterFileEdit` runs `.cursor/hooks/gofmt.sh` on edited `*.go` files (fail-open).
 
 ## Working rules
 
