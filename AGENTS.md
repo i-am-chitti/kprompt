@@ -48,6 +48,15 @@ CI mirrors: `go test ./...` then `go build -o bin/kprompt ./cmd/kprompt` (see `.
 
 Prefer the smallest package test while iterating; full `./...` before PR.
 
+## Cursor rules (scoped)
+
+| When editing | Rule |
+|--------------|------|
+| `internal/safety/**` | `.cursor/rules/safety.mdc` — hard-deny + corpus |
+| `internal/agent/**` | `.cursor/rules/agent-observe.mdc` — propose-first Observe |
+
+Always-on defaults: `.cursor/rules/project.mdc`. Feature workflow skill: `cli-feature`.
+
 ## Working rules
 
 1. One concern per change; match neighboring Go style (`gofmt`, `internal/` layout).
