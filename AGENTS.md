@@ -54,13 +54,16 @@ Prefer the smallest package test while iterating; full `./...` before PR.
 |--------------|------|
 | `internal/safety/**` | `.cursor/rules/safety.mdc` — hard-deny + corpus |
 | `internal/agent/**` | `.cursor/rules/agent-observe.mdc` — propose-first Observe |
+| `internal/{pipeline,planner,intent,executor,verify,pretrust}/**` | `.cursor/rules/pipeline.mdc` — plan → approve → apply |
 
-Always-on defaults: `.cursor/rules/project.mdc`. Feature workflow skill: `cli-feature`.
+Always-on defaults: `.cursor/rules/project.mdc`.
+
+Skills: `cli-feature` (new surfaces / pipeline / agent) · `docs-sync` (flags → docs/--help).
 
 ## Working rules
 
 1. One concern per change; match neighboring Go style (`gofmt`, `internal/` layout).
-2. Behavior or flag changes → update matching `docs/*.md` (and help text).
+2. Behavior or flag changes → update matching `docs/*.md` (and help text); use `docs-sync`.
 3. Mutating paths stay behind PlanResult + approval (ADR-0003 DNA).
 4. Agent watch/analyze paths stay notify/propose unless Autopilot gates are explicit.
 5. No secrets, API keys, or kubeconfigs in the tree.
