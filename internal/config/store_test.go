@@ -16,7 +16,7 @@ func TestSetFieldAndBuildView(t *testing.T) {
 	if _, err := SetField("provider", "gemini"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := SetField("model", "gemini-2.0-flash"); err != nil {
+	if _, err := SetField("model", "gemini-1.5-flash"); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := SetField("namespace", "demo"); err != nil {
@@ -29,7 +29,7 @@ func TestSetFieldAndBuildView(t *testing.T) {
 		t.Fatal(err)
 	}
 	body := string(data)
-	for _, want := range []string{"provider: gemini", "model: gemini-2.0-flash", "namespace: demo"} {
+	for _, want := range []string{"provider: gemini", "model: gemini-1.5-flash", "namespace: demo"} {
 		if !strings.Contains(body, want) {
 			t.Fatalf("config missing %q:\n%s", want, body)
 		}
