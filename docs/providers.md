@@ -15,7 +15,7 @@ Optional Team `kp_…` tokens (`kprompt login`) are for org policy/audit — not
 |----------|--------------|------------|---------------|-------|
 | Ollama (local) | `ollama` | none required | `llama3.2` | **$0 first path** — `http://127.0.0.1:11434/v1` |
 | OpenAI | `openai` | `KPROMPT_OPENAI_API_KEY` / `OPENAI_API_KEY` | `gpt-4o-mini` | Also `KPROMPT_OPENAI_BASE_URL` for proxies; Team orgs can store keys in app `/secrets` and `kprompt secrets pull` |
-| Anthropic | `anthropic` | `KPROMPT_ANTHROPIC_API_KEY` / `ANTHROPIC_API_KEY` | `claude-3-5-sonnet-latest` | Messages API |
+| Anthropic | `anthropic` | `KPROMPT_ANTHROPIC_API_KEY` / `ANTHROPIC_API_KEY` | `claude-sonnet-4-6` | Messages API |
 | Google Gemini | `gemini` | `KPROMPT_GEMINI_API_KEY` / `GEMINI_API_KEY` / `GOOGLE_API_KEY` | `gemini-3.6-flash` | AI Studio key; see free-tier notes below |
 | Groq | `groq` | `KPROMPT_GROQ_API_KEY` / `GROQ_API_KEY` | `llama-3.3-70b-versatile` | OpenAI-compatible |
 | xAI (Grok) | `xai` | `KPROMPT_XAI_API_KEY` / `XAI_API_KEY` | `grok-4.5` | OpenAI-compatible |

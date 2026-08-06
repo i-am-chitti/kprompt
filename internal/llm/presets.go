@@ -36,7 +36,7 @@ var Presets = []Preset{
 	{
 		Name:         "anthropic",
 		Kind:         "anthropic",
-		DefaultModel: "claude-3-5-sonnet-latest",
+		DefaultModel: "claude-sonnet-4-6",
 		EnvKeys:      []string{"KPROMPT_ANTHROPIC_API_KEY", "ANTHROPIC_API_KEY"},
 		HelpURL:      "https://console.anthropic.com/",
 	},
