@@ -23,14 +23,14 @@ kprompt "optimize my cluster" -o json | jq '.result'
 ```
 
 Never mutates. Optional fix plans still need a **separate** approval —
-optimize `--approve` does **not** auto-apply.
+optimize `--approve` does **not** auto-apply. Idle workloads are surfaced as guidance-only suggestions to review underutilized resources.
 
 ## Sections
 
 | Section | Signal |
 |---------|--------|
 | Inventory | Deployments / StatefulSets, replicas, requests/limits |
-| Idle | Prometheus usage ≪ request (underutilized) |
+| Idle | Prometheus usage ≪ request (underutilized); surfaces as guidance-only suggestion |
 | Rightsizing | Concrete request/limit deltas from usage |
 | HPA | Static-replica / maxed-HPA hints; static Deployments get an optional approve-gated HPA create plan |
 | Cost / carbon notes | Optional $/gCO2e estimates on idle + rightsizing **lower** (T-073) |
