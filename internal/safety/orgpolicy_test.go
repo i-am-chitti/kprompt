@@ -158,3 +158,49 @@ func TestRoleMayApprove(t *testing.T) {
 		t.Fatal("expected deny message for viewer/low")
 	}
 }
+
+func TestApplyOrgPolicyWontWaiveLocalWipeDeny(t *testing.T) {
+	plan := planner.ExecutionPlan{
+		Intent: intent.Intent{Kind: intent.KindDelete},
+		Actions: []planner.Action{{
+			Op:     planner.OpDelete,
+			Object: planner.ObjectRef{Kind: "Pod", Name: "*", Namespace: "default"},
+		}},
+	}
+	base := EvaluatePlan(plan)
+	if !base.Denied {
+		t.Fatal("expected local plan to be denied natively (unscoped delete)")
+	}
+
+	org := &OrgPolicy{
+		MaxRisk:         "high",
+		AllowNamespaces: []string{"*"},
+	}
+	r := ApplyOrgPolicy(base, plan, org, "")
+	if !r.Denied {
+		t.Fatal("org policy must not be able to waive local unscoped delete deny")
+	}
+}
+
+func TestApplyOrgPolicyWontWaiveLocalNamespaceDeny(t *testing.T) {
+	plan := planner.ExecutionPlan{
+		Intent: intent.Intent{Kind: intent.KindDelete},
+		Actions: []planner.Action{{
+			Op:     planner.OpDelete,
+			Object: planner.ObjectRef{Kind: "Namespace", Name: "prod"},
+		}},
+	}
+	base := EvaluatePlan(plan)
+	if !base.Denied {
+		t.Fatal("expected local plan to be denied natively (namespace delete)")
+	}
+
+	org := &OrgPolicy{
+		MaxRisk:         "high",
+		AllowNamespaces: []string{"*"},
+	}
+	r := ApplyOrgPolicy(base, plan, org, "")
+	if !r.Denied {
+		t.Fatal("org policy must not be able to waive local namespace deletion deny")
+	}
+}
