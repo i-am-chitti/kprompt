@@ -43,7 +43,7 @@ var Presets = []Preset{
 	{
 		Name:         "gemini",
 		Kind:         "gemini",
-		DefaultModel: "gemini-1.5-flash",
+		DefaultModel: "gemini-3.6-flash",
 		EnvKeys:      []string{"KPROMPT_GEMINI_API_KEY", "GEMINI_API_KEY", "GOOGLE_API_KEY"},
 		HelpURL:      "https://aistudio.google.com/apikey",
 	},

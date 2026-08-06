@@ -16,7 +16,7 @@ Optional Team `kp_…` tokens (`kprompt login`) are for org policy/audit — not
 | Ollama (local) | `ollama` | none required | `llama3.2` | **$0 first path** — `http://127.0.0.1:11434/v1` |
 | OpenAI | `openai` | `KPROMPT_OPENAI_API_KEY` / `OPENAI_API_KEY` | `gpt-4o-mini` | Also `KPROMPT_OPENAI_BASE_URL` for proxies; Team orgs can store keys in app `/secrets` and `kprompt secrets pull` |
 | Anthropic | `anthropic` | `KPROMPT_ANTHROPIC_API_KEY` / `ANTHROPIC_API_KEY` | `claude-3-5-sonnet-latest` | Messages API |
-| Google Gemini | `gemini` | `KPROMPT_GEMINI_API_KEY` / `GEMINI_API_KEY` / `GOOGLE_API_KEY` | `gemini-1.5-flash` | AI Studio key; see free-tier notes below |
+| Google Gemini | `gemini` | `KPROMPT_GEMINI_API_KEY` / `GEMINI_API_KEY` / `GOOGLE_API_KEY` | `gemini-3.6-flash` | AI Studio key; see free-tier notes below |
 | Groq | `groq` | `KPROMPT_GROQ_API_KEY` / `GROQ_API_KEY` | `llama-3.3-70b-versatile` | OpenAI-compatible |
 | xAI (Grok) | `xai` | `KPROMPT_XAI_API_KEY` / `XAI_API_KEY` | `grok-4.5` | OpenAI-compatible |
 | Cerebras | `cerebras` | `KPROMPT_CEREBRAS_API_KEY` / `CEREBRAS_API_KEY` | `gpt-oss-120b` | OpenAI-compatible, low-latency |
@@ -34,7 +34,7 @@ AI Studio keys often start on a **free tier** with daily / per-minute quotas (in
 ```bash
 export KPROMPT_GEMINI_API_KEY=...   # from https://aistudio.google.com/apikey
 kprompt config set provider gemini
-kprompt config set model gemini-1.5-flash   # docs default; or a current Flash / Flash-Lite id
+kprompt config set model gemini-3.6-flash   # current GA Flash (GA Jul 2026)
 ```
 
 | Symptom | What to do |
@@ -72,7 +72,7 @@ kprompt --provider anthropic "explain why api is crashing"
 
 # Gemini
 export KPROMPT_GEMINI_API_KEY=...
-kprompt --provider gemini --model gemini-1.5-flash "deploy redis"
+kprompt --provider gemini --model gemini-3.6-flash "deploy redis"
 
 # Groq
 export KPROMPT_GROQ_API_KEY=...
@@ -102,7 +102,7 @@ kprompt --provider openai-compatible --model gpt-4o "list services"
 provider: ollama
 model: llama3.2
 # provider: gemini
-# model: gemini-1.5-flash
+# model: gemini-3.6-flash
 # base_url: https://api.groq.com/openai/v1   # optional override for openai-compatible presets
 namespace: default
 ```
