@@ -1,6 +1,7 @@
 package safety
 
 import (
+	"strings"
 	"testing"
 	"time"
 
@@ -202,5 +203,56 @@ func TestApplyOrgPolicyWontWaiveLocalNamespaceDeny(t *testing.T) {
 	r := ApplyOrgPolicy(base, plan, org, "")
 	if !r.Denied {
 		t.Fatal("org policy must not be able to waive local namespace deletion deny")
+	}
+}
+
+func TestRoleMayApproveAdversarial(t *testing.T) {
+	matrix := map[string][]string{
+		"operator": {"low", "medium"},
+		"admin":    {"low", "medium", "high"},
+	}
+
+	// 1. Role must not be able to approve RiskDenied
+	if RoleMayApprove(matrix, "admin", RiskDenied) {
+		t.Fatal("admin must not be able to approve RiskDenied")
+	}
+	if RoleMayApprove(matrix, "admin", "") {
+		t.Fatal("admin must not be able to approve empty Risk")
+	}
+
+	// 2. Empty or unknown roles must be denied
+	if RoleMayApprove(matrix, "", RiskLow) {
+		t.Fatal("empty role must not be able to approve")
+	}
+	if RoleMayApprove(matrix, "unknown-role", RiskLow) {
+		t.Fatal("unknown role must not be able to approve")
+	}
+
+	// 3. Case insensitivity check
+	if !RoleMayApprove(matrix, "Operator", "MEDIUM") {
+		t.Fatal("RoleMayApprove should be case-insensitive for role and risk")
+	}
+	if !RoleMayApprove(matrix, "  operator  ", "  medium  ") {
+		t.Fatal("RoleMayApprove should handle surrounding spaces")
+	}
+
+	// 4. RoleApproveDenyMessage format check for unknown and unauthorized cases
+	if msg := RoleApproveDenyMessage(matrix, "", RiskHigh); !strings.Contains(msg, "(unknown)") {
+		t.Fatalf("expected message to reference unknown role, got: %q", msg)
+	}
+	if msg := RoleApproveDenyMessage(matrix, "operator", RiskHigh); !strings.Contains(msg, "operator") || !strings.Contains(msg, "high") {
+		t.Fatalf("expected message to reference role and risk, got: %q", msg)
+	}
+}
+
+func TestParseMaxRiskDefaults(t *testing.T) {
+	if parseMaxRisk("") != RiskMedium {
+		t.Fatal("empty max risk should default to RiskMedium")
+	}
+	if parseMaxRisk("invalid-value") != RiskMedium {
+		t.Fatal("invalid max risk should default to RiskMedium")
+	}
+	if parseMaxRisk("  LoW  ") != RiskLow {
+		t.Fatal("max risk parsing should be case-insensitive and trim spaces")
 	}
 }
