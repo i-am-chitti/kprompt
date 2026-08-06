@@ -2,7 +2,10 @@ package autopilot
 
 import (
 	"fmt"
+	"strings"
 	"testing"
+
+	"github.com/kprompt/kprompt/internal/incident"
 )
 
 func TestProposalLibraryPutGetList(t *testing.T) {
@@ -30,6 +33,48 @@ func TestProposalLibraryPutGetList(t *testing.T) {
 	got, err = lib.Get("payments", "ap-1")
 	if err != nil || !got.Applied || got.Decision != DecisionApplied {
 		t.Fatalf("%v %+v", err, got)
+	}
+}
+
+func TestProposalLibraryFindOpen(t *testing.T) {
+	lib := NewProposalLibrary(NewMemProposalStore())
+	prop := Proposal{
+		ID: "ap-1", Namespace: "payments", IncidentID: "inc-9",
+		ActionID: ActionRestartDeployment, Decision: DecisionProposed,
+	}
+	if err := lib.Put(prop); err != nil {
+		t.Fatal(err)
+	}
+	got, ok := lib.FindOpen("payments", "inc-9", ActionRestartDeployment)
+	if !ok || got.ID != "ap-1" {
+		t.Fatalf("%v %+v", ok, got)
+	}
+	prop.Applied = true
+	prop.Decision = DecisionApplied
+	_ = lib.Put(prop)
+	if _, ok := lib.FindOpen("payments", "inc-9", ActionRestartDeployment); ok {
+		t.Fatal("applied proposal should not be open")
+	}
+}
+
+func TestAttachProposalToAlert(t *testing.T) {
+	alert := incident.AgentAlert{Namespace: "payments", IncidentID: "inc-1"}
+	prop := &Proposal{
+		ID: "ap-9", Namespace: "payments", ActionID: ActionRollbackFailedRollout,
+		Decision: DecisionProposed, Risk: "medium",
+	}
+	AttachProposalToAlert(&alert, prop)
+	if alert.ProposalID != "ap-9" || alert.ProposalAction == "" || alert.ProposalHint == "" {
+		t.Fatalf("%+v", alert)
+	}
+	if !strings.Contains(alert.ProposalHint, "--approve") {
+		t.Fatalf("hint=%q", alert.ProposalHint)
+	}
+	denied := &Proposal{ID: "x", Decision: DecisionDenied}
+	alert2 := incident.AgentAlert{}
+	AttachProposalToAlert(&alert2, denied)
+	if alert2.ProposalID != "" {
+		t.Fatal("denied should not attach")
 	}
 }
 

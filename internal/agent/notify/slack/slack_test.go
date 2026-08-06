@@ -24,8 +24,12 @@ func TestFormatAlert(t *testing.T) {
 		Recommendation: "Check redis-service",
 		Affected:       []incident.ResourceRef{{Kind: "Deployment", Name: "payment-api"}},
 	}, incident.AlertFired, time.Now().UTC())
+	a.ProposalID = "ap-1"
+	a.ProposalAction = "restartDeployment"
+	a.ProposalRisk = "medium"
+	a.ProposalHint = "kprompt agent proposals apply -n payments --id ap-1 --approve"
 	text := FormatAlert(a)
-	for _, want := range []string{"payments", "CrashLoopBackOff", "94%", "Redis DNS", "payment-api", "inc-1"} {
+	for _, want := range []string{"payments", "CrashLoopBackOff", "94%", "Redis DNS", "payment-api", "inc-1", "ap-1", "proposals apply"} {
 		if !strings.Contains(text, want) {
 			t.Fatalf("missing %q in:\n%s", want, text)
 		}

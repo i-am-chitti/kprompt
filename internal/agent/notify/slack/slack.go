@@ -230,6 +230,12 @@ func FormatAlert(a incident.AgentAlert) string {
 	if a.Recommendation != "" {
 		fmt.Fprintf(&b, "*Recommendation:* %s\n", a.Recommendation)
 	}
+	if a.ProposalID != "" {
+		fmt.Fprintf(&b, "*Proposal:* `%s` · action `%s` · risk `%s`\n", a.ProposalID, a.ProposalAction, a.ProposalRisk)
+		if a.ProposalHint != "" {
+			fmt.Fprintf(&b, "*Apply:* `%s`\n", a.ProposalHint)
+		}
+	}
 	if len(a.Affected) > 0 {
 		parts := make([]string, 0, len(a.Affected))
 		for _, r := range a.Affected {

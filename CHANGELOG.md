@@ -10,6 +10,7 @@ All notable changes to kprompt are documented here. Versions follow [GitHub Rele
 - `agent autopilot apply-proposal --patterns` for CLI Learn writeback
 - **RT-002 proposal ranking bias** — multi-candidate Autopilot detect + Learn weight / `LastActionID` ranking; `learnNote` + `ActionConfidence` bias
 - **RT-007 durable proposals** — `agent proposals list|show|apply`; ConfigMap/file store; auto-enabled with `--autopilot-propose`
+- **RT-017/018 Incident→PlanResult bridge** — propose+store before notify; alerts carry `proposalId` + apply hint (`agent proposals apply --approve`)
 
 ## [v0.9.0](https://github.com/kprompt/kprompt/releases/tag/v0.9.0) — 2026-08-04
 

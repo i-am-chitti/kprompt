@@ -125,10 +125,15 @@ Two writers sharing one mutable workspace is an anti-pattern ([AG-069](https://g
        │      (merged EvidenceRef /
        │       Unknowns — not narrative reuse)
        │
- optional Autopilot propose ──► PlanResult ──approve──► apply ──verify──►
+ optional Autopilot propose ──► durable PlanResult store (RT-007)
+       │                           │
+       │                           ├─► AgentAlert.proposalId + apply hint (RT-018)
+       │                           │
+       │                           └─► approve (`agent proposals apply --approve`)
+       │                                    ──► apply ──verify──► Learn (RT-001)
 ```
 
-CLI on-demand investigate is the same contract without the always-on watch: hops are signal nodes; the `Investigation` JSON is the merge artifact.
+In-cluster PlanResult is a **product node**: `--autopilot-propose` writes a durable proposal before notify; humans approve from CLI (or future Slack/Team bridges) without recompiling intent on a laptop.
 
 ---
 

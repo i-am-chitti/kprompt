@@ -112,6 +112,26 @@ func (l *ProposalLibrary) Get(namespace, id string) (Proposal, error) {
 	return Proposal{}, fmt.Errorf("autopilot proposals: %q not found in %s", id, namespace)
 }
 
+// FindOpen returns the newest non-applied proposal for an incident+action (RT-017 stable id).
+func (l *ProposalLibrary) FindOpen(namespace, incidentID, actionID string) (Proposal, bool) {
+	if l == nil || l.store == nil {
+		return Proposal{}, false
+	}
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	snap, err := l.store.Load(namespace)
+	if err != nil {
+		return Proposal{}, false
+	}
+	for _, p := range snap.Proposals {
+		if p.IncidentID == incidentID && p.ActionID == actionID &&
+			!p.Applied && p.Decision != DecisionDenied && p.Decision != DecisionFailed {
+			return p, true
+		}
+	}
+	return Proposal{}, false
+}
+
 // List returns the snapshot for a namespace.
 func (l *ProposalLibrary) List(namespace string) (ProposalSnapshot, error) {
 	if l == nil || l.store == nil {

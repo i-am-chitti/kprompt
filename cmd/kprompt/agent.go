@@ -1023,6 +1023,32 @@ KpromptAgent status sync:
 						if outcome.Skipped {
 							return
 						}
+						// RT-017: Incident → durable PlanResult before notify so alerts carry proposal id (RT-018).
+						var prop *autopilot.Proposal
+						if apEngine != nil {
+							agentCtx.Incident.Confidence = outcome.Alert.Confidence
+							agentCtx.Incident.RootCause = outcome.Alert.RootCause
+							agentCtx.Incident.Summary = outcome.Alert.Summary
+							p, perr := apEngine.ProposeFromContext(agentCtx, outcome.Alert.Confidence)
+							if perr != nil {
+								fmt.Fprintf(cmd.ErrOrStderr(), "autopilot propose error: %v\n", perr)
+							} else if p != nil {
+								prop = p
+								if propLib != nil && prop.IncidentID != "" {
+									if prev, ok := propLib.FindOpen(ns, prop.IncidentID, prop.ActionID); ok {
+										prop.ID = prev.ID // stable id across updates
+									}
+								}
+								autopilot.AttachProposalToAlert(&outcome.Alert, prop)
+								if propLib != nil {
+									if perr := propLib.Put(*prop); perr != nil {
+										fmt.Fprintf(cmd.ErrOrStderr(), "proposals store: %v\n", perr)
+									} else if !emitJSON {
+										fmt.Fprintf(out, "proposal stored id=%s (agent proposals show -n %s --id %s)\n", prop.ID, ns, prop.ID)
+									}
+								}
+							}
+						}
 						if slackClient != nil && outcome.PassedGate {
 							thread := threads[outcome.Alert.IncidentID]
 							if thread == "" && builder != nil {
@@ -1058,60 +1084,47 @@ KpromptAgent status sync:
 								fmt.Fprintf(cmd.ErrOrStderr(), "kpromptagent status alert: %v\n", err)
 							}
 						}
-						if apEngine != nil && !outcome.Skipped {
-							agentCtx.Incident.Confidence = outcome.Alert.Confidence
-							agentCtx.Incident.RootCause = outcome.Alert.RootCause
-							agentCtx.Incident.Summary = outcome.Alert.Summary
-							prop, perr := apEngine.ProposeFromContext(agentCtx, outcome.Alert.Confidence)
-							if perr != nil {
-								fmt.Fprintf(cmd.ErrOrStderr(), "autopilot propose error: %v\n", perr)
-							} else if prop != nil {
-								if autopilotApply && apEngine.Policy.PolicyAuto() &&
-									(prop.Decision == autopilot.DecisionProposed || prop.Decision == autopilot.DecisionApproved) {
-									applied, aerr := apEngine.ApplyProposal(cmd.Context(), clients.Clientset, *prop)
-									if aerr != nil {
-										fmt.Fprintf(cmd.ErrOrStderr(), "autopilot apply error: %v\n", aerr)
-										if applied != nil {
-											prop = applied
-										}
-										// RT-001: learn from mutate failure when patterns enabled.
-										if analyzer != nil && analyzer.Patterns != nil {
-											prop.Outcome = string(patterns.OutcomeApplyFailed)
-											if _, lerr := autopilot.WriteLearnOutcomeAction(analyzer.Patterns, agentCtx, patterns.OutcomeApplyFailed, prop.ActionID); lerr != nil {
-												fmt.Fprintf(cmd.ErrOrStderr(), "autopilot learn: %v\n", lerr)
-											}
-											stampIncidentApplyOutcome(builder, &agentCtx, prop)
-										}
-									} else if applied != nil {
+						if prop != nil {
+							if autopilotApply && apEngine != nil && apEngine.Policy.PolicyAuto() &&
+								(prop.Decision == autopilot.DecisionProposed || prop.Decision == autopilot.DecisionApproved) {
+								applied, aerr := apEngine.ApplyProposal(cmd.Context(), clients.Clientset, *prop)
+								if aerr != nil {
+									fmt.Fprintf(cmd.ErrOrStderr(), "autopilot apply error: %v\n", aerr)
+									if applied != nil {
 										prop = applied
-										rep := autopilot.AttachVerify(cmd.Context(), clients.Clientset, prop)
-										if analyzer != nil && analyzer.Patterns != nil {
-											if o, ok := patterns.OutcomeFromVerify(rep.Status); ok {
-												if _, lerr := autopilot.WriteLearnOutcomeAction(analyzer.Patterns, agentCtx, o, prop.ActionID); lerr != nil {
-													fmt.Fprintf(cmd.ErrOrStderr(), "autopilot learn: %v\n", lerr)
-												}
-											}
+									}
+									if analyzer != nil && analyzer.Patterns != nil {
+										prop.Outcome = string(patterns.OutcomeApplyFailed)
+										if _, lerr := autopilot.WriteLearnOutcomeAction(analyzer.Patterns, agentCtx, patterns.OutcomeApplyFailed, prop.ActionID); lerr != nil {
+											fmt.Fprintf(cmd.ErrOrStderr(), "autopilot learn: %v\n", lerr)
 										}
 										stampIncidentApplyOutcome(builder, &agentCtx, prop)
-										if !emitJSON && prop.VerifyStatus != "" {
-											fmt.Fprintf(out, "autopilot verify=%s outcome=%s — %s\n",
-												prop.VerifyStatus, prop.Outcome, prop.VerifyMessage)
+									}
+								} else if applied != nil {
+									prop = applied
+									rep := autopilot.AttachVerify(cmd.Context(), clients.Clientset, prop)
+									if analyzer != nil && analyzer.Patterns != nil {
+										if o, ok := patterns.OutcomeFromVerify(rep.Status); ok {
+											if _, lerr := autopilot.WriteLearnOutcomeAction(analyzer.Patterns, agentCtx, o, prop.ActionID); lerr != nil {
+												fmt.Fprintf(cmd.ErrOrStderr(), "autopilot learn: %v\n", lerr)
+											}
 										}
 									}
-								}
-								if emitJSON {
-									_ = json.NewEncoder(out).Encode(prop)
-								} else {
-									fmt.Fprintf(out, "autopilot %s action=%s target=%s/%s risk=%s applied=%v — %s\n",
-										prop.Decision, prop.ActionID, prop.TargetKind, prop.TargetName, prop.Risk, prop.Applied, prop.Reason)
-								}
-								if propLib != nil {
-									if perr := propLib.Put(*prop); perr != nil {
-										fmt.Fprintf(cmd.ErrOrStderr(), "proposals store: %v\n", perr)
-									} else if !emitJSON {
-										fmt.Fprintf(out, "proposal stored id=%s (agent proposals show -n %s --id %s)\n", prop.ID, ns, prop.ID)
+									stampIncidentApplyOutcome(builder, &agentCtx, prop)
+									if !emitJSON && prop.VerifyStatus != "" {
+										fmt.Fprintf(out, "autopilot verify=%s outcome=%s — %s\n",
+											prop.VerifyStatus, prop.Outcome, prop.VerifyMessage)
 									}
 								}
+								if propLib != nil {
+									_ = propLib.Put(*prop)
+								}
+							}
+							if emitJSON {
+								_ = json.NewEncoder(out).Encode(prop)
+							} else {
+								fmt.Fprintf(out, "autopilot %s action=%s target=%s/%s risk=%s applied=%v — %s\n",
+									prop.Decision, prop.ActionID, prop.TargetKind, prop.TargetName, prop.Risk, prop.Applied, prop.Reason)
 							}
 						}
 						if handoffClient != nil && !outcome.Skipped {

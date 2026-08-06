@@ -41,6 +41,28 @@ func AttachVerify(ctx context.Context, client kubernetes.Interface, prop *Propos
 	return rep
 }
 
+// AttachProposalToAlert stamps AgentAlert with durable proposal metadata (RT-017 · RT-018).
+// Skips denied proposals. Never implies apply — hint is human CLI only.
+func AttachProposalToAlert(alert *incident.AgentAlert, prop *Proposal) {
+	if alert == nil || prop == nil {
+		return
+	}
+	if prop.Decision == DecisionDenied {
+		return
+	}
+	alert.ProposalID = prop.ID
+	alert.ProposalAction = prop.ActionID
+	alert.ProposalRisk = prop.Risk
+	ns := strings.TrimSpace(prop.Namespace)
+	if ns == "" {
+		ns = alert.Namespace
+	}
+	alert.ProposalHint = fmt.Sprintf(
+		"kprompt agent proposals apply -n %s --id %s --approve",
+		ns, prop.ID,
+	)
+}
+
 // WriteLearnOutcome records apply/verify outcome on the pattern store (RT-001).
 // No-op when lib is nil. On mutate error before verify, pass OutcomeApplyFailed.
 func WriteLearnOutcome(lib *patterns.Library, agentCtx ctxbuild.AgentContext, outcome patterns.Outcome) (patterns.Pattern, error) {
