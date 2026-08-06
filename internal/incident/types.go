@@ -100,6 +100,11 @@ type Incident struct {
 	Severity        string  `json:"severity,omitempty"`
 	NotifierThread  string  `json:"notifierThread,omitempty"` // e.g. Slack thread ts
 	HealthScoreHint *int    `json:"healthScoreHint,omitempty"`
+
+	// RT-001: last Autopilot/CLI remediation outcome stamped after apply+verify.
+	LastApplyOutcome string `json:"lastApplyOutcome,omitempty"` // apply_success | apply_failed | apply_partial
+	LastVerifyStatus string `json:"lastVerifyStatus,omitempty"` // ok | pending | failed | skipped
+	LastActionID     string `json:"lastActionId,omitempty"`
 }
 
 // AgentAlert is the outbound notify artifact (Slack / webhook JSON body).

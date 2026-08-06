@@ -2,6 +2,15 @@
 
 All notable changes to kprompt are documented here. Versions follow [GitHub Releases](https://github.com/kprompt/kprompt/releases).
 
+## Unreleased
+
+### Features
+
+- **RT-001 Learn writeback** — Autopilot apply + post-apply verify outcomes (`apply_success` / `apply_failed` / `apply_partial`) update the incident patterns store; Incident stamps `lastApplyOutcome` / `lastVerifyStatus` / `lastActionId` ([docs/learn.md](./docs/learn.md))
+- `agent autopilot apply-proposal --patterns` for CLI Learn writeback
+- **RT-002 proposal ranking bias** — multi-candidate Autopilot detect + Learn weight / `LastActionID` ranking; `learnNote` + `ActionConfidence` bias
+- **RT-007 durable proposals** — `agent proposals list|show|apply`; ConfigMap/file store; auto-enabled with `--autopilot-propose`
+
 ## [v0.9.0](https://github.com/kprompt/kprompt/releases/tag/v0.9.0) — 2026-08-04
 
 Day-0 CLI onboarding pack + provider/agent follow-ups since v0.8.0.

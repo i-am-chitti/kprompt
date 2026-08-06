@@ -2,12 +2,33 @@ package autopilot
 
 import (
 	"fmt"
+	"sort"
 	"strings"
 
 	"github.com/kprompt/kprompt/internal/agent/ctxbuild"
+	"github.com/kprompt/kprompt/internal/agent/patterns"
 )
 
+// candidate is one allowlisted action that matched incident signals (RT-002).
+type candidate struct {
+	Action   string
+	Kind     string
+	Name     string
+	Replicas *int32
+	Base     float64 // detector priority (higher first)
+}
+
 func detectAction(agentCtx ctxbuild.AgentContext) (action, kind, name string, replicas *int32, ok bool) {
+	cands := detectCandidates(agentCtx)
+	if len(cands) == 0 {
+		return "", "", "", nil, false
+	}
+	c := cands[0]
+	return c.Action, c.Kind, c.Name, c.Replicas, true
+}
+
+// detectCandidates returns all matching Autopilot actions, base-ranked (RT-002).
+func detectCandidates(agentCtx ctxbuild.AgentContext) []candidate {
 	blob := strings.ToLower(agentCtx.Incident.Summary + " " + agentCtx.Incident.RootCause + " " + agentCtx.Incident.Recommendation)
 	for _, e := range agentCtx.Incident.Evidence {
 		blob += " " + strings.ToLower(e.Reason+" "+e.Message)
@@ -16,23 +37,33 @@ func detectAction(agentCtx ctxbuild.AgentContext) (action, kind, name string, re
 		blob += " " + strings.ToLower(e.Reason+" "+e.Message)
 	}
 
-	kind, name = resolveTarget(agentCtx)
+	_, name := resolveTarget(agentCtx)
 	if name == "" {
-		return "", "", "", nil, false
+		return nil
 	}
 
-	// Priority: rollback → restart → evict → scale.
-	// Rollback requires explicit rollout-failure signals (not mere CrashLoop).
+	var out []candidate
+
 	failedRollout := strings.Contains(blob, "progressdeadline") ||
 		(strings.Contains(blob, "rollout") && (strings.Contains(blob, "failed") || strings.Contains(blob, "timed out") || strings.Contains(blob, "timeout")))
 	if failedRollout {
-		return ActionRollbackFailedRollout, "Deployment", trimPodToDeploy(name), nil, true
+		out = append(out, candidate{
+			Action: ActionRollbackFailedRollout,
+			Kind:   "Deployment",
+			Name:   trimPodToDeploy(name),
+			Base:   40,
+		})
 	}
 
 	restartish := strings.Contains(blob, "crashloop") || strings.Contains(blob, "oom") ||
 		strings.Contains(blob, "imagepull") || strings.Contains(blob, "backoff")
 	if restartish {
-		return ActionRestartDeployment, "Deployment", trimPodToDeploy(name), nil, true
+		out = append(out, candidate{
+			Action: ActionRestartDeployment,
+			Kind:   "Deployment",
+			Name:   trimPodToDeploy(name),
+			Base:   30,
+		})
 	}
 
 	evictish := strings.Contains(blob, "node not ready") || strings.Contains(blob, "nodenotready") ||
@@ -45,7 +76,12 @@ func detectAction(agentCtx ctxbuild.AgentContext) (action, kind, name string, re
 		} else if agentCtx.Target != nil && strings.EqualFold(agentCtx.Target.Kind, "Pod") {
 			pod = agentCtx.Target.Name
 		}
-		return ActionEvictPod, "Pod", pod, nil, true
+		out = append(out, candidate{
+			Action: ActionEvictPod,
+			Kind:   "Pod",
+			Name:   pod,
+			Base:   20,
+		})
 	}
 
 	scaleish := strings.Contains(blob, "scale up") || strings.Contains(blob, "scale down") ||
@@ -68,10 +104,87 @@ func detectAction(agentCtx ctxbuild.AgentContext) (action, kind, name string, re
 		if strings.Contains(blob, "scale down") && agentCtx.Deployment.DesiredReplicas > 1 {
 			want = agentCtx.Deployment.DesiredReplicas - 1
 		}
-		return ActionScaleDeployment, "Deployment", trimPodToDeploy(name), &want, true
+		out = append(out, candidate{
+			Action:   ActionScaleDeployment,
+			Kind:     "Deployment",
+			Name:     trimPodToDeploy(name),
+			Replicas: &want,
+			Base:     10,
+		})
 	}
 
-	return "", "", "", nil, false
+	sort.SliceStable(out, func(i, j int) bool { return out[i].Base > out[j].Base })
+	return out
+}
+
+// rankCandidates applies Learn bias from a matched pattern (RT-002 · AG-034).
+// Prefer LastActionID on success history; dampen when weight is low / FP-heavy.
+func rankCandidates(cands []candidate, match patterns.Pattern, matched bool) []candidate {
+	if len(cands) <= 1 || !matched {
+		return cands
+	}
+	type scored struct {
+		c candidate
+		s float64
+	}
+	var list []scored
+	w := match.Weight
+	if w <= 0 {
+		w = 1
+	}
+	for _, c := range cands {
+		s := c.Base
+		if match.LastActionID != "" && c.Action == match.LastActionID {
+			s += 15 * w
+			if match.Confirmed > 0 {
+				s += float64(match.Confirmed)
+			}
+		}
+		if match.FalsePositives > match.Confirmed && match.FalsePositives >= 2 && c.Action == match.LastActionID {
+			s -= 20
+		}
+		if w < 0.5 && c.Action == match.LastActionID {
+			s -= 10
+		}
+		list = append(list, scored{c: c, s: s})
+	}
+	sort.SliceStable(list, func(i, j int) bool { return list[i].s > list[j].s })
+	out := make([]candidate, len(list))
+	for i := range list {
+		out[i] = list[i].c
+	}
+	return out
+}
+
+// biasActionConfidence adjusts proposal ActionConfidence from pattern weight (RT-002).
+// Alert Confidence gate still uses the raw confidence; this is explainability + ranking only.
+func biasActionConfidence(confidence float64, match patterns.Pattern, matched bool) (biased float64, note string) {
+	biased = confidence
+	if !matched || match.Count < patterns.MinPriorCount {
+		return biased, ""
+	}
+	boost := patterns.EffectiveBoost(match)
+	w := match.Weight
+	if w <= 0 {
+		w = 1
+	}
+	delta := boost * (w - 0.5)
+	biased = clamp01(confidence + delta)
+	note = fmt.Sprintf("Learn bias: weight=%.2f confirmed=%d fp=%d Δ=%.2f", w, match.Confirmed, match.FalsePositives, delta)
+	if match.LastActionID != "" {
+		note += fmt.Sprintf(" lastAction=%s", match.LastActionID)
+	}
+	return biased, note
+}
+
+func clamp01(v float64) float64 {
+	if v < 0 {
+		return 0
+	}
+	if v > 1 {
+		return 1
+	}
+	return v
 }
 
 func resolveTarget(agentCtx ctxbuild.AgentContext) (kind, name string) {
