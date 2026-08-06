@@ -427,9 +427,9 @@ func buildDelete(in intent.Intent, ns string) (ExecutionPlan, error) {
 	}
 	kind = cluster.NormalizeKind(kind)
 	switch kind {
-	case "Pod", "Deployment", "Service":
+	case "Pod", "Deployment", "Service", "Job", "ReplicaSet":
 	default:
-		return ExecutionPlan{}, fmt.Errorf("delete kind %q not supported (Pod, Deployment, Service only; namespace wipe denied)", in.Target.Kind)
+		return ExecutionPlan{}, fmt.Errorf("delete kind %q not supported (Pod, Deployment, Service, Job, ReplicaSet only; namespace wipe denied)", in.Target.Kind)
 	}
 	summary := fmt.Sprintf("Delete %s/%s in %s", kind, name, ns)
 	return ExecutionPlan{
@@ -460,8 +460,10 @@ func isUnscopedName(name string) bool {
 
 func apiVersionForKind(kind string) string {
 	switch kind {
-	case "Deployment":
+	case "Deployment", "ReplicaSet":
 		return "apps/v1"
+	case "Job":
+		return "batch/v1"
 	case "Workflow":
 		return "argoproj.io/v1alpha1"
 	default:
