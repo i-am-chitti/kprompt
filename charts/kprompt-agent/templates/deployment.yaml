@@ -65,6 +65,9 @@ spec:
             {{- end }}
             {{- if .Values.agent.autopilotPropose }}
             - --autopilot-propose
+            - --proposals
+            - --proposals-backend
+            - {{ .Values.agent.proposalsBackend | default "configmap" | quote }}
             {{- end }}
             {{- if .Values.agent.autopilotApply }}
             - --autopilot-apply

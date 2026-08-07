@@ -3,6 +3,7 @@
 **The AI Runtime for Kubernetes** — observe, reason, plan safe actions, and execute only after approval.
 
 [![CI](https://github.com/kprompt/kprompt/actions/workflows/ci.yml/badge.svg)](https://github.com/kprompt/kprompt/actions/workflows/ci.yml)
+[![Quality Gate Status](https://sonarcloud.io/api/project_badges/measure?project=kprompt_kprompt&metric=alert_status)](https://sonarcloud.io/project/overview?id=kprompt_kprompt)
 [![Release](https://img.shields.io/github/v/release/kprompt/kprompt?logo=github)](https://github.com/kprompt/kprompt/releases/latest)
 [![Downloads](https://img.shields.io/github/downloads/kprompt/kprompt/total?logo=github)](https://github.com/kprompt/kprompt/releases)
 [![Downloads (latest)](https://img.shields.io/github/downloads/kprompt/kprompt/latest/total)](https://github.com/kprompt/kprompt/releases/latest)

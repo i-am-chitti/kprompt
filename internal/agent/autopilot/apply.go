@@ -13,6 +13,7 @@ import (
 	"github.com/kprompt/kprompt/internal/executor"
 	"github.com/kprompt/kprompt/internal/planner"
 	"github.com/kprompt/kprompt/internal/safety"
+	"github.com/kprompt/kprompt/internal/verify"
 )
 
 // ApplyProposal mutates the cluster only when Policy is policyAuto + Apply (AG-042).
@@ -102,11 +103,41 @@ func (e *Engine) ApplyProposal(ctx context.Context, client kubernetes.Interface,
 		return &out, err
 	}
 
-	out.Decision = DecisionApplied
-	out.Applied = true
-	out.Reason = "applied under policyAuto (ADR-0015); audited"
+	// RT-006: Applied=true only after post-apply verify (T-070).
+	if vErr := finalizeAfterMutate(ctx, client, &out); vErr != nil {
+		_ = e.audit(out)
+		return &out, vErr
+	}
 	_ = e.audit(out)
 	return &out, nil
+}
+
+// finalizeAfterMutate runs T-070 verify and sets Applied/Decision from the report (RT-006).
+func finalizeAfterMutate(ctx context.Context, client kubernetes.Interface, prop *Proposal) error {
+	rep := AttachVerify(ctx, client, prop)
+	switch rep.Status {
+	case verify.OK:
+		if prop.Decision != DecisionFailed {
+			prop.Decision = DecisionApplied
+			prop.Applied = true
+			prop.Reason = "applied and verified under policyAuto (ADR-0015)"
+		}
+		return nil
+	case verify.Pending:
+		prop.Decision = DecisionApplied
+		prop.Applied = false
+		prop.Reason = "applied; verify pending: " + rep.Message
+		return nil
+	case verify.Failed:
+		return fmt.Errorf("%s", prop.Reason)
+	default:
+		if prop.Decision != DecisionFailed {
+			prop.Decision = DecisionApplied
+			prop.Applied = true
+			prop.Reason = "applied under policyAuto (verify " + rep.Status + ": " + rep.Message + ")"
+		}
+		return nil
+	}
 }
 
 func proposalToPlan(prop Proposal) (planner.ExecutionPlan, error) {

@@ -192,9 +192,12 @@ func TestSummarizeKnowledge(t *testing.T) {
 		t.Fatalf("format=%q", text)
 	}
 
-	br := BlastRadius(svc.Recent(), false, "payments")
+	br := BlastRadius(svc.Recent(), false, "payments", DefaultMaxHops, false)
 	if br.Kind != kindBlastRadius || len(br.Hops) == 0 {
 		t.Fatalf("%+v", br)
+	}
+	if br.Status != "degraded" {
+		t.Fatalf("expected degraded without mesh, got %s", br.Status)
 	}
 	if br.Hops[0].From != "payments" || br.Hops[0].To != "platform" {
 		t.Fatalf("hops=%+v", br.Hops)

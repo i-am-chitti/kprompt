@@ -8,7 +8,23 @@ Deploys a single Deployment that runs:
 kprompt agent run --namespace <ns> --in-cluster [--analyze] [--fetch-logs] [--health] …
 ```
 
-Never mutates the cluster in Observe Mode (ADR-0013). Default is **Observe**. Optional `agent.autopilotPropose` emits proposals only (ADR-0015). `agent.autopilotApply` stays **false** by default and still requires RemediationPolicy `mode=policyAuto apply=true` — never silent LLM apply.
+Never mutates the cluster in Observe Mode (ADR-0013). Default is **Observe**. Optional `agent.autopilotPropose` emits proposals only (ADR-0015) and persists them to `kprompt-autopilot-proposals` (RT-007). `agent.autopilotApply` stays **false** by default and requires `agent.autopilotMode=policyAuto` plus RemediationPolicy `apply=true` — never silent LLM apply.
+
+**RT-005 product path (Helm):**
+
+```bash
+helm upgrade --install kprompt-agent ./charts/kprompt-agent -n payments \
+  --set agent.autopilotPropose=true \
+  --set agent.autopilotMode=proposeOnly \
+  --set agent.autopilotAllow='{rollbackFailedRollout}'
+
+# Gated in-loop apply (explicit opt-in — review ADR-0015 first):
+helm upgrade --install kprompt-agent ./charts/kprompt-agent -n payments \
+  --set agent.autopilotPropose=true \
+  --set agent.autopilotMode=policyAuto \
+  --set agent.autopilotApply=true \
+  --set agent.autopilotAllow='{rollbackFailedRollout}'
+```
 
 Honest positioning (vs K8sGPT / Kagent, RBAC, LLM cost): [docs/agent.md](../../docs/agent.md) · [docs/namespace-agent.md](../../docs/namespace-agent.md) · [docs/agent-ops.md](../../docs/agent-ops.md) · [kprompt.ai/docs/agent](https://kprompt.ai/docs/agent).
 
@@ -48,9 +64,13 @@ helm upgrade --install kprompt-agent ./charts/kprompt-agent \
 | `agent.patternsBackend` | `configmap` | Pattern store (file\|configmap) |
 | `agent.incidentsBackend` | `configmap` | AG-032 durable open incidents |
 | `agent.gitopsEvidence` | `false` | AG-035 Argo/Flux EvidenceRefs (+ Role rules) |
-| `agent.autopilotPropose` | `false` | ADR-0015 propose-only (never apply by itself) |
-| `agent.autopilotApply` | `false` | AG-042 in-loop apply (needs policyAuto) |
-| `agent.remediationPolicy` | `false` | AG-040 create proposeOnly ConfigMap |
+| `agent.autopilotPropose` | `false` | ADR-0015 propose-only (never apply by itself); enables `--proposals` store |
+| `agent.autopilotApply` | `false` | AG-042 in-loop apply (needs `autopilotMode=policyAuto`) |
+| `agent.autopilotMode` | `proposeOnly` | RT-005 RemediationPolicy mode (`proposeOnly` \| `policyAuto`) |
+| `agent.autopilotAllow` | `[rollbackFailedRollout]` | RT-005 narrow allowlist in RemediationPolicy ConfigMap |
+| `agent.autopilotMinConfidence` | `0.85` | Policy floor for propose/apply |
+| `agent.proposalsBackend` | `configmap` | RT-007 durable proposal store (`kprompt-autopilot-proposals`) |
+| `agent.remediationPolicy` | `false` | AG-040 create policy ConfigMap (auto when autopilotPropose/Apply) |
 | `agent.discord` / `agent.slack` / `agent.webhook` | `false` | Enable notifiers |
 | `secret.name` | `kprompt-agent` | Env-from Secret |
 | `rbac.create` | `true` | Namespace Role (get/list/watch) |

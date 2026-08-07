@@ -68,6 +68,13 @@ type Service struct {
 	Store Store
 	// PersistErrLog is optional; called when Save fails after a handoff.
 	PersistErrLog func(error)
+	// MaxHops caps blast-radius cascade depth from focus (RT-011). 0 → DefaultMaxHops.
+	MaxHops int
+	// MeshConfigured reports whether mesh/OTel enrichment is available (RT-010).
+	// When false, /v1/blast-radius Status=degraded (honest).
+	MeshConfigured bool
+
+	audit []AuditEntry
 }
 
 // SuspectProber is a read-only verification hook for a suspect namespace.
@@ -135,6 +142,19 @@ func (s *Service) Handle(ctx context.Context, env handoff.Envelope) (Reply, erro
 		snap := Snapshot{SchemaVersion: SchemaVersion, Records: append([]Record(nil), s.recent...)}
 		store := s.Store
 		logf := s.PersistErrLog
+		kind := "handoff"
+		if env.Reason == reasonProactiveTick {
+			kind = reasonProactiveTick
+		}
+		s.audit = append(s.audit, AuditEntry{
+			At: reply.CreatedAt, Kind: kind,
+			From: env.FromNamespace, Suspect: suspectNS,
+			MutateAttempted: false,
+			Detail:           strings.Join(routing, "; "),
+		})
+		if len(s.audit) > maxAuditKeep {
+			s.audit = s.audit[len(s.audit)-maxAuditKeep:]
+		}
 		s.mu.Unlock()
 		if store != nil {
 			if err := store.Save(snap); err != nil && logf != nil {
@@ -337,12 +357,23 @@ func (h *Handler) routes() http.Handler {
 }
 
 // ListenAndServe runs until ctx is cancelled.
-func ListenAndServe(ctx context.Context, addr string, h *Handler) error {
+// Optional tickCfg.Interval > 0 starts the proactive correlation ticker (RT-009).
+func ListenAndServe(ctx context.Context, addr string, h *Handler, tickCfg ...TickConfig) error {
 	if h == nil {
 		h = &Handler{Service: New()}
 	}
 	if h.Service == nil {
 		h.Service = New()
+	}
+	var cfg TickConfig
+	if len(tickCfg) > 0 {
+		cfg = tickCfg[0]
+		if cfg.MaxHops > 0 {
+			h.Service.MaxHops = cfg.MaxHops
+		}
+	}
+	if cfg.Interval > 0 {
+		go RunTicker(ctx, h.Service, cfg, h.Logf)
 	}
 	srv := &http.Server{Addr: addr, Handler: h.routes()}
 	errCh := make(chan error, 1)

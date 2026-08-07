@@ -14,12 +14,20 @@ kprompt-agent installed.
      https://github.com/kprompt/kprompt/blob/main/docs/agent.md
      https://github.com/kprompt/kprompt/blob/main/docs/namespace-agent.md
      https://github.com/kprompt/kprompt/blob/main/docs/agent-ops.md
-{{- if .Values.agent.remediationPolicy }}
+{{- if include "kprompt-agent.remediationPolicyEnabled" . }}
 
-RemediationPolicy ConfigMap: kprompt-remediation-policy (proposeOnly by default — edit apply/mode carefully).
+RemediationPolicy ConfigMap: kprompt-remediation-policy
+  mode={{ .Values.agent.autopilotMode | default "proposeOnly" }} apply={{ include "kprompt-agent.autopilotPolicyAuto" . | trim }}
+  allow={{ .Values.agent.autopilotAllow | default (list "rollbackFailedRollout") | toJson }}
+  Edit only after reading ADR-0015 — never enable policyAuto apply without review.
+{{- end }}
+{{- if .Values.agent.autopilotPropose }}
+
+Durable proposals: kprompt-autopilot-proposals (RT-007)
+  CLI: kprompt agent proposals list|show|apply -n {{ include "kprompt-agent.watchNamespace" . }} --id <id> --approve
 {{- end }}
 {{- if .Values.agent.autopilotApply }}
 
 WARNING: autopilotApply=true grants Deployment update/patch and Pod delete in this namespace.
-Confirm RemediationPolicy mode=policyAuto apply=true before relying on in-loop apply.
+Requires agent.autopilotMode=policyAuto AND RemediationPolicy apply=true (RT-005/006).
 {{- end }}
