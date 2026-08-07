@@ -81,6 +81,75 @@ func TestRecordOutcomeResolvedAndFP(t *testing.T) {
 	}
 }
 
+func TestRecordOutcomeApplySuccessFailPartial(t *testing.T) {
+	lib := New(NewMemStore())
+	ctx := sampleCtx("BackOff")
+	if _, err := lib.Record("payments", ctx, "high", "CrashLoop", "migration timeout", "check migrate job"); err != nil {
+		t.Fatal(err)
+	}
+	p, err := lib.RecordOutcome("payments", ctx, OutcomeApplySuccess)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if p.Confirmed != 1 {
+		t.Fatalf("apply_success: %+v", p)
+	}
+	w := p.Weight
+	if w <= 0 {
+		t.Fatalf("expected positive weight: %+v", p)
+	}
+	p, err = lib.RecordOutcome("payments", ctx, OutcomeApplyFailed)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if p.FalsePositives != 0 {
+		t.Fatalf("apply_failed must not bump FP: %+v", p)
+	}
+	if p.Weight >= w {
+		t.Fatalf("apply_failed should dampen weight: before=%v after=%v", w, p.Weight)
+	}
+	w2 := p.Weight
+	p, err = lib.RecordOutcome("payments", ctx, OutcomeApplyPartial)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if p.Weight > w2 {
+		t.Fatalf("partial should not increase weight: before=%v after=%v", w2, p.Weight)
+	}
+}
+
+func TestRecordOutcomeApplyUpsertWithoutPrior(t *testing.T) {
+	lib := New(NewMemStore())
+	ctx := sampleCtx("ProgressDeadlineExceeded")
+	p, err := lib.RecordOutcome("payments", ctx, OutcomeApplySuccess)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if p.Count != 1 || p.Confirmed != 1 {
+		t.Fatalf("upsert apply outcome: %+v", p)
+	}
+}
+
+func TestOutcomeFromVerify(t *testing.T) {
+	cases := []struct {
+		status string
+		want   Outcome
+		ok     bool
+	}{
+		{"ok", OutcomeApplySuccess, true},
+		{"failed", OutcomeApplyFailed, true},
+		{"pending", OutcomeApplyPartial, true},
+		{"skipped", "", false},
+		{"", "", false},
+	}
+	for _, tc := range cases {
+		got, ok := OutcomeFromVerify(tc.status)
+		if ok != tc.ok || got != tc.want {
+			t.Fatalf("%q: got (%q,%v) want (%q,%v)", tc.status, got, ok, tc.want, tc.ok)
+		}
+	}
+}
+
 func TestEffectiveBoostZeroBelowMinPrior(t *testing.T) {
 	if EffectiveBoost(Pattern{Count: 1, Weight: 1}) != 0 {
 		t.Fatal("expected zero boost under MinPriorCount")

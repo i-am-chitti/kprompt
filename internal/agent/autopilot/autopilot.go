@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/kprompt/kprompt/internal/agent/ctxbuild"
+	"github.com/kprompt/kprompt/internal/agent/patterns"
 	"github.com/kprompt/kprompt/internal/incident"
 )
 
@@ -129,6 +130,11 @@ type Proposal struct {
 	Replicas         *int32    `json:"replicas,omitempty"` // scaleDeployment
 	Applied          bool      `json:"applied"`
 	CreatedAt        time.Time `json:"createdAt"`
+	// RT-001 post-apply verify + Learn outcome (success|fail|partial mapped to patterns.Outcome).
+	VerifyStatus  string `json:"verifyStatus,omitempty"`
+	VerifyMessage string `json:"verifyMessage,omitempty"`
+	Outcome       string `json:"outcome,omitempty"` // apply_success | apply_failed | apply_partial
+	LearnNote     string `json:"learnNote,omitempty"` // RT-002 ranking / ActionConfidence bias
 }
 
 // PlanBody mirrors a minimal PlanResult.plan payload.
@@ -147,6 +153,8 @@ type AuditEntry struct {
 type Engine struct {
 	Policy Policy
 	Audit  AuditStore
+	// Patterns is optional Learn store for RT-002 ranking / ActionConfidence bias (evidence-not-proof).
+	Patterns *patterns.Library
 
 	mu sync.Mutex
 }
@@ -224,16 +232,26 @@ func EvaluateAction(policy Policy, actionID string) (decision string, reason str
 
 // ProposeFromContext builds a proposal when context matches an allowlisted detector.
 // Never sets Applied=true here — apply is ApplyProposal only.
+// When Engine.Patterns is set, ranks candidates and biases ActionConfidence (RT-002).
 func (e *Engine) ProposeFromContext(agentCtx ctxbuild.AgentContext, confidence float64) (*Proposal, error) {
 	if e == nil {
 		return nil, fmt.Errorf("autopilot: engine is nil")
 	}
 	pol := e.Policy
 	pol.Normalize()
-	action, targetKind, targetName, replicas, ok := detectAction(agentCtx)
-	if !ok {
+	cands := detectCandidates(agentCtx)
+	var match patterns.Pattern
+	matched := false
+	if e.Patterns != nil {
+		match, matched = e.Patterns.Match(agentCtx.Namespace, agentCtx)
+		cands = rankCandidates(cands, match, matched)
+	}
+	if len(cands) == 0 {
 		return nil, nil
 	}
+	top := cands[0]
+	action, targetKind, targetName, replicas := top.Action, top.Kind, top.Name, top.Replicas
+
 	decision, reason := EvaluateAction(pol, action)
 	if decision == DecisionDenied {
 		p := baseProposal(agentCtx, action, targetKind, targetName, confidence, replicas)
@@ -259,6 +277,11 @@ func (e *Engine) ProposeFromContext(agentCtx ctxbuild.AgentContext, confidence f
 	p := baseProposal(agentCtx, action, targetKind, targetName, confidence, replicas)
 	p.Plan = planFor(action, agentCtx.Namespace, targetName, replicas)
 	enrichExplain(&p, action, agentCtx.Namespace, targetName)
+	if biased, note := biasActionConfidence(confidence, match, matched); note != "" {
+		p.ActionConfidence = biased
+		p.LearnNote = note
+		p.Why = strings.TrimSpace(p.Why + "; " + note)
+	}
 	p.Decision = DecisionProposed
 	p.Risk = riskFor(action)
 	p.Reason = "proposeOnly (ADR-0015 default); human apply via CLI or policyAuto"

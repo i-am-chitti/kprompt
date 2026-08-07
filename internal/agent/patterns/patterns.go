@@ -45,17 +45,37 @@ type Pattern struct {
 	LastRootCause  string    `json:"lastRootCause,omitempty"`
 	LastRec        string    `json:"lastRecommendation,omitempty"`
 	LastSeverity   string    `json:"lastSeverity,omitempty"`
+	LastActionID   string    `json:"lastActionId,omitempty"` // RT-002: last successful/failed Autopilot action for this signature
 	LastSeenAt     time.Time `json:"lastSeenAt"`
 	ExampleReasons []string  `json:"exampleReasons,omitempty"`
 }
 
-// Outcome is a post-notify learning signal (AG-033).
+// Outcome is a post-notify / post-apply learning signal (AG-033 · RT-001).
 type Outcome string
 
 const (
 	OutcomeResolved      Outcome = "resolved"
 	OutcomeFalsePositive Outcome = "false_positive"
+	// Apply outcomes (RT-001) — success mirrors resolve; fail is not a false-positive.
+	OutcomeApplySuccess Outcome = "apply_success"
+	OutcomeApplyFailed  Outcome = "apply_failed"
+	OutcomeApplyPartial Outcome = "apply_partial"
 )
+
+// OutcomeFromVerify maps T-070 verify.Report.Status → Learn outcome.
+// Skipped / unknown return ok=false (no writeback).
+func OutcomeFromVerify(status string) (Outcome, bool) {
+	switch strings.ToLower(strings.TrimSpace(status)) {
+	case "ok":
+		return OutcomeApplySuccess, true
+	case "failed":
+		return OutcomeApplyFailed, true
+	case "pending":
+		return OutcomeApplyPartial, true
+	default:
+		return "", false
+	}
+}
 
 // Snapshot is the persisted document.
 type Snapshot struct {
@@ -198,9 +218,15 @@ func (l *Library) Record(namespace string, agentCtx ctxbuild.AgentContext, sever
 	return Pattern{}, nil
 }
 
-// RecordOutcome updates pattern weights from resolve / false-positive feedback (AG-033).
+// RecordOutcome updates pattern weights from resolve / false-positive / apply feedback (AG-033 · RT-001).
 // Does not increment Count (occurrence) — outcomes are separate from fire learning.
+// Apply outcomes upsert a minimal pattern when none exists yet (CLI apply-proposal path).
 func (l *Library) RecordOutcome(namespace string, agentCtx ctxbuild.AgentContext, outcome Outcome) (Pattern, error) {
+	return l.RecordOutcomeAction(namespace, agentCtx, outcome, "")
+}
+
+// RecordOutcomeAction is RecordOutcome plus optional Autopilot actionID for RT-002 ranking bias.
+func (l *Library) RecordOutcomeAction(namespace string, agentCtx ctxbuild.AgentContext, outcome Outcome, actionID string) (Pattern, error) {
 	if l == nil || l.store == nil {
 		return Pattern{}, fmt.Errorf("patterns: library unset")
 	}
@@ -208,7 +234,7 @@ func (l *Library) RecordOutcome(namespace string, agentCtx ctxbuild.AgentContext
 	defer l.mu.Unlock()
 	snap, err := l.store.Load(namespace)
 	if err != nil {
-		return Pattern{}, err
+		snap = emptySnapshot(namespace)
 	}
 	sig := Signature(agentCtx)
 	idx := -1
@@ -218,29 +244,64 @@ func (l *Library) RecordOutcome(namespace string, agentCtx ctxbuild.AgentContext
 			break
 		}
 	}
+	now := time.Now().UTC()
 	if idx < 0 {
-		return Pattern{}, fmt.Errorf("patterns: no pattern for signature")
+		switch outcome {
+		case OutcomeApplySuccess, OutcomeApplyFailed, OutcomeApplyPartial:
+			snap.Patterns = append(snap.Patterns, Pattern{
+				ID:         "pattern/" + sig[:12],
+				Signature:  sig,
+				Namespace:  namespace,
+				Count:      1,
+				Weight:     1,
+				LastSeenAt: now,
+			})
+			idx = len(snap.Patterns) - 1
+		default:
+			return Pattern{}, fmt.Errorf("patterns: no pattern for signature")
+		}
 	}
 	p := snap.Patterns[idx]
 	if p.Weight <= 0 {
 		p.Weight = 1
 	}
 	switch outcome {
-	case OutcomeResolved:
+	case OutcomeResolved, OutcomeApplySuccess:
 		p.Confirmed++
 		p.Weight = clamp01(p.Weight + 0.05)
+		if actionID != "" {
+			p.LastActionID = actionID
+		}
 	case OutcomeFalsePositive:
 		p.FalsePositives++
 		p.Weight = clamp01(p.Weight - 0.15)
 		if p.Weight < 0.2 {
 			p.Weight = 0.2
 		}
+	case OutcomeApplyFailed:
+		// Failed remediation is not a false-positive alert — dampen weight only.
+		p.Weight = clamp01(p.Weight - 0.10)
+		if p.Weight < 0.2 {
+			p.Weight = 0.2
+		}
+		if actionID != "" {
+			p.LastActionID = actionID
+		}
+	case OutcomeApplyPartial:
+		p.Weight = clamp01(p.Weight - 0.02)
+		if p.Weight < 0.2 {
+			p.Weight = 0.2
+		}
+		if actionID != "" {
+			p.LastActionID = actionID
+		}
 	default:
 		return Pattern{}, fmt.Errorf("patterns: unknown outcome %q", outcome)
 	}
-	p.LastSeenAt = time.Now().UTC()
+	p.LastSeenAt = now
 	snap.Patterns[idx] = p
-	snap.UpdatedAt = p.LastSeenAt
+	snap.UpdatedAt = now
+	snap.Namespace = namespace
 	if err := l.store.Save(snap); err != nil {
 		return Pattern{}, err
 	}

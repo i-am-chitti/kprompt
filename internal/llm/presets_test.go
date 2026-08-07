@@ -67,6 +67,51 @@ func TestSupportedNamesIncludesNewProviders(t *testing.T) {
 	}
 }
 
+// Smoke tests: pin DefaultModel for the three presets updated in P-007 (#58).
+// These will fail in CI immediately if a preset drifts back to a retired model ID.
+
+func TestLookupPresetGemini(t *testing.T) {
+	p, ok := LookupPreset("gemini")
+	if !ok {
+		t.Fatal("gemini preset not found")
+	}
+	if p.Kind != "gemini" {
+		t.Fatalf("gemini kind = %q, want gemini", p.Kind)
+	}
+	const want = "gemini-3.6-flash"
+	if p.DefaultModel != want {
+		t.Fatalf("gemini default model = %q, want %q (update if GA model changes)", p.DefaultModel, want)
+	}
+}
+
+func TestLookupPresetAnthropic(t *testing.T) {
+	p, ok := LookupPreset("anthropic")
+	if !ok {
+		t.Fatal("anthropic preset not found")
+	}
+	if p.Kind != "anthropic" {
+		t.Fatalf("anthropic kind = %q, want anthropic", p.Kind)
+	}
+	const want = "claude-sonnet-4-6"
+	if p.DefaultModel != want {
+		t.Fatalf("anthropic default model = %q, want %q (update if GA model changes)", p.DefaultModel, want)
+	}
+}
+
+func TestLookupPresetTogether(t *testing.T) {
+	p, ok := LookupPreset("together")
+	if !ok {
+		t.Fatal("together preset not found")
+	}
+	if p.Kind != "openai" {
+		t.Fatalf("together kind = %q, want openai", p.Kind)
+	}
+	const want = "meta-llama/Llama-3.3-70B-Instruct-Turbo"
+	if p.DefaultModel != want {
+		t.Fatalf("together default model = %q, want %q (update if model is delisted)", p.DefaultModel, want)
+	}
+}
+
 func contains(s, sub string) bool {
 	return len(s) >= len(sub) && (s == sub || len(sub) == 0 || indexOf(s, sub) >= 0)
 }

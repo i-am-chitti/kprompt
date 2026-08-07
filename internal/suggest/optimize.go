@@ -121,6 +121,31 @@ func FromOptimize(ctx context.Context, client kubernetes.Interface, rep optimize
 		}
 	}
 
+	// Idle workloads → guidance-only (never auto scale-to-zero).
+	for _, w := range rep.Idle {
+		if len(out) >= maxOptimizeSuggestions {
+			break
+		}
+		if !w.Idle {
+			continue
+		}
+		sk := w.Kind + "|" + w.Namespace + "|" + w.Name + "|idle"
+		if seen[sk] {
+			continue
+		}
+		seen[sk] = true
+		summary := w.Message
+		if w.CostNote != "" {
+			summary += "; " + w.CostNote
+		}
+		out = append(out, Suggestion{
+			Code:    "optimize.idle",
+			Title:   fmt.Sprintf("Review idle %s/%s", w.Kind, w.Name),
+			Prompt:  fmt.Sprintf("review idle workload %s/%s in %s", w.Kind, w.Name, w.Namespace),
+			Summary: summary,
+		})
+	}
+
 	return out, nil
 }
 

@@ -1,47 +1,27 @@
-# Learn / cluster tool profile
+# Learn loop (RT-001…)
 
-`learn` detects which cluster integrations are present and saves a **local**
-profile (S-009 · T-087). It never mutates the cluster.
+kprompt’s AI Runtime Learn path closes Observe → Plan → Approve → Execute with **durable outcomes** that reshape the next “seen before” boost.
 
-```bash
-kprompt learn
-kprompt learn --context kind-dev
-kprompt learn --show
-kprompt learn --json
+## Signals
 
-# Natural language (same path)
-kprompt "learn cluster tools"
-kprompt "detect tools"
-```
+| Signal | Outcome | Effect on pattern store |
+|--------|---------|-------------------------|
+| Alert recovered | `resolved` | `Confirmed++`, weight +0.05 |
+| Slack `false positive` | `false_positive` | `FalsePositives++`, weight −0.15 (floor 0.2) |
+| Autopilot apply + verify `ok` | `apply_success` | same as resolved (+ `LastActionID`) |
+| Autopilot apply error or verify `failed` | `apply_failed` | weight −0.10 (**not** FP) |
+| Verify `pending` | `apply_partial` | weight −0.02 |
 
-`kprompt learn --show` is read-only: it shows the saved profile without re-detecting or rewriting it.
+**RT-002 ranking:** when multiple Autopilot actions match, prefer `LastActionID` with healthy weight; dampen when FP-heavy / low weight. `ActionConfidence` and `learnNote` reflect bias; MinConfidence gate still uses raw alert confidence (evidence-not-proof).
 
-Profile path: `~/.kprompt/profiles/<context>.json` (or `$KPROMPT_HOME/profiles/`).
+## Surfaces
 
-## What it detects
+- `kprompt agent run … --patterns --autopilot-propose [--autopilot-apply]`
+- `kprompt agent autopilot apply-proposal --approve --patterns …`
+- `kprompt agent proposals list|show|apply` — durable store (RT-007)
+- Incident fields: `lastApplyOutcome`, `lastVerifyStatus`, `lastActionId`
 
-Extends `kprompt tools` / `tools.Detect`:
+## Non-goals
 
-| Tool | How |
-|------|-----|
-| Helm | `helm` on PATH |
-| Linkerd | `policy.linkerd.io/Server` CRD |
-| Prometheus / Grafana / OTel | configured URLs |
-| Gateway API | `gateway.networking.k8s.io/Gateway` CRD |
-| cert-manager | `cert-manager.io/Certificate` CRD |
-| GitOps | Flux Kustomization and/or Argo CD Application CRDs |
-| Istio / KEDA / Tekton / Crossplane / Argo Workflows | existing detectors |
-
-## Downstream use
-
-- **`kprompt doctor`** shows a “Cluster tool profile” row (skip until first learn).
-- Later **intent extraction** injects a short stack bias (prefer Gateway over Ingress
-  when Gateway API is available, GitOps for sync/health, Helm for charts, Prometheus
-  for latency) — never invents APIs that were not detected.
-
-## Honest limits
-
-- Profile is evidence of CRDs / PATH / config URLs, not proof the controllers are
-  healthy or that operators use them.
-- Architecture narrative (`explain architecture`, S-012) — [architecture.md](./architecture.md).
-- Re-run `kprompt learn` after installing controllers.
+- Silent fleet heal
+- Treating Learn weight as approval to skip Safety / RemediationPolicy

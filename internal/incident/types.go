@@ -100,6 +100,11 @@ type Incident struct {
 	Severity        string  `json:"severity,omitempty"`
 	NotifierThread  string  `json:"notifierThread,omitempty"` // e.g. Slack thread ts
 	HealthScoreHint *int    `json:"healthScoreHint,omitempty"`
+
+	// RT-001: last Autopilot/CLI remediation outcome stamped after apply+verify.
+	LastApplyOutcome string `json:"lastApplyOutcome,omitempty"` // apply_success | apply_failed | apply_partial
+	LastVerifyStatus string `json:"lastVerifyStatus,omitempty"` // ok | pending | failed | skipped
+	LastActionID     string `json:"lastActionId,omitempty"`
 }
 
 // AgentAlert is the outbound notify artifact (Slack / webhook JSON body).
@@ -119,6 +124,12 @@ type AgentAlert struct {
 	Affected       []ResourceRef `json:"affected,omitempty"`
 	Evidence       []EvidenceRef `json:"evidence,omitempty"`
 	CreatedAt      time.Time     `json:"createdAt"`
+
+	// RT-017 · RT-018: optional AutopilotProposal bridge (propose path; never silent apply).
+	ProposalID     string `json:"proposalId,omitempty"`
+	ProposalAction string `json:"proposalAction,omitempty"`
+	ProposalRisk   string `json:"proposalRisk,omitempty"`
+	ProposalHint   string `json:"proposalHint,omitempty"` // CLI apply instructions
 }
 
 // Investigation is the CLI-facing intelligence document for investigate / why / timeline / impact.

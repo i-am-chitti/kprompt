@@ -119,3 +119,56 @@ func TestFromOptimizeNilClient(t *testing.T) {
 		t.Fatalf("out=%v err=%v", out, err)
 	}
 }
+
+func TestFromOptimizeIdleWorkloads(t *testing.T) {
+	pct := 0.05
+	suggestions, err := FromOptimize(context.Background(), fake.NewSimpleClientset(), optimize.Report{
+		Idle: []optimize.IdleWorkload{
+			{
+				Kind:               optimize.WorkloadDeployment,
+				Namespace:          "prod",
+				Name:               "idle-app",
+				Idle:               true,
+				CPUOfRequestPct:    &pct,
+				MemoryOfRequestPct: &pct,
+				Message:            "workload is idle",
+				CostNote:           "estimate $5/mo",
+			},
+			{
+				Kind:      optimize.WorkloadDeployment,
+				Namespace: "prod",
+				Name:      "active-app",
+				Idle:      false,
+			},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var idleSug *Suggestion
+	for i := range suggestions {
+		if suggestions[i].Code == "optimize.idle" {
+			idleSug = &suggestions[i]
+		}
+	}
+	if idleSug == nil {
+		t.Fatal("missing idle workload suggestion")
+	}
+	if idleSug.Plan != nil {
+		t.Fatal("idle workload suggestion must be guidance-only (no auto-plan)")
+	}
+	if !strings.Contains(idleSug.Title, "idle-app") {
+		t.Fatalf("unexpected title: %q", idleSug.Title)
+	}
+	if !strings.Contains(idleSug.Summary, "workload is idle") || !strings.Contains(idleSug.Summary, "estimate $5/mo") {
+		t.Fatalf("unexpected summary: %q", idleSug.Summary)
+	}
+
+	// Verify active app was not flagged
+	for i := range suggestions {
+		if strings.Contains(suggestions[i].Title, "active-app") {
+			t.Fatal("active app should not be flagged as idle")
+		}
+	}
+}

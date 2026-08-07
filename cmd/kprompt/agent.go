@@ -59,6 +59,7 @@ func newAgentCmd() *cobra.Command {
 	cmd.AddCommand(newAgentAutopilotCmd())
 	cmd.AddCommand(newAgentMemoryCmd())
 	cmd.AddCommand(newAgentPatternsCmd())
+	cmd.AddCommand(newAgentProposalsCmd())
 	cmd.AddCommand(newAgentGraphCmd())
 	return cmd
 }
@@ -232,11 +233,14 @@ func newAgentAutopilotCmd() *cobra.Command {
 
 func newAgentAutopilotApplyCmd() *cobra.Command {
 	var (
-		file       string
-		policyFile string
-		kubeCtx    string
-		inCluster  bool
-		approve    bool
+		file            string
+		policyFile      string
+		kubeCtx         string
+		inCluster       bool
+		approve         bool
+		patternsOn      bool
+		patternsBackend string
+		patternsDir     string
 	)
 	cmd := &cobra.Command{
 		Use:   "apply-proposal",
@@ -244,8 +248,12 @@ func newAgentAutopilotApplyCmd() *cobra.Command {
 		Long: `Load a saved AutopilotProposal, re-check RemediationPolicy + Safety, and mutate only when:
   --approve is set AND policy mode=policyAuto AND policy.apply=true.
 
+After apply, runs post-apply verify (T-070) and optionally writes Learn outcomes
+to the patterns store (--patterns) — RT-001.
+
 Propose-only policies always deny. Never invents allowlist entries.`,
-		Example: `  kprompt agent autopilot apply-proposal --file proposal.json --approve --policy ./policy-auto.json`,
+		Example: `  kprompt agent autopilot apply-proposal --file proposal.json --approve --policy ./policy-auto.json
+  kprompt agent autopilot apply-proposal --file proposal.json --approve --policy ./policy-auto.json --patterns`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if !approve {
 				return fmt.Errorf("refusing apply without --approve")
@@ -280,7 +288,29 @@ Propose-only policies always deny. Never invents allowlist entries.`,
 				Policy: pol,
 				Audit:  autopilot.FileAudit{Dir: autopilot.DefaultAuditDir()},
 			}
+			var lib *patterns.Library
+			if patternsOn {
+				pstore, perr := openPatternsStore(patternsBackend, patternsDir, prop.Namespace, inCluster, clients)
+				if perr != nil {
+					return perr
+				}
+				lib = patterns.New(pstore)
+			}
+			agentCtx := autopilot.ContextFromProposal(prop)
 			out, err := eng.ApplyProposal(cmd.Context(), clients.Clientset, prop)
+			if out != nil && err != nil {
+				out.Outcome = string(patterns.OutcomeApplyFailed)
+				if _, lerr := autopilot.WriteLearnOutcomeAction(lib, agentCtx, patterns.OutcomeApplyFailed, out.ActionID); lerr != nil {
+					fmt.Fprintf(cmd.ErrOrStderr(), "autopilot learn: %v\n", lerr)
+				}
+			} else if out != nil {
+				rep := autopilot.AttachVerify(cmd.Context(), clients.Clientset, out)
+				if o, ok := patterns.OutcomeFromVerify(rep.Status); ok {
+					if _, lerr := autopilot.WriteLearnOutcomeAction(lib, agentCtx, o, out.ActionID); lerr != nil {
+						fmt.Fprintf(cmd.ErrOrStderr(), "autopilot learn: %v\n", lerr)
+					}
+				}
+			}
 			if out != nil {
 				enc := json.NewEncoder(cmd.OutOrStdout())
 				enc.SetIndent("", "  ")
@@ -294,6 +324,9 @@ Propose-only policies always deny. Never invents allowlist entries.`,
 	cmd.Flags().StringVar(&kubeCtx, "context", "", "kubeconfig context")
 	cmd.Flags().BoolVar(&inCluster, "in-cluster", false, "use InClusterConfig")
 	cmd.Flags().BoolVar(&approve, "approve", false, "required explicit approval to mutate")
+	cmd.Flags().BoolVar(&patternsOn, "patterns", false, "write apply/verify outcomes to the patterns store (RT-001)")
+	cmd.Flags().StringVar(&patternsBackend, "patterns-backend", "file", "file|configmap")
+	cmd.Flags().StringVar(&patternsDir, "patterns-dir", "", "file backend directory")
 	_ = cmd.MarkFlagRequired("file")
 	return cmd
 }
@@ -638,6 +671,9 @@ func newAgentRunCmd() *cobra.Command {
 		autopilotDir     string
 		autopilotPolicy  string
 		autopilotApply   bool
+		useProposals     bool
+		proposalsBackend string
+		proposalsDir     string
 		incidentsBackend string // file | configmap | "" (off)
 		incidentsDir     string
 		slackAsk         bool
@@ -671,6 +707,8 @@ Pipeline flags (read-only — never mutate workload objects):
   --autopilot-propose  emit PlanResult-shaped AutopilotProposal (propose-only by default)
   --autopilot-policy   RemediationPolicy JSON file; else ConfigMap / defaults
   --autopilot-apply    with policyAuto+apply=true, apply approved proposals in-loop (off by default)
+  --proposals          durable AutopilotProposal store (default on with --autopilot-propose)
+  --proposals-backend  file|configmap (default file; ConfigMap kprompt-autopilot-proposals)
   --slack-ask          listen for Slack Events ask (status/why/what broke/false positive) — read-only
   --coordinator-url    POST CoordinatorHandoff when cross-ns suspicion (opt-in)
   --gitops-evidence    attach Argo/Flux sync + deploy history as EvidenceRefs (opt-in)
@@ -766,6 +804,7 @@ KpromptAgent status sync:
 			var nsMemory *memory.Memory
 			var memoryFacts []memory.Fact
 			var apEngine *autopilot.Engine
+			var propLib *autopilot.ProposalLibrary
 			var handoffClient handoff.Client
 			threads := map[string]string{}
 
@@ -790,6 +829,16 @@ KpromptAgent status sync:
 				if snap, lerr := nsMemory.List(ns); lerr == nil {
 					memoryFacts = snap.Facts
 				}
+			}
+			if autopilotProp || useProposals {
+				useProposals = true // RT-007: durable store whenever proposing
+			}
+			if useProposals {
+				pstore, perr := openProposalsStore(proposalsBackend, proposalsDir, ns, inCluster, clients)
+				if perr != nil {
+					return fmt.Errorf("proposals store: %w", perr)
+				}
+				propLib = autopilot.NewProposalLibrary(pstore)
 			}
 			if autopilotProp {
 				dir := strings.TrimSpace(autopilotDir)
@@ -894,6 +943,9 @@ KpromptAgent status sync:
 						return perr
 					}
 					analyzer.Patterns = patterns.New(pstore)
+					if apEngine != nil {
+						apEngine.Patterns = analyzer.Patterns // RT-002 ranking bias
+					}
 				}
 			}
 			if notifyDiscord {
@@ -971,6 +1023,32 @@ KpromptAgent status sync:
 						if outcome.Skipped {
 							return
 						}
+						// RT-017: Incident → durable PlanResult before notify so alerts carry proposal id (RT-018).
+						var prop *autopilot.Proposal
+						if apEngine != nil {
+							agentCtx.Incident.Confidence = outcome.Alert.Confidence
+							agentCtx.Incident.RootCause = outcome.Alert.RootCause
+							agentCtx.Incident.Summary = outcome.Alert.Summary
+							p, perr := apEngine.ProposeFromContext(agentCtx, outcome.Alert.Confidence)
+							if perr != nil {
+								fmt.Fprintf(cmd.ErrOrStderr(), "autopilot propose error: %v\n", perr)
+							} else if p != nil {
+								prop = p
+								if propLib != nil && prop.IncidentID != "" {
+									if prev, ok := propLib.FindOpen(ns, prop.IncidentID, prop.ActionID); ok {
+										prop.ID = prev.ID // stable id across updates
+									}
+								}
+								autopilot.AttachProposalToAlert(&outcome.Alert, prop)
+								if propLib != nil {
+									if perr := propLib.Put(*prop); perr != nil {
+										fmt.Fprintf(cmd.ErrOrStderr(), "proposals store: %v\n", perr)
+									} else if !emitJSON {
+										fmt.Fprintf(out, "proposal stored id=%s (agent proposals show -n %s --id %s)\n", prop.ID, ns, prop.ID)
+									}
+								}
+							}
+						}
 						if slackClient != nil && outcome.PassedGate {
 							thread := threads[outcome.Alert.IncidentID]
 							if thread == "" && builder != nil {
@@ -1006,30 +1084,47 @@ KpromptAgent status sync:
 								fmt.Fprintf(cmd.ErrOrStderr(), "kpromptagent status alert: %v\n", err)
 							}
 						}
-						if apEngine != nil && !outcome.Skipped {
-							agentCtx.Incident.Confidence = outcome.Alert.Confidence
-							agentCtx.Incident.RootCause = outcome.Alert.RootCause
-							agentCtx.Incident.Summary = outcome.Alert.Summary
-							prop, perr := apEngine.ProposeFromContext(agentCtx, outcome.Alert.Confidence)
-							if perr != nil {
-								fmt.Fprintf(cmd.ErrOrStderr(), "autopilot propose error: %v\n", perr)
-							} else if prop != nil {
-								if autopilotApply && apEngine.Policy.PolicyAuto() &&
-									(prop.Decision == autopilot.DecisionProposed || prop.Decision == autopilot.DecisionApproved) {
-									applied, aerr := apEngine.ApplyProposal(cmd.Context(), clients.Clientset, *prop)
-									if aerr != nil {
-										fmt.Fprintf(cmd.ErrOrStderr(), "autopilot apply error: %v\n", aerr)
-									}
+						if prop != nil {
+							if autopilotApply && apEngine != nil && apEngine.Policy.PolicyAuto() &&
+								(prop.Decision == autopilot.DecisionProposed || prop.Decision == autopilot.DecisionApproved) {
+								applied, aerr := apEngine.ApplyProposal(cmd.Context(), clients.Clientset, *prop)
+								if aerr != nil {
+									fmt.Fprintf(cmd.ErrOrStderr(), "autopilot apply error: %v\n", aerr)
 									if applied != nil {
 										prop = applied
 									}
+									if analyzer != nil && analyzer.Patterns != nil {
+										prop.Outcome = string(patterns.OutcomeApplyFailed)
+										if _, lerr := autopilot.WriteLearnOutcomeAction(analyzer.Patterns, agentCtx, patterns.OutcomeApplyFailed, prop.ActionID); lerr != nil {
+											fmt.Fprintf(cmd.ErrOrStderr(), "autopilot learn: %v\n", lerr)
+										}
+										stampIncidentApplyOutcome(builder, &agentCtx, prop)
+									}
+								} else if applied != nil {
+									prop = applied
+									rep := autopilot.AttachVerify(cmd.Context(), clients.Clientset, prop)
+									if analyzer != nil && analyzer.Patterns != nil {
+										if o, ok := patterns.OutcomeFromVerify(rep.Status); ok {
+											if _, lerr := autopilot.WriteLearnOutcomeAction(analyzer.Patterns, agentCtx, o, prop.ActionID); lerr != nil {
+												fmt.Fprintf(cmd.ErrOrStderr(), "autopilot learn: %v\n", lerr)
+											}
+										}
+									}
+									stampIncidentApplyOutcome(builder, &agentCtx, prop)
+									if !emitJSON && prop.VerifyStatus != "" {
+										fmt.Fprintf(out, "autopilot verify=%s outcome=%s — %s\n",
+											prop.VerifyStatus, prop.Outcome, prop.VerifyMessage)
+									}
 								}
-								if emitJSON {
-									_ = json.NewEncoder(out).Encode(prop)
-								} else {
-									fmt.Fprintf(out, "autopilot %s action=%s target=%s/%s risk=%s applied=%v — %s\n",
-										prop.Decision, prop.ActionID, prop.TargetKind, prop.TargetName, prop.Risk, prop.Applied, prop.Reason)
+								if propLib != nil {
+									_ = propLib.Put(*prop)
 								}
+							}
+							if emitJSON {
+								_ = json.NewEncoder(out).Encode(prop)
+							} else {
+								fmt.Fprintf(out, "autopilot %s action=%s target=%s/%s risk=%s applied=%v — %s\n",
+									prop.Decision, prop.ActionID, prop.TargetKind, prop.TargetName, prop.Risk, prop.Applied, prop.Reason)
 							}
 						}
 						if handoffClient != nil && !outcome.Skipped {
@@ -1300,6 +1395,9 @@ KpromptAgent status sync:
 	cmd.Flags().StringVar(&autopilotDir, "autopilot-audit-dir", "", "autopilot audit directory (default ~/.config/kprompt/autopilot)")
 	cmd.Flags().StringVar(&autopilotPolicy, "autopilot-policy", "", "RemediationPolicy JSON file")
 	cmd.Flags().BoolVar(&autopilotApply, "autopilot-apply", false, "apply proposals when policy mode=policyAuto apply=true (off by default)")
+	cmd.Flags().BoolVar(&useProposals, "proposals", false, "durable AutopilotProposal store (also implied by --autopilot-propose)")
+	cmd.Flags().StringVar(&proposalsBackend, "proposals-backend", "file", "proposal store: file|configmap")
+	cmd.Flags().StringVar(&proposalsDir, "proposals-dir", "", "file backend directory (default ~/.config/kprompt/proposals)")
 	cmd.Flags().StringVar(&incidentsBackend, "incidents-backend", "", "persist incidents across restarts: file|configmap")
 	cmd.Flags().StringVar(&incidentsDir, "incidents-dir", "", "file backend directory (default ~/.config/kprompt/incidents)")
 	cmd.Flags().BoolVar(&slackAsk, "slack-ask", false, "Slack Events ask listener for status/why/what broke/false positive (read-only)")
@@ -1353,6 +1451,208 @@ func openIncidentsStore(backend, dir, ns string, inCluster bool, clients *cluste
 	default:
 		return nil, fmt.Errorf("incidents: unknown backend %q (want file|configmap)", backend)
 	}
+}
+
+func openProposalsStore(backend, dir, ns string, inCluster bool, clients *cluster.Clients) (autopilot.ProposalStore, error) {
+	b := strings.ToLower(strings.TrimSpace(backend))
+	if b == "" {
+		b = "file"
+	}
+	switch b {
+	case "configmap":
+		if clients == nil || clients.Clientset == nil {
+			return nil, fmt.Errorf("proposals: configmap backend requires kube")
+		}
+		return autopilot.ConfigMapProposalStore{Client: clients.Clientset, Namespace: ns}, nil
+	case "file":
+		if dir == "" {
+			dir = autopilot.DefaultProposalsDir()
+		}
+		return autopilot.FileProposalStore{Dir: dir}, nil
+	default:
+		return nil, fmt.Errorf("proposals: unknown backend %q (want file|configmap)", backend)
+	}
+}
+
+func newAgentProposalsCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "proposals",
+		Short: "Durable AutopilotProposal store (RT-007)",
+		Long:  "List/show/apply PlanResult-shaped proposals persisted by agent run --autopilot-propose. Apply still requires --approve + policyAuto.",
+	}
+	cmd.AddCommand(newAgentProposalsListCmd())
+	cmd.AddCommand(newAgentProposalsShowCmd())
+	cmd.AddCommand(newAgentProposalsApplyCmd())
+	return cmd
+}
+
+func newAgentProposalsListCmd() *cobra.Command {
+	var ns, backend, dir, kubeCtx string
+	var inCluster bool
+	cmd := &cobra.Command{
+		Use:   "list",
+		Short: "List stored AutopilotProposals for a namespace",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			ns = strings.TrimSpace(ns)
+			if ns == "" {
+				return fmt.Errorf("--namespace is required")
+			}
+			clients, err := connectOptional(kubeCtx, inCluster, backend == "configmap")
+			if err != nil {
+				return err
+			}
+			store, err := openProposalsStore(backend, dir, ns, inCluster, clients)
+			if err != nil {
+				return err
+			}
+			snap, err := autopilot.NewProposalLibrary(store).List(ns)
+			if err != nil {
+				return err
+			}
+			if len(snap.Proposals) == 0 {
+				fmt.Fprintf(cmd.OutOrStdout(), "no proposals in namespace %q\n", ns)
+				return nil
+			}
+			for _, p := range snap.Proposals {
+				fmt.Fprintf(cmd.OutOrStdout(), "%s  %s  %s/%s  decision=%s applied=%v conf=%.2f\n",
+					p.ID, p.ActionID, p.TargetKind, p.TargetName, p.Decision, p.Applied, p.Confidence)
+			}
+			return nil
+		},
+	}
+	cmd.Flags().StringVarP(&ns, "namespace", "n", "", "namespace (required)")
+	cmd.Flags().StringVar(&backend, "proposals-backend", "file", "file|configmap")
+	cmd.Flags().StringVar(&dir, "proposals-dir", "", "file backend directory")
+	cmd.Flags().StringVar(&kubeCtx, "context", "", "kubeconfig context")
+	cmd.Flags().BoolVar(&inCluster, "in-cluster", false, "use InClusterConfig")
+	_ = cmd.MarkFlagRequired("namespace")
+	return cmd
+}
+
+func newAgentProposalsShowCmd() *cobra.Command {
+	var ns, id, backend, dir, kubeCtx string
+	var inCluster bool
+	cmd := &cobra.Command{
+		Use:   "show",
+		Short: "Show one stored AutopilotProposal as JSON",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			ns = strings.TrimSpace(ns)
+			id = strings.TrimSpace(id)
+			if ns == "" || id == "" {
+				return fmt.Errorf("--namespace and --id are required")
+			}
+			clients, err := connectOptional(kubeCtx, inCluster, backend == "configmap")
+			if err != nil {
+				return err
+			}
+			store, err := openProposalsStore(backend, dir, ns, inCluster, clients)
+			if err != nil {
+				return err
+			}
+			prop, err := autopilot.NewProposalLibrary(store).Get(ns, id)
+			if err != nil {
+				return err
+			}
+			enc := json.NewEncoder(cmd.OutOrStdout())
+			enc.SetIndent("", "  ")
+			return enc.Encode(prop)
+		},
+	}
+	cmd.Flags().StringVarP(&ns, "namespace", "n", "", "namespace (required)")
+	cmd.Flags().StringVar(&id, "id", "", "proposal id (required)")
+	cmd.Flags().StringVar(&backend, "proposals-backend", "file", "file|configmap")
+	cmd.Flags().StringVar(&dir, "proposals-dir", "", "file backend directory")
+	cmd.Flags().StringVar(&kubeCtx, "context", "", "kubeconfig context")
+	cmd.Flags().BoolVar(&inCluster, "in-cluster", false, "use InClusterConfig")
+	_ = cmd.MarkFlagRequired("namespace")
+	_ = cmd.MarkFlagRequired("id")
+	return cmd
+}
+
+func newAgentProposalsApplyCmd() *cobra.Command {
+	var (
+		ns, id, policyFile, backend, dir, kubeCtx string
+		inCluster, approve, patternsOn            bool
+		patternsBackend, patternsDir              string
+	)
+	cmd := &cobra.Command{
+		Use:   "apply",
+		Short: "Apply a stored AutopilotProposal by id (RT-007)",
+		Long:  "Loads proposal from the durable store, then applies under policyAuto + --approve. Same Learn/verify path as apply-proposal.",
+		Example: `  kprompt agent proposals apply -n payments --id ap-restartDeployment-123 --approve --policy ./policy-auto.json`,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if !approve {
+				return fmt.Errorf("refusing apply without --approve")
+			}
+			ns = strings.TrimSpace(ns)
+			id = strings.TrimSpace(id)
+			if ns == "" || id == "" {
+				return fmt.Errorf("--namespace and --id are required")
+			}
+			clients, err := connectOptional(kubeCtx, inCluster, true)
+			if err != nil {
+				return err
+			}
+			store, err := openProposalsStore(backend, dir, ns, inCluster, clients)
+			if err != nil {
+				return err
+			}
+			lib := autopilot.NewProposalLibrary(store)
+			prop, err := lib.Get(ns, id)
+			if err != nil {
+				return err
+			}
+			pol, src, err := autopilot.LoadPolicy(cmd.Context(), policyFile, prop.Namespace, clients.Clientset)
+			if err != nil {
+				return err
+			}
+			fmt.Fprintf(cmd.ErrOrStderr(), "remediation policy source=%s mode=%s apply=%v\n", src, pol.Mode, pol.Apply)
+			eng := &autopilot.Engine{
+				Policy: pol,
+				Audit:  autopilot.FileAudit{Dir: autopilot.DefaultAuditDir()},
+			}
+			var patLib *patterns.Library
+			if patternsOn {
+				pstore, perr := openPatternsStore(patternsBackend, patternsDir, prop.Namespace, inCluster, clients)
+				if perr != nil {
+					return perr
+				}
+				patLib = patterns.New(pstore)
+			}
+			agentCtx := autopilot.ContextFromProposal(prop)
+			out, err := eng.ApplyProposal(cmd.Context(), clients.Clientset, prop)
+			if out != nil && err != nil {
+				out.Outcome = string(patterns.OutcomeApplyFailed)
+				_, _ = autopilot.WriteLearnOutcomeAction(patLib, agentCtx, patterns.OutcomeApplyFailed, out.ActionID)
+			} else if out != nil {
+				rep := autopilot.AttachVerify(cmd.Context(), clients.Clientset, out)
+				if o, ok := patterns.OutcomeFromVerify(rep.Status); ok {
+					_, _ = autopilot.WriteLearnOutcomeAction(patLib, agentCtx, o, out.ActionID)
+				}
+			}
+			if out != nil {
+				_ = lib.Put(*out)
+				enc := json.NewEncoder(cmd.OutOrStdout())
+				enc.SetIndent("", "  ")
+				_ = enc.Encode(out)
+			}
+			return err
+		},
+	}
+	cmd.Flags().StringVarP(&ns, "namespace", "n", "", "namespace (required)")
+	cmd.Flags().StringVar(&id, "id", "", "proposal id (required)")
+	cmd.Flags().StringVar(&policyFile, "policy", "", "RemediationPolicy JSON")
+	cmd.Flags().StringVar(&backend, "proposals-backend", "file", "file|configmap")
+	cmd.Flags().StringVar(&dir, "proposals-dir", "", "file backend directory")
+	cmd.Flags().StringVar(&kubeCtx, "context", "", "kubeconfig context")
+	cmd.Flags().BoolVar(&inCluster, "in-cluster", false, "use InClusterConfig")
+	cmd.Flags().BoolVar(&approve, "approve", false, "required explicit approval to mutate")
+	cmd.Flags().BoolVar(&patternsOn, "patterns", false, "write Learn outcomes")
+	cmd.Flags().StringVar(&patternsBackend, "patterns-backend", "file", "file|configmap")
+	cmd.Flags().StringVar(&patternsDir, "patterns-dir", "", "file backend directory")
+	_ = cmd.MarkFlagRequired("namespace")
+	_ = cmd.MarkFlagRequired("id")
+	return cmd
 }
 
 func openPatternsStore(backend, dir, ns string, inCluster bool, clients *cluster.Clients) (patterns.Store, error) {
@@ -1634,6 +1934,26 @@ func newAgentMemoryDiscoverCmd() *cobra.Command {
 	cmd.Flags().BoolVar(&inCluster, "in-cluster", false, "use InClusterConfig")
 	_ = cmd.MarkFlagRequired("namespace")
 	return cmd
+}
+
+func stampIncidentApplyOutcome(builder *correlate.Builder, agentCtx *ctxbuild.AgentContext, prop *autopilot.Proposal) {
+	if builder == nil || agentCtx == nil || prop == nil {
+		return
+	}
+	inc := agentCtx.Incident
+	if prop.Outcome != "" {
+		inc.LastApplyOutcome = prop.Outcome
+	}
+	if prop.VerifyStatus != "" {
+		inc.LastVerifyStatus = prop.VerifyStatus
+	}
+	if prop.ActionID != "" {
+		inc.LastActionID = prop.ActionID
+	}
+	if _, ok := builder.SyncIncident(inc); ok {
+		_ = builder.Persist()
+	}
+	agentCtx.Incident = inc
 }
 
 func connectOptional(kubeCtx string, inCluster, needClient bool) (*cluster.Clients, error) {

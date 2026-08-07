@@ -314,7 +314,9 @@ Relevant facts are filtered into `AgentContext.memory` / `namespace_memory (evid
 
 Remembers incident signatures (reason + workload kind + bucket like crashloop/oom) under `~/.config/kprompt/patterns`. When a similar incident appears (≥2 priors), confidence is boosted and root cause is annotated with **Seen before (N×)** — still **Observe-only**; patterns never trigger apply/patch/delete.
 
-**Outcome learning (AG-033):** alert recovered → `Confirmed` weight up; Slack `false positive` → `FalsePositives` weight down (dampens future boost).
+**Outcome learning (AG-033 · RT-001 · RT-002):** alert recovered → `Confirmed` weight up; Slack `false positive` → `FalsePositives` weight down (dampens future boost). After Autopilot apply (`--autopilot-apply` or `agent autopilot apply-proposal` / `agent proposals apply`), post-apply verify maps to `apply_success` / `apply_failed` / `apply_partial` and writes the same pattern store (success ≈ confirm; fail dampens weight, not FP). Multi-candidate proposals rank by Learn history (`LastActionID` / weight). Incident fields `lastApplyOutcome` / `lastVerifyStatus` / `lastActionId` are stamped when the correlate builder is active. Full table: [learn.md](./learn.md).
+
+**Durable proposals (RT-007 · RT-017 · RT-018):** `--autopilot-propose` persists proposals before notify. Slack/Discord/webhook alerts include `proposalId` and an apply hint (`agent proposals apply -n <ns> --id <id> --approve`). Inspect via `kprompt agent proposals list|show`.
 
 ```bash
 kprompt agent run -n payments --analyze --heuristic --patterns
