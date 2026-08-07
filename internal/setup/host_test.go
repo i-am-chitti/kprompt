@@ -173,3 +173,38 @@ func TestHostNeeded(t *testing.T) {
 		t.Fatalf("%+v", got)
 	}
 }
+
+func TestHostSetupOnlyAllowsHardcodedURLs(t *testing.T) {
+	method := getHelm3Method()
+	if method.ID != "get-helm-3" {
+		t.Fatalf("unexpected method ID: %s", method.ID)
+	}
+	r := &fakeRunner{
+		goos:     "linux",
+		paths:    map[string]string{"curl": "/usr/bin/curl"},
+		lookMiss: map[string]bool{"helm": true},
+		tempDir:  t.TempDir(),
+	}
+	script, _, _, err := method.Prepare(context.Background(), r)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(script, "get-helm-3") {
+		t.Fatalf("unexpected script file path: %q", script)
+	}
+	if len(r.ran) != 1 {
+		t.Fatalf("expected 1 curl execution, got %v", r.ran)
+	}
+
+	curlCmd := r.ran[0]
+	// Check that it only requests the trusted official helm get script URL
+	trustedURL := "https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3"
+	if !strings.Contains(curlCmd, trustedURL) {
+		t.Fatalf("curl command did not contain the trusted get-helm-3 URL: %q", curlCmd)
+	}
+
+	// Double check that no other urls can leak into curl setup command
+	if strings.Contains(curlCmd, "http://") || (strings.Contains(curlCmd, "https://") && !strings.Contains(curlCmd, trustedURL)) {
+		t.Fatalf("untrusted URL leaked into curl setup command: %q", curlCmd)
+	}
+}
