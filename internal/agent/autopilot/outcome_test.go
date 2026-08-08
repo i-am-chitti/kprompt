@@ -1,6 +1,7 @@
 package autopilot
 
 import (
+	"context"
 	"strings"
 	"testing"
 
@@ -75,7 +76,7 @@ func TestAttachVerifyFailedClearsApplied(t *testing.T) {
 		Plan:       PlanBody{Summary: "rollback"},
 	}
 	// nil client → verify skipped (not failed). Use skipped path.
-	rep := AttachVerify(t.Context(), nil, prop)
+	rep := AttachVerify(context.Background(), nil, prop)
 	if rep.Status != verify.Skipped {
 		t.Fatalf("nil client should skip: %+v", rep)
 	}

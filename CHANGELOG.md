@@ -11,6 +11,11 @@ All notable changes to kprompt are documented here. Versions follow [GitHub Rele
 - **RT-002 proposal ranking bias** — multi-candidate Autopilot detect + Learn weight / `LastActionID` ranking; `learnNote` + `ActionConfidence` bias
 - **RT-007 durable proposals** — `agent proposals list|show|apply`; ConfigMap/file store; auto-enabled with `--autopilot-propose`
 - **RT-017/018 Incident→PlanResult bridge** — propose+store before notify; alerts carry `proposalId` + apply hint (`agent proposals apply --approve`)
+- **RT-005 Helm Autopilot path** — `charts/kprompt-agent` values `autopilotMode`, `autopilotAllow`, proposals ConfigMap + RemediationPolicy templates; RBAC for proposals store
+- **RT-006 post-apply verify gate** — `ApplyProposal` sets `applied=true` only after T-070 verify ok (or skipped)
+- **RT-008 Slack approve bridge** — `--slack-ask` `approve [proposal-id]` applies durable proposals under policyAuto (ADR-0015)
+- **RT-013…016 Topology KG** — ExternalName/env `depends_on`, ready EndpointSlice routes, NetworkPolicy peer `allows`, Autopilot `expectedImpact` graph notes ([docs/graph.md](./docs/graph.md))
+- **RT-009…012 Continuous Coordinator** — opt-in `--tick-interval` proactive correlation; blast-radius `status=degraded` without `--mesh-otel`; `--max-hops` + audit ([docs/coordinator-knowledge.md](./docs/coordinator-knowledge.md))
 
 ## [v0.9.0](https://github.com/kprompt/kprompt/releases/tag/v0.9.0) — 2026-08-04
 

@@ -37,6 +37,19 @@ spec:
             - --knowledge-namespace
             - {{ .Release.Namespace | quote }}
             {{- end }}
+            {{- if and .Values.continuous .Values.continuous.tickInterval }}
+            - --tick-interval
+            - {{ .Values.continuous.tickInterval | quote }}
+            - --tick-budget
+            - {{ .Values.continuous.tickBudget | default 5 | quote }}
+            {{- end }}
+            {{- if and .Values.continuous .Values.continuous.maxHops }}
+            - --max-hops
+            - {{ .Values.continuous.maxHops | quote }}
+            {{- end }}
+            {{- if and .Values.continuous .Values.continuous.meshOTel }}
+            - --mesh-otel
+            {{- end }}
           env:
             - name: POD_NAMESPACE
               valueFrom:

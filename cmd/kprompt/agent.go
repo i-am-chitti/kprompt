@@ -303,9 +303,12 @@ Propose-only policies always deny. Never invents allowlist entries.`,
 				if _, lerr := autopilot.WriteLearnOutcomeAction(lib, agentCtx, patterns.OutcomeApplyFailed, out.ActionID); lerr != nil {
 					fmt.Fprintf(cmd.ErrOrStderr(), "autopilot learn: %v\n", lerr)
 				}
+			} else if out != nil && out.Outcome != "" {
+				if _, lerr := autopilot.WriteLearnOutcomeAction(lib, agentCtx, patterns.Outcome(out.Outcome), out.ActionID); lerr != nil {
+					fmt.Fprintf(cmd.ErrOrStderr(), "autopilot learn: %v\n", lerr)
+				}
 			} else if out != nil {
-				rep := autopilot.AttachVerify(cmd.Context(), clients.Clientset, out)
-				if o, ok := patterns.OutcomeFromVerify(rep.Status); ok {
+				if o, ok := patterns.OutcomeFromVerify(out.VerifyStatus); ok {
 					if _, lerr := autopilot.WriteLearnOutcomeAction(lib, agentCtx, o, out.ActionID); lerr != nil {
 						fmt.Fprintf(cmd.ErrOrStderr(), "autopilot learn: %v\n", lerr)
 					}
@@ -340,6 +343,10 @@ func newAgentCoordinatorCmd() *cobra.Command {
 		knowledgeBackend   string // "" | file | configmap
 		knowledgeDir       string
 		knowledgeNamespace string
+		tickInterval       time.Duration
+		tickBudget         int
+		maxHops            int
+		meshOTel           bool
 	)
 	cmd := &cobra.Command{
 		Use:   "coordinator",
@@ -351,9 +358,10 @@ Never applies/patches/deletes workloads. Optional --probe-kube enables a
 read-only Events/Pods probe of suspectNamespace. Default probe is a no-op.
 
 Shared Knowledge: GET /v1/knowledge summarizes handoff edges.
-Blast-radius MVP: GET /v1/blast-radius turns those edges into risk-ranked hops
-(not a continuous mesh/OTel product graph). Optional --knowledge-backend file|configmap
-persists the recent ring across restarts.
+Blast-radius MVP: GET /v1/blast-radius turns those edges into risk-ranked hops.
+Optional --tick-interval enables proactive correlation without waiting for a new
+handoff (RT-009) — continuous ≠ silent heal. Mesh/OTel enrichment is opt-in
+(--mesh-otel); otherwise blast-radius status=degraded (RT-010).
 
 Endpoints:
   GET  /healthz
@@ -364,7 +372,7 @@ Endpoints:
 
 Pair with: kprompt agent run … --coordinator-url http://<addr>/v1/handoff`,
 		Example: `  kprompt agent coordinator --addr :9090
-  kprompt agent coordinator --addr :9090 --probe-kube
+  kprompt agent coordinator --addr :9090 --probe-kube --tick-interval 5m
   kprompt agent coordinator --addr :9090 --knowledge-backend configmap --in-cluster --knowledge-namespace kprompt-system
   kprompt agent coordinator knowledge --url http://127.0.0.1:9090
   kprompt agent coordinator blast-radius --url http://127.0.0.1:9090 -n payments`,
@@ -372,6 +380,10 @@ Pair with: kprompt agent run … --coordinator-url http://<addr>/v1/handoff`,
 			runCtx, stop := signal.NotifyContext(cmd.Context(), os.Interrupt, syscall.SIGTERM)
 			defer stop()
 			svc := coordinator.New()
+			if maxHops > 0 {
+				svc.MaxHops = maxHops
+			}
+			svc.MeshConfigured = meshOTel
 			backend := strings.ToLower(strings.TrimSpace(knowledgeBackend))
 			needKube := probeKube || backend == "configmap"
 			var clients *cluster.Clients
@@ -435,8 +447,13 @@ Pair with: kprompt agent run … --coordinator-url http://<addr>/v1/handoff`,
 			if listen == "" {
 				listen = ":9090"
 			}
+			tickCfg := coordinator.TickConfig{
+				Interval: tickInterval,
+				Budget:   tickBudget,
+				MaxHops:  maxHops,
+			}
 			fmt.Fprintf(cmd.ErrOrStderr(), "kprompt agent coordinator listening on %s (mutate=off)…\n", listen)
-			err := coordinator.ListenAndServe(runCtx, listen, h)
+			err := coordinator.ListenAndServe(runCtx, listen, h, tickCfg)
 			if err == context.Canceled || err == context.DeadlineExceeded {
 				return nil
 			}
@@ -450,6 +467,10 @@ Pair with: kprompt agent run … --coordinator-url http://<addr>/v1/handoff`,
 	cmd.Flags().StringVar(&knowledgeBackend, "knowledge-backend", "", "persist Shared Knowledge: file|configmap")
 	cmd.Flags().StringVar(&knowledgeDir, "knowledge-dir", "", "file backend directory (default ~/.config/kprompt/coordinator)")
 	cmd.Flags().StringVar(&knowledgeNamespace, "knowledge-namespace", "", "ConfigMap namespace (default POD_NAMESPACE)")
+	cmd.Flags().DurationVar(&tickInterval, "tick-interval", 0, "proactive correlation interval (0=off; RT-009)")
+	cmd.Flags().IntVar(&tickBudget, "tick-budget", coordinator.DefaultTickBudget, "max edges re-probed per tick")
+	cmd.Flags().IntVar(&maxHops, "max-hops", coordinator.DefaultMaxHops, "blast-radius cascade hop cap (RT-011)")
+	cmd.Flags().BoolVar(&meshOTel, "mesh-otel", false, "mark blast-radius mesh/OTel enrichment available (else status=degraded; RT-010)")
 	cmd.AddCommand(newAgentCoordinatorKnowledgeCmd())
 	cmd.AddCommand(newAgentCoordinatorBlastRadiusCmd())
 	cmd.AddCommand(newAgentCoordinatorRecentCmd())
@@ -857,6 +878,18 @@ KpromptAgent status sync:
 					Policy: pol,
 					Audit:  autopilot.FileAudit{Dir: dir},
 				}
+				if g, gerr := graph.Build(cmd.Context(), clients.Clientset, graph.Request{
+					Namespace:            ns,
+					IncludeNetworkPolicy: true,
+					IncludeIngress:       true,
+					IncludePVC:           true,
+					IncludeVolumeRefs:    true,
+					IncludeExternalDeps:  true,
+				}); gerr == nil {
+					apEngine.Graph = &g
+				} else {
+					fmt.Fprintf(cmd.ErrOrStderr(), "autopilot graph snapshot: %v\n", gerr)
+				}
 			}
 			crCfg := crdstatus.FromEnv()
 			if n := strings.TrimSpace(agentCR); n != "" {
@@ -1102,15 +1135,18 @@ KpromptAgent status sync:
 									}
 								} else if applied != nil {
 									prop = applied
-									rep := autopilot.AttachVerify(cmd.Context(), clients.Clientset, prop)
 									if analyzer != nil && analyzer.Patterns != nil {
-										if o, ok := patterns.OutcomeFromVerify(rep.Status); ok {
+										if prop.Outcome != "" {
+											if _, lerr := autopilot.WriteLearnOutcomeAction(analyzer.Patterns, agentCtx, patterns.Outcome(prop.Outcome), prop.ActionID); lerr != nil {
+												fmt.Fprintf(cmd.ErrOrStderr(), "autopilot learn: %v\n", lerr)
+											}
+										} else if o, ok := patterns.OutcomeFromVerify(prop.VerifyStatus); ok {
 											if _, lerr := autopilot.WriteLearnOutcomeAction(analyzer.Patterns, agentCtx, o, prop.ActionID); lerr != nil {
 												fmt.Fprintf(cmd.ErrOrStderr(), "autopilot learn: %v\n", lerr)
 											}
 										}
+										stampIncidentApplyOutcome(builder, &agentCtx, prop)
 									}
-									stampIncidentApplyOutcome(builder, &agentCtx, prop)
 									if !emitJSON && prop.VerifyStatus != "" {
 										fmt.Fprintf(out, "autopilot verify=%s outcome=%s — %s\n",
 											prop.VerifyStatus, prop.Outcome, prop.VerifyMessage)
@@ -1321,6 +1357,63 @@ KpromptAgent status sync:
 						agentCtx := ctxBuilder.Build(ctx, inc, ctxbuild.Options{Memory: currentMemoryFacts()})
 						_, err := analyzer.Patterns.RecordOutcome(ns, agentCtx, patterns.OutcomeFalsePositive)
 						return err
+					}
+				}
+				if propLib != nil && apEngine != nil {
+					askHandler.ApproveProposal = func(ctx context.Context, proposalID string) string {
+						id := strings.TrimSpace(proposalID)
+						if id == "" {
+							snap, lerr := propLib.List(ns)
+							if lerr != nil {
+								return "Could not list proposals: " + lerr.Error()
+							}
+							for _, p := range snap.Proposals {
+								if p.Applied || p.Decision == autopilot.DecisionDenied || p.Decision == autopilot.DecisionFailed {
+									continue
+								}
+								id = p.ID
+								break
+							}
+							if id == "" {
+								return "No open proposal — reply `approve <proposal-id>` (see alert proposalId)."
+							}
+						}
+						prop, err := propLib.Get(ns, id)
+						if err != nil {
+							return "Could not load proposal " + id + ": " + err.Error()
+						}
+						if !apEngine.Policy.PolicyAuto() {
+							return "RemediationPolicy is not policyAuto+apply — Slack approve refused (ADR-0015)."
+						}
+						agentCtx := autopilot.ContextFromProposal(prop)
+						out, aerr := apEngine.ApplyProposal(ctx, clients.Clientset, prop)
+						if out != nil {
+							_ = propLib.Put(*out)
+						}
+						if aerr != nil {
+							if out != nil && analyzer != nil && analyzer.Patterns != nil {
+								out.Outcome = string(patterns.OutcomeApplyFailed)
+								_, _ = autopilot.WriteLearnOutcomeAction(analyzer.Patterns, agentCtx, patterns.OutcomeApplyFailed, out.ActionID)
+								stampIncidentApplyOutcome(builder, &agentCtx, out)
+							}
+							if out != nil {
+								return fmt.Sprintf("Approve failed for %s: %s (applied=%v verify=%s)", id, aerr.Error(), out.Applied, out.VerifyStatus)
+							}
+							return "Approve failed for " + id + ": " + aerr.Error()
+						}
+						if out != nil && analyzer != nil && analyzer.Patterns != nil {
+							if out.Outcome != "" {
+								_, _ = autopilot.WriteLearnOutcomeAction(analyzer.Patterns, agentCtx, patterns.Outcome(out.Outcome), out.ActionID)
+							} else if o, ok := patterns.OutcomeFromVerify(out.VerifyStatus); ok {
+								_, _ = autopilot.WriteLearnOutcomeAction(analyzer.Patterns, agentCtx, o, out.ActionID)
+							}
+							stampIncidentApplyOutcome(builder, &agentCtx, out)
+						}
+						if out == nil {
+							return "Approve returned no result for " + id
+						}
+						return fmt.Sprintf("Approved %s action=%s applied=%v verify=%s — %s",
+							id, out.ActionID, out.Applied, out.VerifyStatus, out.Reason)
 					}
 				}
 				addr := strings.TrimSpace(slackAskAddr)
@@ -1624,9 +1717,10 @@ func newAgentProposalsApplyCmd() *cobra.Command {
 			if out != nil && err != nil {
 				out.Outcome = string(patterns.OutcomeApplyFailed)
 				_, _ = autopilot.WriteLearnOutcomeAction(patLib, agentCtx, patterns.OutcomeApplyFailed, out.ActionID)
+			} else if out != nil && out.Outcome != "" {
+				_, _ = autopilot.WriteLearnOutcomeAction(patLib, agentCtx, patterns.Outcome(out.Outcome), out.ActionID)
 			} else if out != nil {
-				rep := autopilot.AttachVerify(cmd.Context(), clients.Clientset, out)
-				if o, ok := patterns.OutcomeFromVerify(rep.Status); ok {
+				if o, ok := patterns.OutcomeFromVerify(out.VerifyStatus); ok {
 					_, _ = autopilot.WriteLearnOutcomeAction(patLib, agentCtx, o, out.ActionID)
 				}
 			}
@@ -1694,16 +1788,17 @@ func newAgentGraphCmd() *cobra.Command {
 		includeIngress bool
 		includePVC     bool
 		includeRefs    bool
+		includeExt     bool
 		output         string
 	)
 	cmd := &cobra.Command{
 		Use:   "graph",
 		Short: "Dump Knowledge Graph service dependency graph (read-only)",
 		Long: `Build a read-only service-graph for one namespace (Services, EndpointSlices,
-Ingress→Service, Pod→PVC, Pod→Secret/ConfigMap name-only refs, optional NetworkPolicies).
+Ingress→Service, Pod→PVC, Pod→Secret/ConfigMap name-only refs, ExternalName/env
+depends_on hosts, optional NetworkPolicies + peer allows).
 
-Does not mutate the cluster. Never reads Secret.data. External APIs / topology UI
-remain out of scope — see docs/graph.md.`,
+Does not mutate the cluster. Never reads Secret.data. See docs/graph.md.`,
 		Example: `  kprompt agent graph -n payments
   kprompt agent graph -n payments --output json`,
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -1727,6 +1822,7 @@ remain out of scope — see docs/graph.md.`,
 				IncludeIngress:       includeIngress,
 				IncludePVC:           includePVC,
 				IncludeVolumeRefs:    includeRefs,
+				IncludeExternalDeps:  includeExt,
 			})
 			if err != nil {
 				return err
@@ -1747,10 +1843,11 @@ remain out of scope — see docs/graph.md.`,
 	cmd.Flags().StringVarP(&ns, "namespace", "n", "", "namespace to graph (required)")
 	cmd.Flags().StringVar(&kubeCtx, "context", "", "kubeconfig context")
 	cmd.Flags().BoolVar(&inCluster, "in-cluster", false, "use in-cluster config")
-	cmd.Flags().BoolVar(&includeNP, "network-policy", true, "include NetworkPolicy selects edges")
+	cmd.Flags().BoolVar(&includeNP, "network-policy", true, "include NetworkPolicy selects + peer allows edges")
 	cmd.Flags().BoolVar(&includeIngress, "ingress", true, "include Ingress→Service exposes edges")
 	cmd.Flags().BoolVar(&includePVC, "pvc", true, "include Pod→PVC mounts edges")
 	cmd.Flags().BoolVar(&includeRefs, "volume-refs", true, "include Pod→Secret/ConfigMap name-only refs")
+	cmd.Flags().BoolVar(&includeExt, "external-deps", true, "include ExternalName + env hostname depends_on edges (RT-013)")
 	cmd.Flags().StringVarP(&output, "output", "o", "text", "text|json")
 	_ = cmd.MarkFlagRequired("namespace")
 	return cmd

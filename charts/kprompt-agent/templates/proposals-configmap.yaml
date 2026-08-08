@@ -1,0 +1,19 @@
+{{- if and .Values.agent.autopilotPropose (eq (.Values.agent.proposalsBackend | default "configmap") "configmap") -}}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: kprompt-autopilot-proposals
+  namespace: {{ include "kprompt-agent.watchNamespace" . }}
+  labels:
+    {{- include "kprompt-agent.labels" . | nindent 4 }}
+    app.kubernetes.io/component: autopilot-proposals
+data:
+  proposals.json: |
+    {
+      "apiVersion": "kprompt.io/v1",
+      "kind": "AutopilotProposalList",
+      "schemaVersion": "1",
+      "namespace": {{ include "kprompt-agent.watchNamespace" . | quote }},
+      "proposals": []
+    }
+{{- end }}

@@ -1,4 +1,5 @@
-{{- if .Values.agent.remediationPolicy -}}
+{{- if include "kprompt-agent.remediationPolicyEnabled" . -}}
+{{- $policyAuto := eq (include "kprompt-agent.autopilotPolicyAuto" . | trim) "true" -}}
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -13,14 +14,9 @@ data:
       "apiVersion": "kprompt.io/v1",
       "kind": "RemediationPolicy",
       "schemaVersion": "1",
-      "allow": [
-        "rollbackFailedRollout",
-        "restartDeployment",
-        "scaleDeployment",
-        "evictPod"
-      ],
-      "mode": "proposeOnly",
-      "apply": false,
-      "minConfidence": 0.85
+      "allow": {{ .Values.agent.autopilotAllow | default (list "rollbackFailedRollout") | toJson }},
+      "mode": {{ if $policyAuto }}"policyAuto"{{ else }}"proposeOnly"{{ end }},
+      "apply": {{ $policyAuto }},
+      "minConfidence": {{ .Values.agent.autopilotMinConfidence | default "0.85" }}
     }
 {{- end }}

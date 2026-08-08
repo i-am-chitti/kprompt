@@ -1,6 +1,6 @@
 // Package ask implements read-only Slack Q&A for the Observe agent (AG-019).
 //
-// Supported intents: status | why | what broke. Never mutates the cluster.
+// Supported intents: status | why | what broke | false positive | approve. Approve mutates only via configured callback (RT-008).
 package ask
 
 import (
@@ -22,6 +22,7 @@ const (
 	IntentWhy       Intent = "why"
 	IntentWhatBroke Intent = "what_broke"
 	IntentFalsePos  Intent = "false_positive"
+	IntentApprove   Intent = "approve"
 	IntentHelp      Intent = "help"
 	IntentUnknown   Intent = "unknown"
 )
@@ -34,6 +35,9 @@ type Handler struct {
 	Why func(ctx context.Context, inc incident.Incident) (analyze.Result, error)
 	// MarkFalsePositive records AG-033 FP outcome (optional).
 	MarkFalsePositive func(ctx context.Context, inc incident.Incident) error
+	// ApproveProposal applies a durable AutopilotProposal by id (RT-008). Empty id → latest open incident proposal.
+	// Must enforce policyAuto + allowlist + audit inside the callback; nil disables approve intent.
+	ApproveProposal func(ctx context.Context, proposalID string) string
 }
 
 // ParseIntent maps free-form Slack text to a supported ask intent.
@@ -52,6 +56,8 @@ func ParseIntent(text string) Intent {
 	switch {
 	case t == "" || t == "help" || strings.HasPrefix(t, "help "):
 		return IntentHelp
+	case strings.HasPrefix(t, "approve") || strings.HasPrefix(t, "apply "):
+		return IntentApprove
 	case strings.Contains(t, "false positive") || t == "fp" || strings.HasPrefix(t, "fp "):
 		return IntentFalsePos
 	case strings.Contains(t, "what broke") || strings.Contains(t, "whatbroke") || t == "broke":
@@ -72,7 +78,7 @@ func (h *Handler) Answer(ctx context.Context, text string) string {
 	}
 	switch ParseIntent(text) {
 	case IntentHelp:
-		return "Ask me: `status`, `why`, `what broke`, or `false positive`. Read-only for the cluster — I never mutate."
+		return "Ask me: `status`, `why`, `what broke`, `false positive`, or `approve <proposal-id>`. Approve applies a stored AutopilotProposal under RemediationPolicy — never silent apply."
 	case IntentStatus:
 		return h.answerStatus(ctx)
 	case IntentWhatBroke:
@@ -81,8 +87,10 @@ func (h *Handler) Answer(ctx context.Context, text string) string {
 		return h.answerWhy(ctx)
 	case IntentFalsePos:
 		return h.answerFalsePositive(ctx)
+	case IntentApprove:
+		return h.answerApprove(ctx, text)
 	default:
-		return "I only answer `status`, `why`, `what broke`, and `false positive` (read-only). Try `help`."
+		return "I only answer `status`, `why`, `what broke`, `false positive`, and `approve <proposal-id>` (read-only except approve). Try `help`."
 	}
 }
 
@@ -104,6 +112,39 @@ func (h *Handler) answerFalsePositive(ctx context.Context) string {
 		return "Could not record false positive: " + err.Error()
 	}
 	return fmt.Sprintf("Recorded false positive for %s — future “seen before” boost will be dampened.", inc.ID)
+}
+
+func (h *Handler) answerApprove(ctx context.Context, text string) string {
+	if h.ApproveProposal == nil {
+		return "Proposal approve is not enabled (need --autopilot-propose + --slack-ask + policyAuto path)."
+	}
+	id := ParseApproveTarget(text)
+	return h.ApproveProposal(ctx, id)
+}
+
+// ParseApproveTarget extracts an optional proposal id from Slack text (`approve` or `approve ap-…`).
+func ParseApproveTarget(text string) string {
+	fields := strings.Fields(strings.ToLower(strings.TrimSpace(text)))
+	cleaned := make([]string, 0, len(fields))
+	for _, f := range fields {
+		if strings.HasPrefix(f, "<@") && strings.HasSuffix(f, ">") {
+			continue
+		}
+		cleaned = append(cleaned, f)
+	}
+	if len(cleaned) == 0 {
+		return ""
+	}
+	if cleaned[0] != "approve" && cleaned[0] != "apply" {
+		return ""
+	}
+	if len(cleaned) == 1 {
+		return ""
+	}
+	if cleaned[1] == "proposal" && len(cleaned) >= 3 {
+		return cleaned[2]
+	}
+	return cleaned[1]
 }
 
 func (h *Handler) answerStatus(ctx context.Context) string {

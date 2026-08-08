@@ -98,6 +98,7 @@ func (a *Analyzer) Run(ctx context.Context, req Request) (Report, error) {
 			IncludeIngress:       true,
 			IncludePVC:           true,
 			IncludeVolumeRefs:    true,
+			IncludeExternalDeps:  true,
 		})
 		if err != nil {
 			return Report{}, fmt.Errorf("architecture graph: %w", err)
