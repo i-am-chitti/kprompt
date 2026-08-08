@@ -65,12 +65,22 @@ rules:
     resources: ["kustomizations"]
     verbs: ["get", "list", "watch"]
   {{- end }}
-  {{- if .Values.agent.remediationPolicy }}
-  # RemediationPolicy ConfigMap (AG-040) — read policy.json.
+  {{- if include "kprompt-agent.remediationPolicyEnabled" . }}
+  # RemediationPolicy ConfigMap (AG-040 / RT-005) — read policy.json.
   - apiGroups: [""]
     resources: ["configmaps"]
     resourceNames: ["kprompt-remediation-policy"]
     verbs: ["get", "list", "watch"]
+  {{- end }}
+  {{- if and .Values.agent.autopilotPropose (eq (.Values.agent.proposalsBackend | default "configmap") "configmap") }}
+  # Durable AutopilotProposal store (RT-007).
+  - apiGroups: [""]
+    resources: ["configmaps"]
+    resourceNames: ["kprompt-autopilot-proposals"]
+    verbs: ["get", "update", "patch"]
+  - apiGroups: [""]
+    resources: ["configmaps"]
+    verbs: ["create"]
   {{- end }}
   {{- if .Values.agent.autopilotApply }}
   # Autopilot apply verbs (AG-042) — only when explicitly enabled; still namespace Role.

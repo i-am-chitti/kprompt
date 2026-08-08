@@ -66,3 +66,11 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 {{- include "kprompt-agent.watchNamespace" . }}
 {{- end }}
 {{- end }}
+
+{{- define "kprompt-agent.remediationPolicyEnabled" -}}
+{{- or .Values.agent.remediationPolicy .Values.agent.autopilotPropose .Values.agent.autopilotApply }}
+{{- end }}
+
+{{- define "kprompt-agent.autopilotPolicyAuto" -}}
+{{- and (eq (.Values.agent.autopilotMode | default "proposeOnly") "policyAuto") .Values.agent.autopilotApply }}
+{{- end }}

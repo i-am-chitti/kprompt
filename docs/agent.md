@@ -237,7 +237,7 @@ Secrets are never watched implicitly and only metadata (type + key count) is emi
 
 **Durable incidents (AG-032):** `--incidents-backend file|configmap` persists open incidents / Slack thread ts across restarts (`~/.config/kprompt/incidents` or ConfigMap `kprompt-incident-state`).
 
-**Slack ask (AG-019):** `--slack-ask` listens on `--slack-ask-addr` (default `:8080`) for Slack Events (`status` / `why` / `what broke` / `false positive`). Read-only for the cluster — never mutates. With `--patterns`, `false positive` dampens future “seen before” boosts (AG-033). Requires bot token mode + Events API URL (or port-forward).
+**Slack ask (AG-019 · RT-008):** `--slack-ask` listens on `--slack-ask-addr` (default `:8080`) for Slack Events (`status` / `why` / `what broke` / `false positive` / `approve <proposal-id>`). Read-only except **approve**, which loads a durable proposal from `--proposals` and applies under RemediationPolicy `policyAuto` + `apply=true` (same Safety/allowlist/verify path as CLI). With `--patterns`, `false positive` dampens future “seen before” boosts (AG-033). Requires bot token mode + Events API URL (or port-forward).
 
 **Coordinator handoff (AG-036 · AG-037 · AG-048…AG-053 · AG-059 · AG-060):** Ns agents POST with `--coordinator-url`. Run the thin fan-in with `kprompt agent coordinator --addr :9090` (or Helm [`charts/kprompt-coordinator`](../charts/kprompt-coordinator)). Optional `--probe-kube` enables a read-only Pods/Events probe of `suspectNamespace`. Returns `CoordinatorReply` with merged InvestigationReport; with `--slack` (bot token) the reply is posted into the incident thread, and `--webhook` gets a JSON follow-up. **Shared Knowledge:** `GET /v1/knowledge` (and `kprompt agent coordinator knowledge`) summarizes handoff edges; Helm defaults to ConfigMap persistence (`--knowledge-backend configmap`, AG-060) — still not a full continuous blast-radius product graph ([coordinator-knowledge.md](./coordinator-knowledge.md)). **Mutate stays off** ([ADR-0017](https://github.com/kprompt/kprompt-architecture/blob/main/decisions/ADR-0017-coordinator.md)).
 
@@ -316,7 +316,9 @@ Remembers incident signatures (reason + workload kind + bucket like crashloop/oo
 
 **Outcome learning (AG-033 · RT-001 · RT-002):** alert recovered → `Confirmed` weight up; Slack `false positive` → `FalsePositives` weight down (dampens future boost). After Autopilot apply (`--autopilot-apply` or `agent autopilot apply-proposal` / `agent proposals apply`), post-apply verify maps to `apply_success` / `apply_failed` / `apply_partial` and writes the same pattern store (success ≈ confirm; fail dampens weight, not FP). Multi-candidate proposals rank by Learn history (`LastActionID` / weight). Incident fields `lastApplyOutcome` / `lastVerifyStatus` / `lastActionId` are stamped when the correlate builder is active. Full table: [learn.md](./learn.md).
 
-**Durable proposals (RT-007 · RT-017 · RT-018):** `--autopilot-propose` persists proposals before notify. Slack/Discord/webhook alerts include `proposalId` and an apply hint (`agent proposals apply -n <ns> --id <id> --approve`). Inspect via `kprompt agent proposals list|show`.
+**Durable proposals (RT-007 · RT-017 · RT-018 · RT-019):** `--autopilot-propose` persists proposals before notify. Slack/Discord/webhook alerts include `proposalId` and an apply hint (`agent proposals apply -n <ns> --id <id> --approve`). Slack ask `approve` is the laptop-optional path (RT-008). Inspect via `kprompt agent proposals list|show`.
+
+**Post-apply verify (RT-006):** `ApplyProposal` sets `applied=true` only after T-070 verify returns `ok` (or `skipped` when no verify plan). `pending` leaves `applied=false`; `failed` clears applied and returns error.
 
 ```bash
 kprompt agent run -n payments --analyze --heuristic --patterns

@@ -207,4 +207,192 @@ func TestBuildRequiresClient(t *testing.T) {
 	}
 }
 
+func TestBuildExternalNameAndEnvDependsOn(t *testing.T) {
+	client := fake.NewSimpleClientset(
+		&corev1.Service{
+			ObjectMeta: metav1.ObjectMeta{Name: "ext-db", Namespace: "prod"},
+			Spec: corev1.ServiceSpec{
+				Type:         corev1.ServiceTypeExternalName,
+				ExternalName: "db.example.com",
+			},
+		},
+		&corev1.Service{
+			ObjectMeta: metav1.ObjectMeta{Name: "redis", Namespace: "prod"},
+			Spec:       corev1.ServiceSpec{Selector: map[string]string{"app": "redis"}},
+		},
+		&corev1.Pod{
+			ObjectMeta: metav1.ObjectMeta{Name: "api-0", Namespace: "prod"},
+			Spec: corev1.PodSpec{
+				Containers: []corev1.Container{{
+					Name:  "api",
+					Image: "api",
+					Env: []corev1.EnvVar{
+						{Name: "DATABASE_URL", Value: "https://db.example.com:5432/app"},
+						{Name: "REDIS_HOST", Value: "redis"},
+						{Name: "SECRET_REF", ValueFrom: &corev1.EnvVarSource{
+							SecretKeyRef: &corev1.SecretKeySelector{
+								LocalObjectReference: corev1.LocalObjectReference{Name: "creds"},
+								Key:                  "url",
+							},
+						}},
+					},
+				}},
+			},
+		},
+	)
+	rep, err := Build(context.Background(), client, Request{
+		Namespace:           "prod",
+		IncludeExternalDeps: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var extDep, svcDep bool
+	for _, e := range rep.Edges {
+		if e.Type != EdgeDependsOn {
+			continue
+		}
+		if e.To == "ExternalHost/db.example.com" {
+			extDep = true
+			if strings.Contains(e.Detail, "https://") || strings.Contains(e.Detail, "5432/app") {
+				t.Fatalf("must not store full URL in detail: %+v", e)
+			}
+		}
+		if strings.Contains(e.To, "Service/redis") {
+			svcDep = true
+		}
+	}
+	if !extDep || !svcDep {
+		t.Fatalf("expected ExternalName+env depends_on, edges=%+v", rep.Edges)
+	}
+	for _, n := range rep.Nodes {
+		if n.Kind == NodeExternalHost && strings.Contains(n.Name, "https://") {
+			t.Fatalf("node leaked URL: %+v", n)
+		}
+	}
+}
+
+func TestBuildReadyEndpointsOnly(t *testing.T) {
+	ready := true
+	notReady := false
+	client := fake.NewSimpleClientset(
+		&corev1.Service{
+			ObjectMeta: metav1.ObjectMeta{Name: "api", Namespace: "prod"},
+			Spec:       corev1.ServiceSpec{Selector: map[string]string{"app": "api"}},
+		},
+		&discoveryv1.EndpointSlice{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "api-abc",
+				Namespace: "prod",
+				Labels:    map[string]string{discoveryv1.LabelServiceName: "api"},
+			},
+			Endpoints: []discoveryv1.Endpoint{
+				{
+					Conditions: discoveryv1.EndpointConditions{Ready: &ready},
+					TargetRef:  &corev1.ObjectReference{Kind: "Pod", Name: "api-ready", Namespace: "prod"},
+				},
+				{
+					Conditions: discoveryv1.EndpointConditions{Ready: &notReady},
+					TargetRef:  &corev1.ObjectReference{Kind: "Pod", Name: "api-bad", Namespace: "prod"},
+				},
+			},
+		},
+	)
+	rep, err := Build(context.Background(), client, Request{Namespace: "prod"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var sawReady, sawBad bool
+	for _, e := range rep.Edges {
+		if e.Type != EdgeRoutes {
+			continue
+		}
+		if strings.Contains(e.To, "api-ready") {
+			sawReady = true
+		}
+		if strings.Contains(e.To, "api-bad") {
+			sawBad = true
+		}
+	}
+	if !sawReady || sawBad {
+		t.Fatalf("ready=%v bad=%v edges=%+v", sawReady, sawBad, rep.Edges)
+	}
+}
+
+func TestBuildNetworkPolicyPeerAllows(t *testing.T) {
+	client := fake.NewSimpleClientset(
+		&corev1.Service{
+			ObjectMeta: metav1.ObjectMeta{Name: "db", Namespace: "prod"},
+			Spec:       corev1.ServiceSpec{Selector: map[string]string{"app": "db"}},
+		},
+		&networkingv1.NetworkPolicy{
+			ObjectMeta: metav1.ObjectMeta{Name: "api-egress", Namespace: "prod"},
+			Spec: networkingv1.NetworkPolicySpec{
+				PodSelector: metav1.LabelSelector{MatchLabels: map[string]string{"app": "api"}},
+				Egress: []networkingv1.NetworkPolicyEgressRule{{
+					To: []networkingv1.NetworkPolicyPeer{
+						{PodSelector: &metav1.LabelSelector{MatchLabels: map[string]string{"app": "db"}}},
+						{IPBlock: &networkingv1.IPBlock{CIDR: "10.0.0.0/8"}},
+					},
+				}},
+			},
+		},
+	)
+	rep, err := Build(context.Background(), client, Request{
+		Namespace:            "prod",
+		IncludeNetworkPolicy: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var toSvc, toCIDR bool
+	for _, e := range rep.Edges {
+		if e.Type != EdgeAllows {
+			continue
+		}
+		if strings.Contains(e.To, "Service/db") {
+			toSvc = true
+		}
+		if e.To == "ExternalHost/10.0.0.0/8" {
+			toCIDR = true
+		}
+	}
+	if !toSvc || !toCIDR {
+		t.Fatalf("allows edges missing: %+v", rep.Edges)
+	}
+}
+
+func TestImpactNotes(t *testing.T) {
+	rep := Report{
+		Nodes: []Node{
+			{ID: "prod/Deployment/api", Kind: "Deployment", Name: "api", Namespace: "prod"},
+			{ID: "prod/Pod/api-0", Kind: NodePod, Name: "api-0", Namespace: "prod"},
+			{ID: "ExternalHost/db.example.com", Kind: NodeExternalHost, Name: "db.example.com"},
+		},
+		Edges: []Edge{
+			{From: "prod/Pod/api-0", To: "ExternalHost/db.example.com", Type: EdgeDependsOn},
+		},
+	}
+	note := ImpactNotes(rep, "prod", "Deployment", "api")
+	if !strings.Contains(note, "db.example.com") {
+		t.Fatalf("note=%q", note)
+	}
+}
+
+func TestExtractHostname(t *testing.T) {
+	cases := map[string]string{
+		"https://db.example.com:5432/x": "db.example.com",
+		"redis.prod.svc.cluster.local":  "redis.prod.svc.cluster.local",
+		"redis":                         "redis",
+		"/var/run":                      "",
+		"":                              "",
+	}
+	for in, want := range cases {
+		if got := ExtractHostname(in); got != want {
+			t.Fatalf("%q: got %q want %q", in, got, want)
+		}
+	}
+}
+
+
 

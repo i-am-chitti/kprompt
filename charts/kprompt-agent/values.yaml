@@ -40,9 +40,17 @@ agent:
   patternsBackend: configmap # file | configmap
   # AG-017 / ADR-0015: emit AutopilotProposal only — does not apply.
   autopilotPropose: false
-  # AG-042: in-loop apply (still requires RemediationPolicy mode=policyAuto apply=true).
+  # AG-042: in-loop apply (requires autopilotMode=policyAuto + RemediationPolicy apply=true).
   autopilotApply: false
-  # AG-040: mount/load kprompt-remediation-policy ConfigMap.
+  # RT-005: RemediationPolicy mode (proposeOnly | policyAuto). policyAuto alone does not enable apply.
+  autopilotMode: proposeOnly
+  # RT-005: narrow default allowlist — rollback only unless you widen explicitly.
+  autopilotAllow:
+    - rollbackFailedRollout
+  autopilotMinConfidence: "0.85"
+  # RT-007: durable proposal store when autopilotPropose (file|configmap).
+  proposalsBackend: configmap
+  # AG-040: create kprompt-remediation-policy ConfigMap (also auto when autopilotPropose/Apply).
   remediationPolicy: false
   # AG-032 / AG-054: persist incidents across restarts (file|configmap|"").
   incidentsBackend: configmap

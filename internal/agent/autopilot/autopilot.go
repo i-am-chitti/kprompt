@@ -15,6 +15,7 @@ import (
 
 	"github.com/kprompt/kprompt/internal/agent/ctxbuild"
 	"github.com/kprompt/kprompt/internal/agent/patterns"
+	"github.com/kprompt/kprompt/internal/graph"
 	"github.com/kprompt/kprompt/internal/incident"
 )
 
@@ -155,6 +156,8 @@ type Engine struct {
 	Audit  AuditStore
 	// Patterns is optional Learn store for RT-002 ranking / ActionConfidence bias (evidence-not-proof).
 	Patterns *patterns.Library
+	// Graph is optional namespace service-graph snapshot for ExpectedImpact notes (RT-015).
+	Graph *graph.Report
 
 	mu sync.Mutex
 }
@@ -260,6 +263,7 @@ func (e *Engine) ProposeFromContext(agentCtx ctxbuild.AgentContext, confidence f
 		p.Risk = "denied"
 		p.Plan = PlanBody{Summary: "Denied Autopilot action", Steps: []string{reason}}
 		enrichExplain(&p, action, agentCtx.Namespace, targetName)
+		e.attachGraphImpact(&p)
 		_ = e.audit(p)
 		return &p, nil
 	}
@@ -270,6 +274,7 @@ func (e *Engine) ProposeFromContext(agentCtx ctxbuild.AgentContext, confidence f
 		p.Risk = "denied"
 		p.Plan = PlanBody{Summary: "Confidence gate failed", Steps: []string{p.Reason}}
 		enrichExplain(&p, action, agentCtx.Namespace, targetName)
+		e.attachGraphImpact(&p)
 		_ = e.audit(p)
 		return &p, nil
 	}
@@ -277,6 +282,7 @@ func (e *Engine) ProposeFromContext(agentCtx ctxbuild.AgentContext, confidence f
 	p := baseProposal(agentCtx, action, targetKind, targetName, confidence, replicas)
 	p.Plan = planFor(action, agentCtx.Namespace, targetName, replicas)
 	enrichExplain(&p, action, agentCtx.Namespace, targetName)
+	e.attachGraphImpact(&p)
 	if biased, note := biasActionConfidence(confidence, match, matched); note != "" {
 		p.ActionConfidence = biased
 		p.LearnNote = note
@@ -301,6 +307,22 @@ func (e *Engine) audit(p Proposal) error {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	return e.Audit.Append(AuditEntry{At: time.Now().UTC(), Proposal: p})
+}
+
+// attachGraphImpact appends topology depends_on/allows notes into ExpectedImpact (RT-015).
+func (e *Engine) attachGraphImpact(p *Proposal) {
+	if e == nil || e.Graph == nil || p == nil {
+		return
+	}
+	note := graph.ImpactNotes(*e.Graph, p.Namespace, p.TargetKind, p.TargetName)
+	if note == "" {
+		return
+	}
+	if strings.TrimSpace(p.ExpectedImpact) == "" {
+		p.ExpectedImpact = note
+		return
+	}
+	p.ExpectedImpact = strings.TrimSpace(p.ExpectedImpact) + "; " + note
 }
 
 func baseProposal(agentCtx ctxbuild.AgentContext, action, kind, name string, confidence float64, replicas *int32) Proposal {

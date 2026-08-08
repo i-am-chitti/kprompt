@@ -15,7 +15,7 @@ import (
 )
 
 // AttachVerify runs T-070 verify against the proposal’s mutate plan and stamps
-// VerifyStatus / VerifyMessage / Outcome on the proposal (RT-001 · RT-006 light).
+// VerifyStatus / VerifyMessage / Outcome on the proposal (RT-001 · RT-006).
 // When verify fails, Decision becomes failed and Applied is cleared.
 func AttachVerify(ctx context.Context, client kubernetes.Interface, prop *Proposal) verify.Report {
 	if prop == nil {

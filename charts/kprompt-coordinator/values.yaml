@@ -27,6 +27,15 @@ knowledge:
   # Still not a full continuous blast-radius product graph.
   enabled: true
 
+# RT-009…RT-011: continuous correlation (opt-in; never silent heal).
+continuous:
+  # Proactive tick interval (e.g. 5m). Empty / 0s → off.
+  tickInterval: ""
+  tickBudget: 5
+  maxHops: 3
+  # Mark blast-radius mesh/OTel enrichment available; else status=degraded (RT-010).
+  meshOTel: false
+
 service:
   type: ClusterIP
   port: 9090

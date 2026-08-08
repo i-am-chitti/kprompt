@@ -17,6 +17,9 @@ func TestParseIntent(t *testing.T) {
 		"why is api down":  IntentWhy,
 		"help":             IntentHelp,
 		"deploy redis":     IntentUnknown,
+		"approve ap-1":     IntentApprove,
+		"approve":          IntentApprove,
+		"false positive":   IntentFalsePos,
 	}
 	for in, want := range cases {
 		if got := ParseIntent(in); got != want {
@@ -52,5 +55,21 @@ func TestAnswerStatusAndWhy(t *testing.T) {
 	broke := h.Answer(context.Background(), "what broke")
 	if !strings.Contains(broke, "CrashLoop") {
 		t.Fatalf("broke: %s", broke)
+	}
+}
+
+func TestParseApproveTarget(t *testing.T) {
+	cases := map[string]string{
+		"approve ap-restart-1":       "ap-restart-1",
+		"<@U1> approve ap-x":         "ap-x",
+		"approve proposal ap-y":      "ap-y",
+		"apply ap-z":                 "ap-z",
+		"approve":                    "",
+		"status":                     "",
+	}
+	for in, want := range cases {
+		if got := ParseApproveTarget(in); got != want {
+			t.Fatalf("%q: got %q want %q", in, got, want)
+		}
 	}
 }
