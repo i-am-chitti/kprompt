@@ -174,16 +174,30 @@ func TestHostNeeded(t *testing.T) {
 	}
 }
 
+type captureRunner struct {
+	fakeRunner
+	lastCommand string
+	lastArgs    []string
+}
+
+func (c *captureRunner) Run(ctx context.Context, name string, args []string, env []string) error {
+	c.lastCommand = name
+	c.lastArgs = append([]string(nil), args...)
+	return c.fakeRunner.Run(ctx, name, args, env)
+}
+
 func TestHostSetupOnlyAllowsHardcodedURLs(t *testing.T) {
 	method := getHelm3Method()
 	if method.ID != "get-helm-3" {
 		t.Fatalf("unexpected method ID: %s", method.ID)
 	}
-	r := &fakeRunner{
-		goos:     "linux",
-		paths:    map[string]string{"curl": "/usr/bin/curl"},
-		lookMiss: map[string]bool{"helm": true},
-		tempDir:  t.TempDir(),
+	r := &captureRunner{
+		fakeRunner: fakeRunner{
+			goos:     "linux",
+			paths:    map[string]string{"curl": "/usr/bin/curl"},
+			lookMiss: map[string]bool{"helm": true},
+			tempDir:  t.TempDir(),
+		},
 	}
 	script, _, _, err := method.Prepare(context.Background(), r)
 	if err != nil {
@@ -192,19 +206,23 @@ func TestHostSetupOnlyAllowsHardcodedURLs(t *testing.T) {
 	if !strings.Contains(script, "get-helm-3") {
 		t.Fatalf("unexpected script file path: %q", script)
 	}
-	if len(r.ran) != 1 {
-		t.Fatalf("expected 1 curl execution, got %v", r.ran)
-	}
 
-	curlCmd := r.ran[0]
-	// Check that it only requests the trusted official helm get script URL
-	trustedURL := "https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3"
-	if !strings.Contains(curlCmd, trustedURL) {
-		t.Fatalf("curl command did not contain the trusted get-helm-3 URL: %q", curlCmd)
+	// Verify the exact curl invocation token-by-token as requested in review
+	if r.lastCommand != "curl" {
+		t.Fatalf("expected command 'curl', got %q", r.lastCommand)
 	}
-
-	// Double check that no other urls can leak into curl setup command
-	if strings.Contains(curlCmd, "http://") || (strings.Contains(curlCmd, "https://") && !strings.Contains(curlCmd, trustedURL)) {
-		t.Fatalf("untrusted URL leaked into curl setup command: %q", curlCmd)
+	expectedArgs := []string{
+		"-fsSL",
+		"-o",
+		script,
+		"https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3",
+	}
+	if len(r.lastArgs) != len(expectedArgs) {
+		t.Fatalf("expected exactly %d args, got %d: %v", len(expectedArgs), len(r.lastArgs), r.lastArgs)
+	}
+	for i, arg := range expectedArgs {
+		if r.lastArgs[i] != arg {
+			t.Fatalf("argument %d mismatch: got %q, want %q", i, r.lastArgs[i], arg)
+		}
 	}
 }

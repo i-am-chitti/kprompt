@@ -199,17 +199,24 @@ func isShellLauncher(command, args []string) bool {
 	name := strings.ToLower(strings.TrimSpace(command[0]))
 	if len(command) >= 2 {
 		flag := strings.TrimSpace(command[1])
-		if flag == "-c" && isShellName(name) {
+		if isExecuteFlag(flag) && isShellName(name) {
 			return true
 		}
 	}
 	if len(command) == 1 && len(args) > 0 {
 		flag := strings.TrimSpace(args[0])
-		if flag == "-c" && isShellName(name) {
+		if isExecuteFlag(flag) && isShellName(name) {
 			return true
 		}
 	}
 	return false
+}
+
+func isExecuteFlag(flag string) bool {
+	if !strings.HasPrefix(flag, "-") || strings.HasPrefix(flag, "--") {
+		return false
+	}
+	return strings.HasSuffix(flag, "c")
 }
 
 func isShellName(name string) bool {
